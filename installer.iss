@@ -1,7 +1,7 @@
-#define MyAppName "SignPrint AI Enhancer"
-#define MyAppVersion "0.2.0"
-#define MyAppPublisher "Private Independent Build"
-#define MyAppExeName "SignPrintAIEnhancer.exe"
+#define MyAppName "Niyomsil Design AI Enhancer"
+#define MyAppVersion "1.0.0"
+#define MyAppPublisher "Niyomsil Design"
+#define MyAppExeName "NiyomsilAIEnhancer.exe"
 
 [Setup]
 AppId={{B0DD9E45-BD74-48A0-8C7B-B87227371EB1}
@@ -12,7 +12,7 @@ DefaultDirName={autopf}\SignPrintAIEnhancer
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=release
-OutputBaseFilename=SignPrint-AI-Enhancer-Setup-v0.2.0
+OutputBaseFilename=Niyomsil-Design-AI-Enhancer-Setup-v1.0.0
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
