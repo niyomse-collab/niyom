@@ -1,25 +1,27 @@
-# Niyomsil Design AI Enhancer — V1.0
+# Niyomsil Design AI Enhancer — V1.1 Color Management Build
 
-โปรแกรม **นิยมศิลป์ดีไซน์ (NIYOMSIL DESIGN)** สำหรับปรับความละเอียดภาพเพื่องานป้ายและงานพิมพ์ขนาดใหญ่
+Independent large-format print image enhancer for **NIYOMSIL DESIGN / นิยมศิลป์ดีไซน์**.
 
-## V1 Baseline
-ค่าเริ่มต้นของโปรแกรมยึดแนวทาง V1 ที่เน้นรักษารายละเอียด:
-- Real-ESRGAN เป็นแกนหลักในการ Upscale
-- 4× ใช้ผล AI เป็นหลักโดยตรง
-- ไม่ลด Noise / เกลี่ยพื้นสี / เพิ่ม Contrast โดยอัตโนมัติใน V1 Baseline
-- Advanced Enhancement เป็นตัวเลือกเสริมเมื่อผู้ใช้ปิด V1 Baseline
-- ถ้า Real-ESRGAN backend หาย โปรแกรมจะหยุดแจ้งเตือน ไม่ใช้ Lanczos แทน AI แบบเงียบ ๆ
+## V1 processing is preserved
+The proven V1 Baseline processing path is intentionally unchanged. Color management is applied only at export time.
 
-## Branding
-- ชื่อร้าน: นิยมศิลป์ดีไซน์
-- English: NIYOMSIL DESIGN
-- Logo: เก็บใน `assets/logo.b64` และแสดงในส่วนหัวของโปรแกรม
-- ตัวติดตั้ง: `Niyomsil-Design-AI-Enhancer-Setup-v1.0.0.exe`
+A frozen snapshot of the pre-CMYK version is kept on:
+`v1-stable-snapshot`
+
+## New in V1.1
+- RGB / CMYK output selection
+- Windows-installed CMYK ICC/ICM discovery
+- Custom ICC/ICM profile selection
+- ICC-managed RGB → CMYK conversion at export
+- TIFF / JPG / PDF CMYK output
+- PNG remains RGB only
+- Niyomsil Design logo used for the application and installer icons
+- Restrained black/red branded header while keeping the V1 workflow/layout
+
+For production printing, TIFF + the printer/RIP-specific ICC profile is recommended.
 
 ## Build
 GitHub Actions → **Build Windows Installer** → **Run workflow**
 
-Artifact:
-`Niyomsil-Design-AI-Enhancer-Windows`
-
-โครงการนี้เป็นโปรแกรมแยกอิสระ และไม่แก้ไข Repository ของ ARM AI Image Enhancer
+Installer:
+`Niyomsil-Design-AI-Enhancer-Setup-v1.1.0.exe`
