@@ -78,11 +78,15 @@ class PrintEnhancementPipeline:
             if alpha is not None:
                 alpha = cv2.resize(alpha, target, interpolation=cv2.INTER_LANCZOS4)
 
-        # Perform cleanup/sharpening at the FINAL pixel size.  This preserves
-        # Real-ESRGAN reconstruction and avoids expensive smoothing on an 8x
-        # intermediate that may later be downsampled for print.
-        finish_start = 84 if target else (65 if use_ai and settings.ai_scale > 1 else 20)
-        rgb = enhance_detail_preserving(rgb, settings, progress, cancel, start_progress=finish_start)
+        # V1 baseline intentionally preserves the Real-ESRGAN reconstruction
+        # as-is. Advanced cleanup is opt-in only, because aggressive denoise or
+        # smoothing can destroy small Thai text and food texture.
+        if settings.v1_baseline:
+            if progress:
+                progress(92, "V1 Baseline — รักษารายละเอียด AI โดยไม่เกลี่ยภาพเพิ่ม")
+        else:
+            finish_start = 84 if target else (65 if use_ai and settings.ai_scale > 1 else 20)
+            rgb = enhance_detail_preserving(rgb, settings, progress, cancel, start_progress=finish_start)
 
         if progress:
             progress(96, "บันทึกไฟล์")
