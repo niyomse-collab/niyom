@@ -1,0 +1,5 @@
+Pillow>=11.0,<13
+numpy>=2.0,<3
+opencv-python-headless>=4.10,<5
+windnd>=1.0.7; platform_system == "Windows"
+pyinstaller>=6.10,<7
