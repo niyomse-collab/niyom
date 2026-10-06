@@ -1,0 +1,9 @@
+.venv-build/
+build/
+dist/
+release/
+__pycache__/
+*.pyc
+tools/realesrgan-ncnn-vulkan.exe
+tools/models/
+tools/*.dll
