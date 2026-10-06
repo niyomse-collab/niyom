@@ -631,7 +631,17 @@ class App(tk.Tk):
                         preview_in = td / "preview_input.png"
                         preview_out = td / "preview_output.png"
                         im.save(preview_in)
-                    ps = replace(settings, ai_scale=1, print_width=None, print_height=None, dpi=96)
+                    # Screen preview always stays RGB; ICC/CMYK is an export-only
+                    # stage so it cannot alter the proven V1 processing result.
+                    ps = replace(
+                        settings,
+                        ai_scale=1,
+                        print_width=None,
+                        print_height=None,
+                        dpi=96,
+                        color_mode="RGB",
+                        icc_profile_path=None,
+                    )
                     self.pipeline.process(preview_in, preview_out, ps, use_ai=False)
                     # Copy to a stable per-user temp path because TemporaryDirectory
                     # is removed as soon as this worker exits.
