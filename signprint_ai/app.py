@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 import sys
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageOps, ImageTk
@@ -17,7 +18,7 @@ from .pipeline import PrintEnhancementPipeline
 from .processing import EnhanceSettings, print_pixels
 
 APP_NAME = "SignPrint AI Enhancer"
-APP_VERSION = "0.1 Private Build"
+APP_VERSION = "0.1.1 Private Build"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
 
 
@@ -52,17 +53,70 @@ class App(tk.Tk):
         self.after(80, self._drain_events)
         self._set_status("พร้อมใช้งาน — เพิ่มภาพเพื่อเริ่ม")
 
+    def _pick_ui_font(self) -> str:
+        """Choose a Thai-friendly Windows UI font and avoid italic fallback."""
+        try:
+            available = {name.lower(): name for name in tkfont.families(self)}
+        except tk.TclError:
+            available = {}
+        for wanted in ("Tahoma", "Leelawadee UI", "Segoe UI", "Arial"):
+            if wanted.lower() in available:
+                return available[wanted.lower()]
+        return "TkDefaultFont"
+
     def _build_style(self):
         style = ttk.Style(self)
         try:
             style.theme_use("vista")
         except tk.TclError:
             pass
-        style.configure("Header.TLabel", font=("Segoe UI", 18, "bold"))
-        style.configure("SubHeader.TLabel", font=("Segoe UI", 10))
-        style.configure("Section.TLabelframe.Label", font=("Segoe UI", 10, "bold"))
-        style.configure("Primary.TButton", font=("Segoe UI", 10, "bold"), padding=(12, 8))
-        style.configure("Small.TButton", padding=(6, 3))
+
+        family = self._pick_ui_font()
+        self.ui_font_family = family
+        body = (family, 10, "normal")
+        body_small = (family, 9, "normal")
+        body_bold = (family, 10, "bold")
+        header = (family, 17, "bold")
+        button = (family, 10, "normal")
+        button_bold = (family, 10, "bold")
+
+        # Tk/ttk can otherwise pick a Thai fallback font whose slant/weight differs
+        # from the Latin font.  Updating named fonts keeps Thai text consistent.
+        for name, size, weight in (
+            ("TkDefaultFont", 10, "normal"),
+            ("TkTextFont", 10, "normal"),
+            ("TkMenuFont", 10, "normal"),
+            ("TkHeadingFont", 10, "bold"),
+            ("TkCaptionFont", 10, "bold"),
+            ("TkSmallCaptionFont", 9, "normal"),
+            ("TkIconFont", 10, "normal"),
+            ("TkTooltipFont", 9, "normal"),
+        ):
+            try:
+                font = tkfont.nametofont(name)
+                font.configure(family=family, size=size, weight=weight, slant="roman")
+            except tk.TclError:
+                pass
+
+        self.option_add("*Font", body)
+
+        # Apply readable Thai font to every common ttk widget.
+        style.configure(".", font=body)
+        style.configure("TLabel", font=body)
+        style.configure("TButton", font=button, padding=(8, 5))
+        style.configure("TCheckbutton", font=body)
+        style.configure("TRadiobutton", font=body)
+        style.configure("TEntry", font=body)
+        style.configure("TCombobox", font=body)
+        style.configure("TLabelframe.Label", font=body_bold)
+        style.configure("Treeview", font=body, rowheight=27)
+        style.configure("Treeview.Heading", font=body_bold)
+        style.configure("Header.TLabel", font=header)
+        style.configure("SubHeader.TLabel", font=body)
+        style.configure("PaneTitle.TLabel", font=body_bold)
+        style.configure("Section.TLabelframe.Label", font=body_bold)
+        style.configure("Primary.TButton", font=button_bold, padding=(12, 9))
+        style.configure("Small.TButton", font=body_small, padding=(7, 4))
 
     def _build_ui(self):
         root = ttk.Frame(self, padding=8)
@@ -119,8 +173,8 @@ class App(tk.Tk):
         right_pane.grid(row=1, column=1, sticky="nsew")
         left_pane.rowconfigure(1, weight=1); left_pane.columnconfigure(0, weight=1)
         right_pane.rowconfigure(1, weight=1); right_pane.columnconfigure(0, weight=1)
-        ttk.Label(left_pane, text="ภาพต้นฉบับ", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w")
-        ttk.Label(right_pane, text="ผลลัพธ์ / Preview", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Label(left_pane, text="ภาพต้นฉบับ", style="PaneTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(right_pane, text="ผลลัพธ์ / Preview", style="PaneTitle.TLabel").grid(row=0, column=0, sticky="w")
         self.left_image = ttk.Label(left_pane, anchor="center", relief="sunken")
         self.right_image = ttk.Label(right_pane, anchor="center", relief="sunken")
         self.left_image.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
@@ -240,7 +294,7 @@ class App(tk.Tk):
 
         actions = ttk.Frame(parent)
         actions.pack(fill="x", pady=(8, 15))
-        ttk.Button(actions, text="🚀 เริ่มปรับภาพ", command=self.start_processing, style="Primary.TButton").pack(fill="x")
+        ttk.Button(actions, text="เริ่มปรับภาพ", command=self.start_processing, style="Primary.TButton").pack(fill="x")
         ttk.Label(actions, text="Private independent build • ไม่เชื่อม/แก้ไข Repository ของ ARM AI Image Enhancer", wraplength=280).pack(fill="x", pady=(6, 0))
 
     def _slider(self, parent, text, var, row, lo=0, hi=100):
