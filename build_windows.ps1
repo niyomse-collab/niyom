@@ -29,6 +29,12 @@ if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
 & $py -m pip install -r requirements.txt
 if ($LASTEXITCODE -ne 0) { throw "Dependency install failed" }
 
+# Generate Windows application/installer icon from the user's Niyomsil Design logo.
+& $py ".\tools\generate_brand_assets.py"
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path ".\assets\app_icon.ico")) {
+    throw "Could not generate Niyomsil Design Windows icon."
+}
+
 if (-not $SkipAI) {
     & powershell -ExecutionPolicy Bypass -File ".\tools\download_realesrgan_ncnn.ps1"
     if ($LASTEXITCODE -ne 0) { throw "Real-ESRGAN download failed" }
@@ -37,6 +43,7 @@ if (-not $SkipAI) {
 Remove-Item build, dist, release -Recurse -Force -ErrorAction SilentlyContinue
 & $py -m PyInstaller --noconfirm --clean --windowed --onedir `
     --name "NiyomsilAIEnhancer" `
+    --icon ".\assets\app_icon.ico" `
     --collect-all windnd `
     --add-data "NOTICE_INDEPENDENT_PROJECT.txt;." `
     --add-data "assets;assets" `
@@ -85,7 +92,7 @@ if (-not $SkipInstaller) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
 
-    $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v1.0.0.exe"
+    $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v1.1.0.exe"
     if (-not (Test-Path $installer)) {
         throw "Installer compile reported success but the expected EXE is missing."
     }
