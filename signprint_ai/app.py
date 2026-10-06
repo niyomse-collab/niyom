@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import base64
+import io
 import queue
 import threading
 import time
@@ -17,12 +19,17 @@ from PIL import Image, ImageOps, ImageTk
 from .pipeline import PrintEnhancementPipeline
 from .processing import EnhanceSettings, print_pixels
 
-APP_NAME = "SignPrint AI Enhancer"
-APP_VERSION = "0.2 Detail Preserve Build"
+APP_NAME = "Niyomsil Design AI Enhancer"
+APP_VERSION = "V1.0 Brand Build"
+BRAND_THAI = "นิยมศิลป์ดีไซน์"
+BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
 
 
 def resource_root() -> Path:
+    # PyInstaller extracts bundled data under _MEIPASS in onedir/onefile builds.
+    if hasattr(sys, "_MEIPASS"):
+        return Path(getattr(sys, "_MEIPASS"))
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[1]
@@ -46,6 +53,7 @@ class App(tk.Tk):
         self._photo_left = None
         self._photo_right = None
         self._last_result: Path | None = None
+        self._brand_logo_photo = None
 
         self._build_style()
         self._build_ui()
@@ -63,6 +71,22 @@ class App(tk.Tk):
             if wanted.lower() in available:
                 return available[wanted.lower()]
         return "TkDefaultFont"
+
+    def _load_brand_logo(self, max_size: tuple[int, int] = (150, 86)):
+        try:
+            p = resource_root() / "assets" / "logo.b64"
+            raw = base64.b64decode(p.read_text(encoding="utf-8").strip())
+            im = Image.open(io.BytesIO(raw)).convert("RGBA")
+            # Crop empty/white margins gently by content alpha/luma bounds.
+            bg = Image.new("RGBA", im.size, "white")
+            diff = ImageOps.difference(im.convert("RGB"), bg.convert("RGB")).convert("L")
+            bbox = diff.point(lambda x: 255 if x > 12 else 0).getbbox()
+            if bbox:
+                im = im.crop(bbox)
+            im.thumbnail(max_size, Image.Resampling.LANCZOS)
+            return ImageTk.PhotoImage(im)
+        except Exception:
+            return None
 
     def _build_style(self):
         style = ttk.Style(self)
@@ -124,14 +148,24 @@ class App(tk.Tk):
         root.rowconfigure(1, weight=1)
         root.columnconfigure(1, weight=1)
 
-        # Header
-        head = ttk.Frame(root)
+        # Branded header
+        head = ttk.Frame(root, padding=(4, 3))
         head.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        ttk.Label(head, text=APP_NAME, style="Header.TLabel").pack(side="left")
-        ttk.Label(head, text="  งานภาพสำหรับป้ายและงานพิมพ์ขนาดใหญ่", style="SubHeader.TLabel").pack(side="left", pady=(8, 0))
-        ai_state = "Real-ESRGAN AI พร้อมใช้งาน" if self.pipeline.ai.available else "AI backend ไม่พร้อม — ไม่อนุญาตให้ fallback เป็น Lanczos"
-        self.ai_state_label = ttk.Label(head, text=ai_state)
-        self.ai_state_label.pack(side="right", pady=(8, 0))
+        head.columnconfigure(1, weight=1)
+
+        self._brand_logo_photo = self._load_brand_logo()
+        if self._brand_logo_photo:
+            ttk.Label(head, image=self._brand_logo_photo).grid(row=0, column=0, rowspan=2, sticky="w", padx=(0, 14))
+
+        brand = ttk.Frame(head)
+        brand.grid(row=0, column=1, rowspan=2, sticky="w")
+        ttk.Label(brand, text=BRAND_THAI, style="Header.TLabel").pack(anchor="w")
+        ttk.Label(brand, text=f"{BRAND_EN}  •  AI IMAGE ENHANCER", style="SubHeader.TLabel").pack(anchor="w")
+        ttk.Label(brand, text="ปรับความละเอียดภาพสำหรับงานป้ายและงานพิมพ์ขนาดใหญ่", style="SubHeader.TLabel").pack(anchor="w")
+
+        ai_state = "Real-ESRGAN AI พร้อมใช้งาน" if self.pipeline.ai.available else "AI backend ไม่พร้อม — โปรแกรมจะไม่ใช้ Lanczos แทน AI"
+        self.ai_state_label = ttk.Label(head, text=ai_state, anchor="e")
+        self.ai_state_label.grid(row=0, column=2, rowspan=2, sticky="e", padx=(14, 0))
 
         # Left controls
         left_outer = ttk.Frame(root, width=325)
@@ -262,18 +296,25 @@ class App(tk.Tk):
         scale = ttk.Combobox(ai, textvariable=self.scale_var, values=("2x", "4x", "8x"), state="readonly", width=10)
         scale.grid(row=0, column=1, sticky="ew", padx=(8, 0))
         scale.bind("<<ComboboxSelected>>", lambda e: self._settings_changed())
-        ttk.Label(ai, text="โหมด Detail Preserve: ใช้ AI ก่อน แล้วค่อยลด Noise เฉพาะพื้นที่เรียบ เพื่อรักษารายละเอียดแบบ V1", wraplength=270).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.v1_mode = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            ai,
+            text="V1 Baseline (แนะนำ) — รักษารายละเอียดจาก AI โดยไม่เกลี่ยภาพเพิ่ม",
+            variable=self.v1_mode,
+            command=self._settings_changed,
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        ttk.Label(ai, text="4x = Real-ESRGAN native output • ปิด V1 Baseline เมื่อต้องการใช้การปรับขั้นสูงด้านล่าง", wraplength=270).grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
         ai.columnconfigure(1, weight=1)
 
-        quality = ttk.LabelFrame(parent, text="ปรับคุณภาพสำหรับงานป้าย", style="Section.TLabelframe", padding=7)
+        quality = ttk.LabelFrame(parent, text="ปรับขั้นสูง (ใช้เมื่อปิด V1 Baseline)", style="Section.TLabelframe", padding=7)
         quality.pack(fill="x", pady=7)
-        # Conservative V1-style defaults: detail preservation comes first.
-        self.denoise_var = tk.IntVar(value=24)
-        self.flat_var = tk.IntVar(value=26)
-        self.text_var = tk.IntVar(value=38)
-        self.contrast_var = tk.IntVar(value=12)
-        self.sharp_var = tk.IntVar(value=34)
-        self.sat_var = tk.IntVar(value=2)
+        # Advanced mode is deliberately conservative; V1 Baseline bypasses it.
+        self.denoise_var = tk.IntVar(value=18)
+        self.flat_var = tk.IntVar(value=18)
+        self.text_var = tk.IntVar(value=28)
+        self.contrast_var = tk.IntVar(value=8)
+        self.sharp_var = tk.IntVar(value=26)
+        self.sat_var = tk.IntVar(value=0)
         self._slider(quality, "ลด Noise / เม็ดสี", self.denoise_var, 0)
         self._slider(quality, "เกลี่ยพื้นสีเรียบ", self.flat_var, 1)
         self._slider(quality, "ตัวอักษร/โลโก้", self.text_var, 2)
@@ -296,7 +337,7 @@ class App(tk.Tk):
         actions = ttk.Frame(parent)
         actions.pack(fill="x", pady=(8, 15))
         ttk.Button(actions, text="เริ่มปรับภาพ", command=self.start_processing, style="Primary.TButton").pack(fill="x")
-        ttk.Label(actions, text="Detail Preserve V0.2 • รักษารายละเอียดก่อน ลด Noise เฉพาะจุด • แยกอิสระจาก ARM", wraplength=280).pack(fill="x", pady=(6, 0))
+        ttk.Label(actions, text="นิยมศิลป์ดีไซน์ • V1 Baseline เป็นค่าเริ่มต้น • Real-ESRGAN 4x", wraplength=280).pack(fill="x", pady=(6, 0))
 
     def _slider(self, parent, text, var, row, lo=0, hi=100):
         ttk.Label(parent, text=text).grid(row=row, column=0, sticky="w")
@@ -473,6 +514,7 @@ class App(tk.Tk):
             dpi=max(1, int(float(self.dpi_var.get() or 150))),
             print_unit=self.unit_var.get(),
             export_format=self.format_var.get(),
+            v1_baseline=self.v1_mode.get(),
         )
         if self.use_print_size.get():
             s.print_width = float(self.width_var.get())
@@ -542,7 +584,7 @@ class App(tk.Tk):
     def _output_path(self, src: Path, fmt: str) -> Path:
         ext = {"PNG": ".png", "TIFF": ".tif", "PDF": ".pdf", "JPG": ".jpg"}[fmt]
         outdir = Path(self.output_dir_var.get()) if self.output_dir_var.get() else src.parent
-        return outdir / f"{src.stem}_SignPrint_AI{ext}"
+        return outdir / f"{src.stem}_Niyomsil_AI{ext}"
 
     def start_processing(self):
         if not self.files:
@@ -557,7 +599,7 @@ class App(tk.Tk):
                 APP_NAME,
                 "Build นี้ไม่พบ Real-ESRGAN AI backend\n\n"
                 "โปรแกรมจะไม่ใช้ Lanczos แทน AI เพราะคุณภาพต่ำกว่ารุ่นต้นแบบ "
-                "กรุณา Build ใหม่จาก V0.2 ที่แพ็ก AI backend ครบ"
+                "กรุณาใช้ Niyomsil Design V1 Build ที่แพ็ก AI backend ครบ"
             )
             return
         try:
@@ -629,7 +671,7 @@ class App(tk.Tk):
                         self.tree.item(str(i), values=vals)
                 elif kind == "preview_done":
                     self._last_result = Path(ev[1])
-                    self.right_caption.configure(text="Preview: ลด Noise + เกลี่ยพื้นสี + ตัวอักษร/กราฟิก + Anti-Halo Sharpen")
+                    self.right_caption.configure(text="Preview: V1 Baseline" if self.v1_mode.get() else "Preview: Advanced Detail Preserve")
                     self._refresh_preview_images()
                 elif kind == "preview_error":
                     self.right_caption.configure(text="Preview ผิดพลาด: " + ev[1])
