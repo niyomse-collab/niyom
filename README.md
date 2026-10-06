@@ -1,4 +1,4 @@
-# SignPrint AI Enhancer — V0.1 Private Build
+# SignPrint AI Enhancer — V0.1.1 Private Build
 
 โปรแกรมแยกอิสระสำหรับเตรียมภาพงานป้าย/งานพิมพ์ขนาดใหญ่ โดยตั้งใจสร้างใหม่เพื่อไม่แก้ไขหรือกระทบ Repository ของ ARM AI Image Enhancer และไม่ใช้ชื่อ โลโก้ QR หรือ Asset ของโครงการดังกล่าว
 
@@ -27,7 +27,7 @@
 2. ติดตั้ง dependency
 3. ดาวน์โหลด `realesrgan-ncnn-vulkan` จาก official Real-ESRGAN GitHub release
 4. สร้าง portable EXE folder ด้วย PyInstaller
-5. ถ้ามี Inno Setup 6 จะสร้าง `release/SignPrint-AI-Enhancer-Setup-v0.1.0.exe`
+5. ถ้ามี Inno Setup 6 จะสร้าง `release/SignPrint-AI-Enhancer-Setup-v0.1.1.exe`
 
 ## หมายเหตุคุณภาพ 2× / 4× / 8×
 
