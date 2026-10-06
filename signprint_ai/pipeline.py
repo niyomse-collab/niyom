@@ -60,13 +60,10 @@ class PrintEnhancementPipeline:
             rgb = self.ai.upscale_array(rgb, settings.ai_scale, progress, cancel)
             if alpha is not None:
                 alpha = cv2.resize(alpha, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_LANCZOS4)
-            # Clean and sharpen only after AI reconstruction.  This follows the
-            # prototype/V1 behavior more closely and avoids removing source detail
-            # before the model has a chance to reconstruct it.
-            rgb = enhance_detail_preserving(rgb, settings, progress, cancel, start_progress=65)
         else:
-            # Fast preview/non-AI mode uses the same conservative finishing logic.
-            rgb = enhance_detail_preserving(rgb, settings, progress, cancel, start_progress=8)
+            # Preview/non-AI mode skips reconstruction but uses the same final
+            # detail-preserving finish below.
+            pass
 
         target = None
         if settings.print_width and settings.print_height:
@@ -81,8 +78,14 @@ class PrintEnhancementPipeline:
             if alpha is not None:
                 alpha = cv2.resize(alpha, target, interpolation=cv2.INTER_LANCZOS4)
 
+        # Perform cleanup/sharpening at the FINAL pixel size.  This preserves
+        # Real-ESRGAN reconstruction and avoids expensive smoothing on an 8x
+        # intermediate that may later be downsampled for print.
+        finish_start = 84 if target else (65 if use_ai and settings.ai_scale > 1 else 20)
+        rgb = enhance_detail_preserving(rgb, settings, progress, cancel, start_progress=finish_start)
+
         if progress:
-            progress(94, "บันทึกไฟล์")
+            progress(96, "บันทึกไฟล์")
         save_image(rgb, output_path, dpi=settings.dpi, alpha=alpha)
         if progress:
             progress(100, "เสร็จแล้ว")
