@@ -90,7 +90,14 @@ class PrintEnhancementPipeline:
 
         if progress:
             progress(96, "บันทึกไฟล์")
-        save_image(rgb, output_path, dpi=settings.dpi, alpha=alpha)
+        save_image(
+            rgb,
+            output_path,
+            dpi=settings.dpi,
+            alpha=alpha,
+            color_mode=settings.color_mode,
+            icc_profile_path=settings.icc_profile_path,
+        )
         if progress:
             progress(100, "เสร็จแล้ว")
 
