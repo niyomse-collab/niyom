@@ -14,7 +14,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-from PIL import Image, ImageOps, ImageTk
+from PIL import Image, ImageOps, ImageTk, ImageChops
 
 from .pipeline import PrintEnhancementPipeline
 from .processing import EnhanceSettings, print_pixels
@@ -79,7 +79,7 @@ class App(tk.Tk):
             im = Image.open(io.BytesIO(raw)).convert("RGBA")
             # Crop empty/white margins gently by content alpha/luma bounds.
             bg = Image.new("RGBA", im.size, "white")
-            diff = ImageOps.difference(im.convert("RGB"), bg.convert("RGB")).convert("L")
+            diff = ImageChops.difference(im.convert("RGB"), bg.convert("RGB")).convert("L")
             bbox = diff.point(lambda x: 255 if x > 12 else 0).getbbox()
             if bbox:
                 im = im.crop(bbox)
@@ -214,7 +214,7 @@ class App(tk.Tk):
         self.left_image.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
         self.right_image.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
         self.left_caption = ttk.Label(left_pane, text="ยังไม่ได้เลือกภาพ", anchor="center")
-        self.right_caption = ttk.Label(right_pane, text="Preview จะใช้ Pipeline ปรับ Noise/สี/ขอบโดยไม่รัน AI เต็ม", anchor="center")
+        self.right_caption = ttk.Label(right_pane, text="V1 Baseline: Preview รักษารายละเอียดเดิม • AI เต็มทำงานเมื่อเริ่มปรับภาพ", anchor="center")
         self.left_caption.grid(row=2, column=0, sticky="ew", pady=4)
         self.right_caption.grid(row=2, column=0, sticky="ew", pady=4)
         self.left_image.bind("<Configure>", lambda e: self._refresh_preview_images())
