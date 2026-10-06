@@ -13,6 +13,10 @@ jobs:
           python-version: '3.11'
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
+      - name: Validate Python source
+        shell: powershell
+        run: |
+          python -m py_compile run.py signprint_ai\app.py signprint_ai\processing.py signprint_ai\pipeline.py signprint_ai\realesrgan_ncnn.py tools\generate_brand_assets.py
       - name: Build
         shell: powershell
         run: .\build_windows.ps1
