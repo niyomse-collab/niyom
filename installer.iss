@@ -1,5 +1,5 @@
 #define MyAppName "SignPrint AI Enhancer"
-#define MyAppVersion "0.1.1"
+#define MyAppVersion "0.2.0"
 #define MyAppPublisher "Private Independent Build"
 #define MyAppExeName "SignPrintAIEnhancer.exe"
 
@@ -12,7 +12,7 @@ DefaultDirName={autopf}\SignPrintAIEnhancer
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=release
-OutputBaseFilename=SignPrint-AI-Enhancer-Setup-v0.1.1
+OutputBaseFilename=SignPrint-AI-Enhancer-Setup-v0.2.0
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
