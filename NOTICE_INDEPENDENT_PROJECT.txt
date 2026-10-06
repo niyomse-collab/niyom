@@ -1,0 +1,9 @@
+SignPrint AI Enhancer is an independent private implementation created for the user.
+
+It does not modify, push to, or depend on the ARM AI Image Enhancer repository.
+It does not include ARM AI Image Enhancer source code, branding, logo, QR assets,
+or donation/contact assets.
+
+The optional Real-ESRGAN NCNN/Vulkan backend is obtained from the official
+Real-ESRGAN project and remains subject to its upstream license and model terms.
+Other third-party Python packages remain subject to their respective licenses.
