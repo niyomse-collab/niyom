@@ -14,7 +14,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-from PIL import Image, ImageOps, ImageTk, ImageChops
+from PIL import Image, ImageOps, ImageTk, ImageChops, ImageCms
 
 from .pipeline import PrintEnhancementPipeline
 from .processing import EnhanceSettings, print_pixels
@@ -95,7 +95,13 @@ class App(tk.Tk):
             color_dir = windows / "System32" / "spool" / "drivers" / "color"
             if color_dir.exists():
                 for p in sorted(list(color_dir.glob("*.icc")) + list(color_dir.glob("*.icm"))):
-                    profiles[p.name] = str(p)
+                    try:
+                        opened = ImageCms.getOpenProfile(str(p))
+                        color_space = str(getattr(opened.profile, "xcolor_space", "")).upper()
+                        if "CMYK" in color_space:
+                            profiles[p.name] = str(p)
+                    except Exception:
+                        continue
         return profiles
 
     def _choose_icc_profile(self):
