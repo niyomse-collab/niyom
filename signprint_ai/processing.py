@@ -28,6 +28,7 @@ class EnhanceSettings:
     dpi: int = 150
     resize_mode: str = "fit"  # fit | stretch
     export_format: str = "PNG"
+    v1_baseline: bool = True
 
 
 def _notify(cb: ProgressFn, value: int, label: str) -> None:
