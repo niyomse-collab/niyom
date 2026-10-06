@@ -18,7 +18,7 @@ from .pipeline import PrintEnhancementPipeline
 from .processing import EnhanceSettings, print_pixels
 
 APP_NAME = "SignPrint AI Enhancer"
-APP_VERSION = "0.1.1 Private Build"
+APP_VERSION = "0.2 Detail Preserve Build"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
 
 
@@ -129,7 +129,7 @@ class App(tk.Tk):
         head.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         ttk.Label(head, text=APP_NAME, style="Header.TLabel").pack(side="left")
         ttk.Label(head, text="  งานภาพสำหรับป้ายและงานพิมพ์ขนาดใหญ่", style="SubHeader.TLabel").pack(side="left", pady=(8, 0))
-        ai_state = "Real-ESRGAN NCNN พร้อมใช้งาน" if self.pipeline.ai.available else "AI backend ยังไม่ได้ติดตั้ง — ใช้ Lanczos fallback"
+        ai_state = "Real-ESRGAN AI พร้อมใช้งาน" if self.pipeline.ai.available else "AI backend ไม่พร้อม — ไม่อนุญาตให้ fallback เป็น Lanczos"
         self.ai_state_label = ttk.Label(head, text=ai_state)
         self.ai_state_label.pack(side="right", pady=(8, 0))
 
@@ -262,17 +262,18 @@ class App(tk.Tk):
         scale = ttk.Combobox(ai, textvariable=self.scale_var, values=("2x", "4x", "8x"), state="readonly", width=10)
         scale.grid(row=0, column=1, sticky="ew", padx=(8, 0))
         scale.bind("<<ComboboxSelected>>", lambda e: self._settings_changed())
-        ttk.Label(ai, text="4x ใช้ Real-ESRGAN โดยตรง; 2x/8x ปรับขนาดต่อแบบคุณภาพสูง", wraplength=270).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        ttk.Label(ai, text="โหมด Detail Preserve: ใช้ AI ก่อน แล้วค่อยลด Noise เฉพาะพื้นที่เรียบ เพื่อรักษารายละเอียดแบบ V1", wraplength=270).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
         ai.columnconfigure(1, weight=1)
 
         quality = ttk.LabelFrame(parent, text="ปรับคุณภาพสำหรับงานป้าย", style="Section.TLabelframe", padding=7)
         quality.pack(fill="x", pady=7)
-        self.denoise_var = tk.IntVar(value=48)
-        self.flat_var = tk.IntVar(value=52)
-        self.text_var = tk.IntVar(value=58)
-        self.contrast_var = tk.IntVar(value=20)
-        self.sharp_var = tk.IntVar(value=46)
-        self.sat_var = tk.IntVar(value=6)
+        # Conservative V1-style defaults: detail preservation comes first.
+        self.denoise_var = tk.IntVar(value=24)
+        self.flat_var = tk.IntVar(value=26)
+        self.text_var = tk.IntVar(value=38)
+        self.contrast_var = tk.IntVar(value=12)
+        self.sharp_var = tk.IntVar(value=34)
+        self.sat_var = tk.IntVar(value=2)
         self._slider(quality, "ลด Noise / เม็ดสี", self.denoise_var, 0)
         self._slider(quality, "เกลี่ยพื้นสีเรียบ", self.flat_var, 1)
         self._slider(quality, "ตัวอักษร/โลโก้", self.text_var, 2)
@@ -295,7 +296,7 @@ class App(tk.Tk):
         actions = ttk.Frame(parent)
         actions.pack(fill="x", pady=(8, 15))
         ttk.Button(actions, text="เริ่มปรับภาพ", command=self.start_processing, style="Primary.TButton").pack(fill="x")
-        ttk.Label(actions, text="Private independent build • ไม่เชื่อม/แก้ไข Repository ของ ARM AI Image Enhancer", wraplength=280).pack(fill="x", pady=(6, 0))
+        ttk.Label(actions, text="Detail Preserve V0.2 • รักษารายละเอียดก่อน ลด Noise เฉพาะจุด • แยกอิสระจาก ARM", wraplength=280).pack(fill="x", pady=(6, 0))
 
     def _slider(self, parent, text, var, row, lo=0, hi=100):
         ttk.Label(parent, text=text).grid(row=row, column=0, sticky="w")
@@ -546,6 +547,18 @@ class App(tk.Tk):
     def start_processing(self):
         if not self.files:
             messagebox.showinfo(APP_NAME, "กรุณาเพิ่มภาพก่อน")
+            return
+        try:
+            requested_scale = int(self.scale_var.get().rstrip("x"))
+        except Exception:
+            requested_scale = 1
+        if requested_scale > 1 and not self.pipeline.ai.available:
+            messagebox.showerror(
+                APP_NAME,
+                "Build นี้ไม่พบ Real-ESRGAN AI backend\n\n"
+                "โปรแกรมจะไม่ใช้ Lanczos แทน AI เพราะคุณภาพต่ำกว่ารุ่นต้นแบบ "
+                "กรุณา Build ใหม่จาก V0.2 ที่แพ็ก AI backend ครบ"
+            )
             return
         try:
             settings = self._settings()
