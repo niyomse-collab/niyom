@@ -20,7 +20,7 @@ from .pipeline import PrintEnhancementPipeline
 from .processing import EnhanceSettings, print_pixels
 
 APP_NAME = "Niyomsil Design AI Enhancer"
-APP_VERSION = "V1.0 Brand Build"
+APP_VERSION = "V1.1 Color Management Build"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -88,6 +88,41 @@ class App(tk.Tk):
         except Exception:
             return None
 
+    def _find_installed_icc_profiles(self) -> dict[str, str]:
+        profiles: dict[str, str] = {}
+        if os.name == "nt":
+            windows = Path(os.environ.get("WINDIR", r"C:\Windows"))
+            color_dir = windows / "System32" / "spool" / "drivers" / "color"
+            if color_dir.exists():
+                for p in sorted(list(color_dir.glob("*.icc")) + list(color_dir.glob("*.icm"))):
+                    profiles[p.name] = str(p)
+        return profiles
+
+    def _choose_icc_profile(self):
+        p = filedialog.askopenfilename(
+            title="เลือก ICC / ICM Profile สำหรับ CMYK",
+            filetypes=[
+                ("ICC/ICM profile", "*.icc;*.icm"),
+                ("ICC profile", "*.icc"),
+                ("ICM profile", "*.icm"),
+                ("All files", "*.*"),
+            ],
+        )
+        if p:
+            self.icc_profile_path_var.set(p)
+            self.icc_profile_name_var.set(Path(p).name)
+            self._settings_changed(schedule_preview=False)
+
+    def _installed_icc_selected(self, _event=None):
+        name = self.icc_profile_name_var.get()
+        path = self._installed_icc_profiles.get(name)
+        if path:
+            self.icc_profile_path_var.set(path)
+            self._settings_changed(schedule_preview=False)
+
+    def _color_mode_changed(self, _event=None):
+        self._settings_changed(schedule_preview=False)
+
     def _build_style(self):
         style = ttk.Style(self)
         try:
@@ -141,6 +176,9 @@ class App(tk.Tk):
         style.configure("Section.TLabelframe.Label", font=body_bold)
         style.configure("Primary.TButton", font=button_bold, padding=(12, 9))
         style.configure("Small.TButton", font=body_small, padding=(7, 4))
+        style.configure("Brand.Horizontal.TProgressbar", background="#E31B23", troughcolor="#20242C")
+        style.configure("Brand.TLabelframe", background="#F4F4F4")
+        style.configure("Brand.TLabelframe.Label", font=body_bold, foreground="#B5121B")
 
     def _build_ui(self):
         root = ttk.Frame(self, padding=8)
@@ -148,24 +186,45 @@ class App(tk.Tk):
         root.rowconfigure(1, weight=1)
         root.columnconfigure(1, weight=1)
 
-        # Branded header
-        head = ttk.Frame(root, padding=(4, 3))
+        # Branded header — same workflow/layout, with restrained black/red graphics.
+        head = tk.Frame(root, bg="#171A21", height=104, bd=0, highlightthickness=0)
         head.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        head.columnconfigure(1, weight=1)
+        head.grid_propagate(False)
 
-        self._brand_logo_photo = self._load_brand_logo()
+        # Subtle graphic accents, kept away from controls.
+        accent = tk.Canvas(head, bg="#171A21", highlightthickness=0, bd=0)
+        accent.place(relx=0, rely=0, relwidth=1, relheight=1)
+        accent.create_polygon(0, 0, 270, 0, 205, 104, 0, 104, fill="#20242C", outline="")
+        accent.create_polygon(0, 96, 1600, 96, 1600, 104, 0, 104, fill="#E31B23", outline="")
+        accent.create_polygon(1310, 0, 1600, 0, 1600, 104, 1435, 104, fill="#2A1519", outline="")
+
+        self._brand_logo_photo = self._load_brand_logo((145, 82))
         if self._brand_logo_photo:
-            ttk.Label(head, image=self._brand_logo_photo).grid(row=0, column=0, rowspan=2, sticky="w", padx=(0, 14))
+            logo_label = tk.Label(head, image=self._brand_logo_photo, bg="#171A21", bd=0)
+            logo_label.place(x=16, y=9)
+            try:
+                self.iconphoto(True, self._brand_logo_photo)
+            except Exception:
+                pass
 
-        brand = ttk.Frame(head)
-        brand.grid(row=0, column=1, rowspan=2, sticky="w")
-        ttk.Label(brand, text=BRAND_THAI, style="Header.TLabel").pack(anchor="w")
-        ttk.Label(brand, text=f"{BRAND_EN}  •  AI IMAGE ENHANCER", style="SubHeader.TLabel").pack(anchor="w")
-        ttk.Label(brand, text="ปรับความละเอียดภาพสำหรับงานป้ายและงานพิมพ์ขนาดใหญ่", style="SubHeader.TLabel").pack(anchor="w")
+        brand = tk.Frame(head, bg="#171A21")
+        brand.place(x=180, y=16)
+        tk.Label(brand, text=BRAND_THAI, bg="#171A21", fg="#FFFFFF",
+                 font=(self.ui_font_family, 18, "bold")).pack(anchor="w")
+        tk.Label(brand, text=f"{BRAND_EN}  •  AI IMAGE ENHANCER",
+                 bg="#171A21", fg="#EF3340",
+                 font=(self.ui_font_family, 10, "bold")).pack(anchor="w")
+        tk.Label(brand, text="ปรับความละเอียดภาพสำหรับงานป้ายและงานพิมพ์ขนาดใหญ่",
+                 bg="#171A21", fg="#D5D7DB",
+                 font=(self.ui_font_family, 9, "normal")).pack(anchor="w")
 
         ai_state = "Real-ESRGAN AI พร้อมใช้งาน" if self.pipeline.ai.available else "AI backend ไม่พร้อม — โปรแกรมจะไม่ใช้ Lanczos แทน AI"
-        self.ai_state_label = ttk.Label(head, text=ai_state, anchor="e")
-        self.ai_state_label.grid(row=0, column=2, rowspan=2, sticky="e", padx=(14, 0))
+        self.ai_state_label = tk.Label(
+            head, text=ai_state, bg="#171A21",
+            fg="#FFFFFF" if self.pipeline.ai.available else "#FF6B6B",
+            font=(self.ui_font_family, 9, "bold"), anchor="e"
+        )
+        self.ai_state_label.place(relx=0.98, y=35, anchor="e")
 
         # Left controls
         left_outer = ttk.Frame(root, width=325)
@@ -253,7 +312,7 @@ class App(tk.Tk):
         bottom.columnconfigure(1, weight=1)
         self.status_label = ttk.Label(bottom, text="")
         self.status_label.grid(row=0, column=0, sticky="w")
-        self.progress = ttk.Progressbar(bottom, mode="determinate", maximum=100)
+        self.progress = ttk.Progressbar(bottom, mode="determinate", maximum=100, style="Brand.Horizontal.TProgressbar")
         self.progress.grid(row=0, column=1, sticky="ew", padx=10)
         ttk.Button(bottom, text="หยุดทั้งหมด", command=self.stop_processing).grid(row=0, column=2)
 
@@ -329,9 +388,38 @@ class App(tk.Tk):
         ttk.Label(out, text="รูปแบบ").grid(row=0, column=0, sticky="w")
         fmt = ttk.Combobox(out, textvariable=self.format_var, values=("PNG", "TIFF", "PDF", "JPG"), state="readonly", width=9)
         fmt.grid(row=0, column=1, sticky="ew", padx=(8, 0))
-        ttk.Button(out, text="เลือกโฟลเดอร์…", command=self.choose_output_dir).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+
+        self.color_mode_var = tk.StringVar(value="RGB")
+        ttk.Label(out, text="โหมดสี").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        color_mode = ttk.Combobox(out, textvariable=self.color_mode_var, values=("RGB", "CMYK"), state="readonly", width=9)
+        color_mode.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+        color_mode.bind("<<ComboboxSelected>>", self._color_mode_changed)
+
+        self._installed_icc_profiles = self._find_installed_icc_profiles()
+        self.icc_profile_name_var = tk.StringVar(value="")
+        self.icc_profile_path_var = tk.StringVar(value="")
+        ttk.Label(out, text="ICC (CMYK)").grid(row=2, column=0, sticky="w", pady=(6, 0))
+        icc_combo = ttk.Combobox(
+            out,
+            textvariable=self.icc_profile_name_var,
+            values=tuple(self._installed_icc_profiles.keys()),
+            state="readonly",
+            width=19,
+        )
+        icc_combo.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+        icc_combo.bind("<<ComboboxSelected>>", self._installed_icc_selected)
+        ttk.Button(out, text="เลือกไฟล์ ICC / ICM…", command=self._choose_icc_profile).grid(
+            row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0)
+        )
+        ttk.Label(
+            out,
+            text="CMYK ใช้ ICC เฉพาะตอนส่งออก ไม่เปลี่ยน Pipeline V1 • แนะนำ TIFF สำหรับงานพิมพ์",
+            wraplength=270,
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        ttk.Button(out, text="เลือกโฟลเดอร์…", command=self.choose_output_dir).grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         self.output_dir_label = ttk.Label(out, text="ค่าเริ่มต้น: โฟลเดอร์เดียวกับภาพต้นฉบับ", wraplength=270)
-        self.output_dir_label.grid(row=2, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.output_dir_label.grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
         out.columnconfigure(1, weight=1)
 
         actions = ttk.Frame(parent)
@@ -515,6 +603,8 @@ class App(tk.Tk):
             print_unit=self.unit_var.get(),
             export_format=self.format_var.get(),
             v1_baseline=self.v1_mode.get(),
+            color_mode=self.color_mode_var.get(),
+            icc_profile_path=(self.icc_profile_path_var.get() or None),
         )
         if self.use_print_size.get():
             s.print_width = float(self.width_var.get())
@@ -584,7 +674,8 @@ class App(tk.Tk):
     def _output_path(self, src: Path, fmt: str) -> Path:
         ext = {"PNG": ".png", "TIFF": ".tif", "PDF": ".pdf", "JPG": ".jpg"}[fmt]
         outdir = Path(self.output_dir_var.get()) if self.output_dir_var.get() else src.parent
-        return outdir / f"{src.stem}_Niyomsil_AI{ext}"
+        color_suffix = "_CMYK" if getattr(self, "color_mode_var", None) and self.color_mode_var.get() == "CMYK" else ""
+        return outdir / f"{src.stem}_Niyomsil_AI{color_suffix}{ext}"
 
     def start_processing(self):
         if not self.files:
@@ -602,6 +693,21 @@ class App(tk.Tk):
                 "กรุณาใช้ Niyomsil Design V1 Build ที่แพ็ก AI backend ครบ"
             )
             return
+        if self.color_mode_var.get() == "CMYK":
+            if self.format_var.get() == "PNG":
+                messagebox.showerror(
+                    APP_NAME,
+                    "PNG ไม่รองรับ CMYK\n\nกรุณาเลือก TIFF, JPG หรือ PDF สำหรับงาน CMYK"
+                )
+                return
+            icc_path = self.icc_profile_path_var.get().strip()
+            if not icc_path or not Path(icc_path).is_file():
+                messagebox.showerror(
+                    APP_NAME,
+                    "กรุณาเลือก ICC / ICM Profile สำหรับ CMYK ก่อนเริ่มประมวลผล"
+                )
+                return
+
         try:
             settings = self._settings()
         except Exception as exc:
