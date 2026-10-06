@@ -9,6 +9,7 @@ import cv2
 from .processing import (
     EnhanceSettings,
     enhance_rgb,
+    enhance_detail_preserving,
     final_resize,
     load_image,
     print_pixels,
@@ -44,17 +45,28 @@ class PrintEnhancementPipeline:
 
         if progress:
             progress(1, "โหลดภาพต้นฉบับ")
-        rgb = enhance_rgb(rgb, settings, progress, cancel)
 
         if cancel and cancel():
             raise InterruptedError("Processing cancelled")
 
         if use_ai and settings.ai_scale > 1:
+            if not self.ai.available:
+                raise RuntimeError(
+                    "ไม่พบ Real-ESRGAN AI backend ในชุดโปรแกรม รุ่นนี้จะไม่ใช้ Lanczos แทน AI โดยอัตโนมัติ "
+                    "กรุณาใช้ Build ที่แพ็ก AI backend ครบ"
+                )
             if progress:
-                progress(48, "เริ่ม AI Upscale")
+                progress(8, "เริ่ม Real-ESRGAN AI Upscale — รักษารายละเอียดต้นฉบับ")
             rgb = self.ai.upscale_array(rgb, settings.ai_scale, progress, cancel)
             if alpha is not None:
                 alpha = cv2.resize(alpha, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_LANCZOS4)
+            # Clean and sharpen only after AI reconstruction.  This follows the
+            # prototype/V1 behavior more closely and avoids removing source detail
+            # before the model has a chance to reconstruct it.
+            rgb = enhance_detail_preserving(rgb, settings, progress, cancel, start_progress=65)
+        else:
+            # Fast preview/non-AI mode uses the same conservative finishing logic.
+            rgb = enhance_detail_preserving(rgb, settings, progress, cancel, start_progress=8)
 
         target = None
         if settings.print_width and settings.print_height:
