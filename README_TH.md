@@ -1,27 +1,31 @@
-# SignPrint AI Enhancer — V0.1 Private Build
+# Niyomsil Design AI Enhancer — V1.0 Brand Build
 
-โปรแกรมแยกอิสระสำหรับเตรียมภาพงานป้ายและงานพิมพ์ขนาดใหญ่ โดยสร้างแยกจาก ARM AI Image Enhancer เพื่อไม่แก้ไขหรือกระทบ Repository ของเจ้าของหลัก
+โปรแกรมสำหรับร้าน **นิยมศิลป์ดีไซน์ (NIYOMSIL DESIGN)** เพื่อเตรียมภาพสำหรับงานป้ายและงานพิมพ์ขนาดใหญ่
 
-## ความสามารถหลัก
-- ปรับ Width / Height แบบล็อกอัตราส่วนอัตโนมัติ
-- รองรับ mm / cm / m / inch และ DPI
+## แนวทางคุณภาพ V1
+- ค่าเริ่มต้นคือ **V1 Baseline**
+- ให้ Real-ESRGAN เป็นแกนหลักในการสร้างรายละเอียด
+- 4× ใช้ผล AI โดยตรงเป็นหลัก
+- V1 Baseline ไม่ลด Noise / เกลี่ยสี / Contrast เพิ่มโดยอัตโนมัติ เพื่อรักษารายละเอียดอาหาร ตัวอักษร โลโก้ และพื้นผิว
+- หากต้องการจึงค่อยปิด V1 Baseline แล้วใช้ตัวเลื่อน Advanced Enhancement
+- หาก AI backend ไม่พร้อม โปรแกรมจะหยุดแจ้งเตือน และจะไม่ใช้ Lanczos แทน AI แบบเงียบ ๆ
+
+## ความสามารถ
+- Width / Height ล็อกอัตราส่วนอัตโนมัติ
+- mm / cm / m / inch และ DPI
 - AI Upscale 2× / 4× / 8×
-- ลด Noise และเกลี่ยพื้นสีโดยรักษาขอบ
-- เพิ่มความชัดตัวอักษรและโลโก้
-- Local Contrast และ Anti-Halo Sharpen
-- Preview ก่อนประมวลผลจริง
+- Preview ก่อนประมวลผล
 - Batch processing + Progress + Stop
-- ส่งออก PNG / TIFF / PDF / JPG
-- ลากไฟล์เข้าโปรแกรมบน Windows
+- PNG / TIFF / PDF / JPG
+- Windows Drag & Drop
+- โลโก้และ Branding นิยมศิลป์ดีไซน์
 
 ## Build Windows
-ดับเบิลคลิก `BUILD_WINDOWS.bat`
+รัน `BUILD_WINDOWS.bat` หรือ GitHub Actions → **Build Windows Installer**
 
-ระบบจะสร้าง virtual environment, ติดตั้ง dependency, ดาวน์โหลด Real-ESRGAN NCNN/Vulkan จาก upstream อย่างเป็นทางการ, สร้างโปรแกรมด้วย PyInstaller และสร้าง Installer ด้วย Inno Setup หากมีติดตั้งอยู่
-
-ไฟล์ผลลัพธ์จะอยู่ใน:
-- `dist/SignPrintAIEnhancer/`
-- `release/SignPrint-AI-Enhancer-Setup-v0.1.0.exe`
+ไฟล์สำเร็จ:
+- `dist/NiyomsilAIEnhancer/NiyomsilAIEnhancer.exe`
+- `release/Niyomsil-Design-AI-Enhancer-Setup-v1.0.0.exe`
 
 ## หมายเหตุ
-โปรเจกต์นี้ไม่รวม Source, Logo, QR, Donation Link หรือ Asset ของ ARM AI Image Enhancer
+โครงการนี้เป็นโปรแกรมแยกอิสระของนิยมศิลป์ดีไซน์ และไม่แก้ไข Repository ของ ARM AI Image Enhancer
