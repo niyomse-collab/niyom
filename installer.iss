@@ -8,7 +8,7 @@ AppId={{B0DD9E45-BD74-48A0-8C7B-B87227371EB1}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\SignPrintAIEnhancer
+DefaultDirName={autopf}\NiyomsilDesignAIEnhancer
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=release
@@ -22,7 +22,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Files]
-Source: "dist\SignPrintAIEnhancer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\NiyomsilAIEnhancer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
