@@ -28,20 +28,50 @@ class RealESRGANNCNN:
 
     def _find_executable(self) -> Path | None:
         env = os.environ.get("SIGNPRINT_REALESRGAN_EXE")
-        candidates = []
+        candidates: list[Path] = []
         if env:
             candidates.append(Path(env))
-        candidates += [
-            self.app_root / "tools" / "realesrgan-ncnn-vulkan.exe",
-            self.app_root / "realesrgan-ncnn-vulkan.exe",
-            Path.cwd() / "tools" / "realesrgan-ncnn-vulkan.exe",
+
+        # PyInstaller onedir can place data either beside the executable or under
+        # _internal depending on how the build is assembled.  Search both known
+        # locations plus a shallow recursive fallback so the packaged backend is
+        # detected reliably.
+        roots = [
+            self.app_root,
+            self.app_root / "tools",
+            self.app_root / "_internal",
+            self.app_root / "_internal" / "tools",
+            Path.cwd(),
+            Path.cwd() / "tools",
         ]
+        for root in roots:
+            candidates.append(root / "realesrgan-ncnn-vulkan.exe")
+
         found = shutil.which("realesrgan-ncnn-vulkan") or shutil.which("realesrgan-ncnn-vulkan.exe")
         if found:
             candidates.append(Path(found))
+
+        seen = set()
         for p in candidates:
-            if p.exists():
+            try:
+                rp = p.resolve()
+            except Exception:
+                rp = p
+            key = str(rp).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            if p.is_file():
                 return p
+
+        # Last-resort search inside the app directory.  Limit traversal to avoid
+        # scanning unrelated drives.
+        try:
+            for p in self.app_root.rglob("realesrgan-ncnn-vulkan.exe"):
+                if p.is_file():
+                    return p
+        except Exception:
+            pass
         return None
 
     @property
@@ -89,12 +119,10 @@ class RealESRGANNCNN:
         if scale <= 1:
             return rgb
         if not self.available:
-            # High-quality non-AI fallback keeps the application usable even
-            # before the optional NCNN package is installed.
-            h, w = rgb.shape[:2]
-            if progress:
-                progress(60, "ไม่พบ AI backend — ใช้ Lanczos ชั่วคราว")
-            return cv2.resize(rgb, (w * scale, h * scale), interpolation=cv2.INTER_LANCZOS4)
+            raise RuntimeError(
+                "Real-ESRGAN AI backend ไม่พร้อมใช้งาน โปรแกรมจะไม่ fallback เป็น Lanczos "
+                "เพราะจะทำให้คุณภาพต่ำกว่ารุ่นต้นแบบ"
+            )
 
         with tempfile.TemporaryDirectory(prefix="signprint_ai_") as td:
             td = Path(td)
