@@ -16,6 +16,13 @@ jobs:
       - name: Build
         shell: powershell
         run: .\build_windows.ps1
+      - name: Verify AI backend is packaged
+        shell: powershell
+        run: |
+          $exe = ".\dist\SignPrintAIEnhancer\tools\realesrgan-ncnn-vulkan.exe"
+          if (-not (Test-Path $exe)) { throw "Missing packaged Real-ESRGAN backend" }
+          if (-not (Test-Path ".\dist\SignPrintAIEnhancer\tools\models")) { throw "Missing packaged Real-ESRGAN models" }
+          Get-Item $exe | Format-List FullName,Length
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
