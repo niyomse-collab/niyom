@@ -202,6 +202,67 @@ def _anti_halo_sharpen(rgb: np.ndarray, edge: np.ndarray, strength: int) -> np.n
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
+def _selective_flat_denoise(rgb: np.ndarray, strength: int) -> np.ndarray:
+    """Reduce colored speckles mainly in flat areas while protecting texture/edges."""
+    if strength <= 0:
+        return rgb
+    s = max(0.0, min(1.0, strength / 100.0))
+    edge = _edge_map(rgb)
+    cleaned = _pre_denoise(rgb, max(1, round(strength * 0.45)))
+    flat = np.clip(1.0 - edge * 3.2, 0.0, 1.0)
+    flat = cv2.GaussianBlur(flat, (0, 0), 1.0)
+    alpha = flat[..., None] * (0.08 + 0.28 * s)
+    out = rgb.astype(np.float32) * (1.0 - alpha) + cleaned.astype(np.float32) * alpha
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def enhance_detail_preserving(
+    rgb: np.ndarray,
+    settings: EnhanceSettings,
+    progress: ProgressFn = None,
+    cancel: CancelFn = None,
+    start_progress: int = 65,
+) -> np.ndarray:
+    """V1-style finishing pipeline: preserve micro-detail first, clean only where safe.
+
+    The user sliders remain 0-100, but the effective strength is intentionally
+    conservative so even high settings do not smear food texture or small Thai text.
+    """
+    _cancelled(cancel)
+    _notify(progress, start_progress, "รักษารายละเอียดและวิเคราะห์พื้นที่เรียบ")
+    out = rgb
+
+    # Denoise only where edge energy is low; never globally blur the upscaled image.
+    denoise_eff = round(settings.denoise * 0.55)
+    out = _selective_flat_denoise(out, denoise_eff)
+
+    _cancelled(cancel)
+    _notify(progress, start_progress + 7, "เกลี่ยพื้นสีเฉพาะบริเวณเรียบ")
+    edge = _edge_map(out)
+    flat_eff = round(settings.flat_smoothing * 0.38)
+    out = _flat_area_smoothing(out, edge, flat_eff)
+
+    _cancelled(cancel)
+    _notify(progress, start_progress + 13, "เพิ่มมิติแบบไม่บดรายละเอียด")
+    contrast_eff = round(settings.contrast * 0.45)
+    out = _local_contrast(out, contrast_eff)
+    out = _saturation(out, round(settings.saturation * 0.70))
+
+    _cancelled(cancel)
+    _notify(progress, start_progress + 18, "รักษาขอบตัวอักษรและโลโก้")
+    edge = _edge_map(out)
+    gmask = _graphic_mask(out, edge)
+    text_eff = round(settings.text_graphic_boost * 0.52)
+    out = _graphic_solidify(out, gmask, text_eff)
+
+    _cancelled(cancel)
+    _notify(progress, start_progress + 23, "เพิ่มความคมแบบ Anti-Halo")
+    edge = _edge_map(out)
+    sharp_eff = round(settings.sharpness * 0.58)
+    out = _anti_halo_sharpen(out, edge, sharp_eff)
+    return out
+
+
 def enhance_rgb(rgb: np.ndarray, settings: EnhanceSettings, progress: ProgressFn = None, cancel: CancelFn = None) -> np.ndarray:
     _cancelled(cancel)
     _notify(progress, 3, "วิเคราะห์ขอบและพื้นที่สี")
