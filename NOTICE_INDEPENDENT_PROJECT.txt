@@ -1,9 +1,8 @@
-SignPrint AI Enhancer is an independent private implementation created for the user.
+Niyomsil Design AI Enhancer is an independent application for NIYOMSIL DESIGN / นิยมศิลป์ดีไซน์.
 
-It does not modify, push to, or depend on the ARM AI Image Enhancer repository.
-It does not include ARM AI Image Enhancer source code, branding, logo, QR assets,
-or donation/contact assets.
+This repository does not modify, push to, or depend on the ARM AI Image Enhancer repository.
+It does not bundle ARM branding, logo, QR assets, donation information, or application source code.
 
-The optional Real-ESRGAN NCNN/Vulkan backend is obtained from the official
-Real-ESRGAN project and remains subject to its upstream license and model terms.
-Other third-party Python packages remain subject to their respective licenses.
+The optional Real-ESRGAN NCNN/Vulkan backend is obtained from the official Real-ESRGAN
+upstream project and remains subject to its upstream license and model terms.
+Other third-party components remain subject to their respective licenses.
