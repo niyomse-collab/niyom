@@ -7,7 +7,7 @@ import math
 
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageCms
 
 ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
@@ -29,6 +29,8 @@ class EnhanceSettings:
     resize_mode: str = "fit"  # fit | stretch
     export_format: str = "PNG"
     v1_baseline: bool = True
+    color_mode: str = "RGB"
+    icc_profile_path: str | None = None
 
 
 def _notify(cb: ProgressFn, value: int, label: str) -> None:
@@ -310,7 +312,14 @@ def final_resize(rgb: np.ndarray, target_size: Tuple[int, int] | None) -> np.nda
     return cv2.resize(rgb, (tw, th), interpolation=interpolation)
 
 
-def save_image(rgb: np.ndarray, output_path: str | Path, dpi: int = 150, alpha: np.ndarray | None = None) -> None:
+def save_image(
+    rgb: np.ndarray,
+    output_path: str | Path,
+    dpi: int = 150,
+    alpha: np.ndarray | None = None,
+    color_mode: str = "RGB",
+    icc_profile_path: str | Path | None = None,
+) -> None:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if alpha is not None:
@@ -322,6 +331,67 @@ def save_image(rgb: np.ndarray, output_path: str | Path, dpi: int = 150, alpha: 
         img = Image.fromarray(rgb, mode="RGB")
 
     ext = path.suffix.lower()
+
+    # Color-management is intentionally applied only at export time so the
+    # proven V1 enhancement pixels/pipeline remain unchanged.
+    if color_mode.upper() == "CMYK":
+        if ext == ".png":
+            raise ValueError("PNG ไม่รองรับ CMYK กรุณาเลือก TIFF, JPG หรือ PDF")
+        if not icc_profile_path:
+            raise ValueError("โหมด CMYK ต้องเลือกไฟล์ ICC/ICM Profile")
+        profile_path = Path(icc_profile_path)
+        if not profile_path.is_file():
+            raise ValueError(f"ไม่พบ ICC Profile: {profile_path}")
+
+        # CMYK has no alpha channel. Composite transparency onto white before
+        # the ICC transform, which is the normal print-production behavior.
+        if img.mode == "RGBA":
+            white = Image.new("RGB", img.size, "white")
+            white.paste(img, mask=img.getchannel("A"))
+            rgb_img = white
+        else:
+            rgb_img = img.convert("RGB")
+
+        try:
+            src_profile = ImageCms.createProfile("sRGB")
+            dst_profile = ImageCms.getOpenProfile(str(profile_path))
+            cmyk_img = ImageCms.profileToProfile(
+                rgb_img,
+                src_profile,
+                dst_profile,
+                renderingIntent=0,
+                outputMode="CMYK",
+            )
+        except Exception as exc:
+            raise ValueError(f"ไม่สามารถแปลง CMYK ด้วย ICC Profile นี้ได้: {exc}") from exc
+
+        icc_bytes = profile_path.read_bytes()
+        if ext in (".jpg", ".jpeg"):
+            cmyk_img.save(
+                path,
+                quality=96,
+                subsampling=0,
+                dpi=(dpi, dpi),
+                icc_profile=icc_bytes,
+            )
+        elif ext in (".tif", ".tiff"):
+            cmyk_img.save(
+                path,
+                compression="tiff_lzw",
+                dpi=(dpi, dpi),
+                icc_profile=icc_bytes,
+            )
+        elif ext == ".pdf":
+            cmyk_img.save(
+                path,
+                "PDF",
+                resolution=float(dpi),
+                icc_profile=icc_bytes,
+            )
+        else:
+            raise ValueError("CMYK รองรับการส่งออก TIFF, JPG และ PDF เท่านั้น")
+        return
+
     if ext in (".jpg", ".jpeg"):
         if img.mode != "RGB":
             bg = Image.new("RGB", img.size, "white")
