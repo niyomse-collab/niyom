@@ -1,39 +1,59 @@
-# Niyomsil Design AI Enhancer — V2.0 UI Build
+# Niyomsil Design AI Enhancer — V2.0 ARM Core Build
 
-รุ่น V2 ปรับเฉพาะ **หน้าตาโปรแกรม การแสดงสถานะ และ Branding** ตามแบบที่ผู้ใช้กำหนด โดย **ไม่เปลี่ยนแกนประมวลผล V1.1** ที่ผ่านการใช้งานและให้คุณภาพดีแล้ว
+รุ่น V2 คงดีไซน์ดำ–แดงของ **นิยมศิลป์ดีไซน์** แต่เปลี่ยนแกน AI เป็นสายคุณภาพที่ผ่านการทดสอบแล้วจาก branch `v1-arm-core`
 
-## สิ่งที่ล็อกไว้จาก V1.1
-- Real-ESRGAN / AI Upscale เดิม
-- V1 Baseline เดิม
-- Noise / Detail / Sharpen / Contrast logic เดิม
-- ระบบขนาดงานพิมพ์และ DPI เดิม
-- RGB / CMYK / ICC export เดิม
-- การบันทึก PNG / TIFF / PDF / JPG เดิม
+## แกนประมวลผลที่ล็อกไว้
+ไฟล์ต่อไปนี้ถูกย้ายจาก `v1-arm-core` แบบตรงไฟล์ และตรวจ SHA แล้วว่าตรงกัน:
+- `app/device/device_manager.py`
+- `app/engine/engine_manager.py`
+- `app/engine/realesrgan_engine.py`
 
-ไฟล์แกนประมวลผล `processing.py`, `pipeline.py` และ `realesrgan_ncnn.py` ไม่ได้ถูกแก้เพื่อทำ V2 UI
+เส้นทางประมวลผล:
+**V2 UI → ARMCoreAdapter → EngineManager → RealESRGANEngine → RealESRGAN_x4plus.pth**
 
-Snapshot ก่อนเริ่ม V2:
-`v1.1-color-stable`
+รายละเอียด:
+- PyTorch CUDA
+- RealESRGAN_x4plus
+- CUDA tile = 256
+- tile_pad = 10
+- pre_pad = 0
+- FP32 ตามเส้นทางที่ทดสอบ
+- 8× = AI 4× pass แล้ว AI 2× pass
+- NVIDIA CUDA ถูกเลือกก่อนเมื่อมี GPU รองรับ
+- ไม่มี NCNN ใน V2 ARM Core Build
+- ไม่มี Denoise / Contrast / Sharpen เพิ่มหลัง ARM AI
+- RGB PNG รักษาพิกเซลผลลัพธ์สุดท้ายของ ARM Core
+- CMYK / ICC ทำเฉพาะขั้น Export หลัง AI เสร็จ
 
-## หน้าตา V2
-- ธีมดำ–แดงแบบ NIYOMSIL DESIGN
-- โลโก้นิยมศิลป์ดีไซน์แบบพื้นหลังโปร่งใส
-- หัวโปรแกรมแบบ Dashboard พร้อมปุ่ม Open / Settings / Enhance / Output / Folder
-- แสดง GPU / VRAM / AI Engine / Device
-- แผงซ้ายหมายเลข 1–4
-- Before / After หมายเลข 5
-- Queue + Status + Progress หมายเลข 6
-- Export Format / RGB-CMYK / ICC / Output Folder หมายเลข 7–9
-- Status Bar ด้านล่างพร้อมเวลาทำงานและ Overall Progress
-- ตารางแสดงสถานะและเปอร์เซ็นต์ของแต่ละไฟล์
+โมเดล:
+`RealESRGAN_x4plus.pth`
+SHA256:
+`4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1`
 
-## ไอคอน
-โปรแกรมและตัวติดตั้งใช้โลโก้ NIYOMSIL DESIGN และลบพื้นหลังสีขาวออกก่อนสร้าง Windows ICO
+## V2 UI
+- ธีมดำ–แดงเดิม
+- Before / After
+- Queue และ Progress
+- GPU / VRAM / AI Engine / Device
+- RGB / CMYK / ICC
+- Output Folder
+- Status Bar และเวลาทำงาน
 
-## Build Windows
-GitHub Actions → **Build Windows Installer** → **Run workflow**
+## โลโก้ / ไอคอน
+โลโก้ NIYOMSIL DESIGN ถูกลบเฉพาะพื้นหลังสีขาวที่เชื่อมกับขอบภาพ แล้วสร้าง Windows ICO แบบ Alpha Transparency
+จึงคงส่วนสีขาวที่เป็นรายละเอียดภายในโลโก้ไว้ และไม่มีกรอบพื้นหลังสีขาวบน Taskbar / Shortcut / Installer
 
-ผลลัพธ์:
-- `dist/NiyomsilAIEnhancer/NiyomsilAIEnhancer.exe`
-- `release/Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe`
-- Artifact: `Niyomsil-Design-AI-Enhancer-V2-Windows`
+## Snapshot
+รุ่น V2 NCNN ก่อนเปลี่ยน Core ถูกเก็บไว้ที่:
+`v2-ncnn-stable`
+
+## Build
+GitHub → Actions → **Build Windows Installer** → **Run workflow**
+
+Artifact:
+`Niyomsil-Design-AI-Enhancer-V2-ARM-Core-Windows`
+
+Installer:
+`Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe`
+
+หมายเหตุ: ชุดติดตั้งรุ่น ARM Core มีขนาดใหญ่กว่ารุ่น NCNN มาก เนื่องจากมี PyTorch/CUDA runtime และโมเดล AI รวมอยู่ในชุดติดตั้ง เพื่อให้เครื่องปลายทางไม่ต้องติดตั้ง Python เอง
