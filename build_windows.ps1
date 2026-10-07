@@ -92,7 +92,7 @@ if (-not $SkipInstaller) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
 
-    $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v1.1.0.exe"
+    $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe"
     if (-not (Test-Path $installer)) {
         throw "Installer compile reported success but the expected EXE is missing."
     }
