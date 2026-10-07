@@ -49,7 +49,7 @@ jobs:
         run: |
           python -m py_compile run.py signprint_ai\app_v1.py app\device\device_manager.py app\engine\engine_manager.py app\engine\realesrgan_engine.py
           python -c "from app.device.device_manager import DeviceManager; m=DeviceManager(); print([(d.backend,d.name,d.available) for d in m.get_devices()])"
-          python -c "from app.engine.realesrgan_engine import RealESRGANEngine; print('ARM RealESRGANEngine import OK')"
+          python -c "exec(open('pyi_rth_basicsr_compat.py', encoding='utf-8').read()); from app.engine.realesrgan_engine import RealESRGANEngine; print('ARM RealESRGANEngine import OK')"
 
       - name: Build portable Windows app
         shell: powershell
