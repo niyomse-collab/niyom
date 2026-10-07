@@ -1,40 +1,24 @@
-# Niyomsil Design AI Enhancer — V1.1 Color Management Build
+# นิยมศิลป์ดีไซน์ v1.0
 
-โปรแกรมสำหรับร้าน **นิยมศิลป์ดีไซน์ (NIYOMSIL DESIGN)** เพื่อเตรียมภาพสำหรับงานป้ายและงานพิมพ์ขนาดใหญ่
+โปรแกรมปรับปรุงภาพสำหรับงานป้ายไวนิล งานโฆษณา และงานพิมพ์ขนาดใหญ่บน Windows
 
-## สิ่งที่คงเดิมจาก V1
-- V1 Baseline และลำดับการประมวลผล Real-ESRGAN **ไม่เปลี่ยน**
-- 4× ยังใช้ Real-ESRGAN เป็นแกนหลักเหมือนเดิม
-- ไม่ลด Noise / เกลี่ยสี / เพิ่ม Contrast อัตโนมัติเมื่อเปิด V1 Baseline
-- Advanced Enhancement เดิมยังอยู่ครบ
-- ถ้า AI backend ไม่พร้อม โปรแกรมจะหยุดแจ้งเตือน ไม่ fallback เป็น Lanczos แบบเงียบ ๆ
+## หน้าตา V1.0
+- ธีมดำ/กรมท่า ตัดสีแดงตามแบรนด์นิยมศิลป์ดีไซน์
+- โลโก้พื้นหลังโปร่งใสสำหรับหน้าโปรแกรมและไอคอน Windows
+- พื้นที่ Before / After ขนาดใหญ่
+- กำหนด Width / Height / DPI / หน่วย และล็อกอัตราส่วน
+- AI Upscale
+- Process Status และ Log แสดงขั้นตอนจริง
+- รายการไฟล์แบบ Batch Queue
+- RGB / CMYK และ ICC / ICM สำหรับส่งออกงานพิมพ์
+- PNG / TIFF / PDF / JPG
+- การเปลี่ยนหน้าตารอบนี้ไม่เปลี่ยนแกนประมวลผล V1 เดิม
 
-Snapshot ของรุ่นก่อนเพิ่ม Color Management ถูกเก็บไว้ที่ branch:
-`v1-stable-snapshot`
+## การ Build
+GitHub Actions -> **Build Windows Installer**
 
-## Color Mode / ICC / CMYK
-เพิ่มเฉพาะขั้นตอนส่งออก:
-- เลือก Color Mode: **RGB / CMYK**
-- โปรแกรมค้นหา CMYK ICC/ICM ที่ติดตั้งใน Windows Color Folder
-- เลือกไฟล์ ICC/ICM ภายนอกได้ เช่น Profile ที่โรงพิมพ์หรือ RIP กำหนด
-- การแปลง CMYK ทำหลัง V1 enhancement เสร็จแล้ว จึงไม่เปลี่ยนคุณภาพการประมวลผล AI
-- CMYK รองรับ TIFF / JPG / PDF
-- PNG ใช้ RGB เท่านั้น
-- สำหรับงานพิมพ์แนะนำ **TIFF + ICC** เพื่อรักษา Color Management ชัดเจน
+ไฟล์ติดตั้ง:
+`Niyomsil-Design-v1.0-Setup.exe`
 
-## Branding / UI
-- โลโก้: นิยมศิลป์ดีไซน์
-- โปรแกรมและตัวติดตั้งใช้โลโก้เดียวกันเป็น Windows icon
-- ธีมส่วนหัวดำ–แดง พร้อมกราฟิก accent เล็กน้อย
-- Layout และ Workflow หลักของ V1 ไม่เปลี่ยน
-
-## Build Windows
-GitHub Actions → **Build Windows Installer** → **Run workflow**
-
-ผลลัพธ์:
-- `dist/NiyomsilAIEnhancer/NiyomsilAIEnhancer.exe`
-- `release/Niyomsil-Design-AI-Enhancer-Setup-v1.1.0.exe`
-- Artifact: `Niyomsil-Design-AI-Enhancer-Windows`
-
-## หมายเหตุเรื่อง ICC
-โปรแกรมไม่ได้บังคับ Profile ใด Profile หนึ่ง เพราะงานพิมพ์แต่ละเครื่อง/หมึก/วัสดุ/RIP อาจต้องใช้ ICC ต่างกัน ควรใช้ ICC ที่ร้านหรือผู้ให้บริการพิมพ์กำหนดสำหรับเครื่องจริง
+Branch สำหรับพัฒนา:
+`v1-ui-redesign`
