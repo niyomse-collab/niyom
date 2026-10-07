@@ -1,27 +1,28 @@
-# Niyomsil Design AI Enhancer — V1.1 Color Management Build
+# Niyomsil Design AI Enhancer — V2.0 UI Build
 
-Independent large-format print image enhancer for **NIYOMSIL DESIGN / นิยมศิลป์ดีไซน์**.
+V2 is a UI/status/branding redesign only. The proven V1.1 image-processing core is intentionally preserved.
 
-## V1 processing is preserved
-The proven V1 Baseline processing path is intentionally unchanged. Color management is applied only at export time.
+## Preserved processing
+- Real-ESRGAN backend and AI upscale behavior
+- V1 Baseline
+- Advanced enhancement logic
+- Print size and DPI handling
+- RGB / CMYK / ICC export pipeline
+- PNG / TIFF / PDF / JPG output
 
-A frozen snapshot of the pre-CMYK version is kept on:
-`v1-stable-snapshot`
+The V2 work does not change `processing.py`, `pipeline.py`, or `realesrgan_ncnn.py`.
 
-## New in V1.1
-- RGB / CMYK output selection
-- Windows-installed CMYK ICC/ICM discovery
-- Custom ICC/ICM profile selection
-- ICC-managed RGB → CMYK conversion at export
-- TIFF / JPG / PDF CMYK output
-- PNG remains RGB only
-- Niyomsil Design logo used for the application and installer icons
-- Restrained black/red branded header while keeping the V1 workflow/layout
+Stable pre-V2 snapshot:
+`v1.1-color-stable`
 
-For production printing, TIFF + the printer/RIP-specific ICC profile is recommended.
+## V2 UI
+Black/red NIYOMSIL DESIGN dashboard, transparent brand logo, GPU/VRAM/engine status, Before/After preview, queue progress, export/color/ICC strip, and bottom runtime status bar.
 
 ## Build
 GitHub Actions → **Build Windows Installer** → **Run workflow**
 
 Installer:
-`Niyomsil-Design-AI-Enhancer-Setup-v1.1.0.exe`
+`Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe`
+
+Artifact:
+`Niyomsil-Design-AI-Enhancer-V2-Windows`
