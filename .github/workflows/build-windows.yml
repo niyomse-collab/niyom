@@ -30,6 +30,19 @@ jobs:
         shell: powershell
         run: .\build_windows.ps1
 
+      - name: Smoke-test packaged EXE imports
+        shell: powershell
+        run: |
+          $exe = ".\\dist\\NiyomsilAIEnhancer\\NiyomsilAIEnhancer.exe"
+          if (-not (Test-Path $exe)) { throw "Missing packaged EXE before smoke test" }
+          $env:NIYOMSIL_IMPORT_SMOKE = "1"
+          $proc = Start-Process -FilePath $exe -PassThru -Wait
+          Remove-Item Env:NIYOMSIL_IMPORT_SMOKE -ErrorAction SilentlyContinue
+          if ($proc.ExitCode -ne 0) {
+            throw "Packaged EXE import smoke test failed with exit code $($proc.ExitCode)"
+          }
+          Write-Host "Packaged EXE import smoke test passed."
+
       - name: Verify ARM PyTorch core package
         shell: powershell
         run: |
