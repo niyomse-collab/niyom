@@ -1,40 +1,39 @@
-# Niyomsil Design AI Enhancer — V1.1 Color Management Build
+# Niyomsil Design AI Enhancer — V2.0 UI Build
 
-โปรแกรมสำหรับร้าน **นิยมศิลป์ดีไซน์ (NIYOMSIL DESIGN)** เพื่อเตรียมภาพสำหรับงานป้ายและงานพิมพ์ขนาดใหญ่
+รุ่น V2 ปรับเฉพาะ **หน้าตาโปรแกรม การแสดงสถานะ และ Branding** ตามแบบที่ผู้ใช้กำหนด โดย **ไม่เปลี่ยนแกนประมวลผล V1.1** ที่ผ่านการใช้งานและให้คุณภาพดีแล้ว
 
-## สิ่งที่คงเดิมจาก V1
-- V1 Baseline และลำดับการประมวลผล Real-ESRGAN **ไม่เปลี่ยน**
-- 4× ยังใช้ Real-ESRGAN เป็นแกนหลักเหมือนเดิม
-- ไม่ลด Noise / เกลี่ยสี / เพิ่ม Contrast อัตโนมัติเมื่อเปิด V1 Baseline
-- Advanced Enhancement เดิมยังอยู่ครบ
-- ถ้า AI backend ไม่พร้อม โปรแกรมจะหยุดแจ้งเตือน ไม่ fallback เป็น Lanczos แบบเงียบ ๆ
+## สิ่งที่ล็อกไว้จาก V1.1
+- Real-ESRGAN / AI Upscale เดิม
+- V1 Baseline เดิม
+- Noise / Detail / Sharpen / Contrast logic เดิม
+- ระบบขนาดงานพิมพ์และ DPI เดิม
+- RGB / CMYK / ICC export เดิม
+- การบันทึก PNG / TIFF / PDF / JPG เดิม
 
-Snapshot ของรุ่นก่อนเพิ่ม Color Management ถูกเก็บไว้ที่ branch:
-`v1-stable-snapshot`
+ไฟล์แกนประมวลผล `processing.py`, `pipeline.py` และ `realesrgan_ncnn.py` ไม่ได้ถูกแก้เพื่อทำ V2 UI
 
-## Color Mode / ICC / CMYK
-เพิ่มเฉพาะขั้นตอนส่งออก:
-- เลือก Color Mode: **RGB / CMYK**
-- โปรแกรมค้นหา CMYK ICC/ICM ที่ติดตั้งใน Windows Color Folder
-- เลือกไฟล์ ICC/ICM ภายนอกได้ เช่น Profile ที่โรงพิมพ์หรือ RIP กำหนด
-- การแปลง CMYK ทำหลัง V1 enhancement เสร็จแล้ว จึงไม่เปลี่ยนคุณภาพการประมวลผล AI
-- CMYK รองรับ TIFF / JPG / PDF
-- PNG ใช้ RGB เท่านั้น
-- สำหรับงานพิมพ์แนะนำ **TIFF + ICC** เพื่อรักษา Color Management ชัดเจน
+Snapshot ก่อนเริ่ม V2:
+`v1.1-color-stable`
 
-## Branding / UI
-- โลโก้: นิยมศิลป์ดีไซน์
-- โปรแกรมและตัวติดตั้งใช้โลโก้เดียวกันเป็น Windows icon
-- ธีมส่วนหัวดำ–แดง พร้อมกราฟิก accent เล็กน้อย
-- Layout และ Workflow หลักของ V1 ไม่เปลี่ยน
+## หน้าตา V2
+- ธีมดำ–แดงแบบ NIYOMSIL DESIGN
+- โลโก้นิยมศิลป์ดีไซน์แบบพื้นหลังโปร่งใส
+- หัวโปรแกรมแบบ Dashboard พร้อมปุ่ม Open / Settings / Enhance / Output / Folder
+- แสดง GPU / VRAM / AI Engine / Device
+- แผงซ้ายหมายเลข 1–4
+- Before / After หมายเลข 5
+- Queue + Status + Progress หมายเลข 6
+- Export Format / RGB-CMYK / ICC / Output Folder หมายเลข 7–9
+- Status Bar ด้านล่างพร้อมเวลาทำงานและ Overall Progress
+- ตารางแสดงสถานะและเปอร์เซ็นต์ของแต่ละไฟล์
+
+## ไอคอน
+โปรแกรมและตัวติดตั้งใช้โลโก้ NIYOMSIL DESIGN และลบพื้นหลังสีขาวออกก่อนสร้าง Windows ICO
 
 ## Build Windows
 GitHub Actions → **Build Windows Installer** → **Run workflow**
 
 ผลลัพธ์:
 - `dist/NiyomsilAIEnhancer/NiyomsilAIEnhancer.exe`
-- `release/Niyomsil-Design-AI-Enhancer-Setup-v1.1.0.exe`
-- Artifact: `Niyomsil-Design-AI-Enhancer-Windows`
-
-## หมายเหตุเรื่อง ICC
-โปรแกรมไม่ได้บังคับ Profile ใด Profile หนึ่ง เพราะงานพิมพ์แต่ละเครื่อง/หมึก/วัสดุ/RIP อาจต้องใช้ ICC ต่างกัน ควรใช้ ICC ที่ร้านหรือผู้ให้บริการพิมพ์กำหนดสำหรับเครื่องจริง
+- `release/Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe`
+- Artifact: `Niyomsil-Design-AI-Enhancer-V2-Windows`
