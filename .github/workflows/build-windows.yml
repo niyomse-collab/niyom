@@ -30,7 +30,7 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: Niyomsil-Design-AI-Enhancer-Windows
+          name: Niyomsil-Design-v1.0-Windows
           path: |
             release\*.exe
             dist\NiyomsilAIEnhancer\**
