@@ -1,0 +1,84 @@
+name: Build Niyomsil v1 ARM Core
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v1-arm-core
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ARM V2.2.8 PyTorch CUDA runtime
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.11.0+cu128 torchvision==0.26.0+cu128 --index-url https://download.pytorch.org/whl/cu128
+          python -m pip install -r requirements_arm_core.txt
+
+      - name: Generate transparent Niyomsil brand icon
+        shell: powershell
+        run: |
+          python .\tools\generate_brand_assets.py
+          if (-not (Test-Path ".\assets\app_icon.ico")) { throw "Missing generated app icon" }
+
+      - name: Download exact RealESRGAN_x4plus model used by ARM source
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path ".\models" | Out-Null
+          $url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
+          $out = ".\models\RealESRGAN_x4plus.pth"
+          Invoke-WebRequest -Uri $url -OutFile $out
+          $expected = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
+          $actual = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLower()
+          if ($actual -ne $expected) { throw "RealESRGAN_x4plus SHA256 mismatch: $actual" }
+          Get-Item $out | Format-List FullName,Length
+          Write-Host "MODEL SHA256 OK: $actual"
+
+      - name: Validate source and prove uploaded ARM core imports
+        shell: powershell
+        run: |
+          python -m py_compile run.py signprint_ai\app_v1.py app\device\device_manager.py app\engine\engine_manager.py app\engine\realesrgan_engine.py
+          python -c "from app.device.device_manager import DeviceManager; m=DeviceManager(); print([(d.backend,d.name,d.available) for d in m.get_devices()])"
+          python -c "from app.engine.realesrgan_engine import RealESRGANEngine; print('ARM RealESRGANEngine import OK')"
+
+      - name: Build portable Windows app
+        shell: powershell
+        run: |
+          python -m PyInstaller --noconfirm --clean .\NiyomsilArmCore.spec
+          $exe = ".\dist\NiyomsilDesignV1\NiyomsilDesignV1.exe"
+          if (-not (Test-Path $exe)) { throw "Portable EXE not generated" }
+          $model = ".\dist\NiyomsilDesignV1\_internal\models\RealESRGAN_x4plus.pth"
+          if (-not (Test-Path $model)) { throw "ARM model not packaged" }
+          Get-Item $exe | Format-List FullName,Length
+          Get-Item $model | Format-List FullName,Length
+
+      - name: Write build proof
+        shell: powershell
+        run: |
+          @"
+          NIYOMSIL DESIGN v1.0 - ARM CORE BUILD
+          Processing engine source:
+          - app/device/device_manager.py = uploaded ARM V2.2.8 source
+          - app/engine/engine_manager.py = uploaded ARM V2.2.8 source
+          - app/engine/realesrgan_engine.py = uploaded ARM V2.2.8 source
+          Model: RealESRGAN_x4plus.pth
+          Model SHA256: 4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1
+          No NCNN, Real-CUGAN, extra denoise, contrast, sharpen, vector or reconstruction filters are in the processing path.
+          "@ | Set-Content ".\dist\NiyomsilDesignV1\ARM_CORE_BUILD_PROOF.txt" -Encoding utf8
+
+      - name: Upload ARM-core portable app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Niyomsil-Design-v1.0-ARM-Core-Windows
+          compression-level: 0
+          path: dist\NiyomsilDesignV1\**
