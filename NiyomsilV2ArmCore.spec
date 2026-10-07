@@ -16,16 +16,18 @@ hiddenimports = [
     "basicsr.utils.flow_util",
     "realesrgan.archs.srvgg_arch",
 ]
-hiddenimports += collect_submodules("basicsr.archs")
-hiddenimports += collect_submodules("basicsr.losses")
-hiddenimports += collect_submodules("basicsr.models")
-hiddenimports += collect_submodules("realesrgan.archs")
-hiddenimports += collect_submodules("realesrgan.data")
-hiddenimports += collect_submodules("realesrgan.models")
+# BasicSR discovers several modules dynamically (including basicsr.ops).
+# Freeze the complete Python module graph so the packaged EXE does not fail
+# at runtime with missing fused_act/upfirdn2d or another dynamically imported
+# BasicSR module.
+hiddenimports += collect_submodules("basicsr")
+hiddenimports += collect_submodules("realesrgan")
 
 dynamic_files = []
 for package, folders in {
-    "basicsr": ("archs", "data", "losses", "models"),
+    # Keep .py files visible on disk as well because BasicSR scans folders
+    # at runtime to discover *_arch.py, *_dataset.py, *_loss.py, etc.
+    "basicsr": ("archs", "data", "losses", "models", "ops", "utils"),
     "realesrgan": ("archs", "data", "models"),
 }.items():
     package_spec = importlib.util.find_spec(package)
@@ -36,8 +38,11 @@ for package, folders in {
         folder = package_root / folder_name
         if folder.is_dir():
             dynamic_files.extend(
-                (str(path), package + "/" + folder_name)
-                for path in sorted(folder.glob("*.py"))
+                (
+                    str(path),
+                    package + "/" + str(path.parent.relative_to(package_root)).replace("\\", "/"),
+                )
+                for path in sorted(folder.rglob("*.py"))
             )
 
 datas = [
