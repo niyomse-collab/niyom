@@ -1,27 +1,23 @@
-# Niyomsil Design AI Enhancer — V1.1 Color Management Build
+# Niyomsil Design v1.0
 
-Independent large-format print image enhancer for **NIYOMSIL DESIGN / นิยมศิลป์ดีไซน์**.
+Windows desktop image enhancer for large-format signage and print production.
 
-## V1 processing is preserved
-The proven V1 Baseline processing path is intentionally unchanged. Color management is applied only at export time.
-
-A frozen snapshot of the pre-CMYK version is kept on:
-`v1-stable-snapshot`
-
-## New in V1.1
-- RGB / CMYK output selection
-- Windows-installed CMYK ICC/ICM discovery
-- Custom ICC/ICM profile selection
-- ICC-managed RGB → CMYK conversion at export
-- TIFF / JPG / PDF CMYK output
-- PNG remains RGB only
-- Niyomsil Design logo used for the application and installer icons
-- Restrained black/red branded header while keeping the V1 workflow/layout
-
-For production printing, TIFF + the printer/RIP-specific ICC profile is recommended.
+## V1.0 UI redesign
+- Dark navy / black production interface with red Niyomsil accents
+- Niyomsil Design transparent logo and Windows icon
+- Before / After workspace
+- Print Size / DPI / aspect-ratio controls
+- AI Enhancement controls
+- Process Status LEDs and live log
+- RGB / CMYK + ICC / ICM export
+- Batch file queue
+- Existing V1 processing core preserved during the UI redesign
 
 ## Build
-GitHub Actions → **Build Windows Installer** → **Run workflow**
+GitHub Actions -> **Build Windows Installer**
 
 Installer:
-`Niyomsil-Design-AI-Enhancer-Setup-v1.1.0.exe`
+`Niyomsil-Design-v1.0-Setup.exe`
+
+Development branch:
+`v1-ui-redesign`
