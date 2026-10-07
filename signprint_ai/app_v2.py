@@ -18,11 +18,11 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageOps, ImageTk, ImageChops, ImageCms
 import numpy as np
 
-from .pipeline import PrintEnhancementPipeline
+from .arm_core_adapter import ARMCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 
 APP_NAME = "Niyomsil Design AI Enhancer"
-APP_VERSION = "V2.0 UI Build"
+APP_VERSION = "V2.0 ARM Core Build"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -44,7 +44,7 @@ class App(tk.Tk):
         self.geometry("1600x920")
         self.minsize(1180, 720)
 
-        self.pipeline = PrintEnhancementPipeline()
+        self.pipeline = ARMCoreAdapter()
         self.files: list[Path] = []
         self.current_index: int | None = None
         self.original_ratio = 1.0
@@ -144,34 +144,17 @@ class App(tk.Tk):
 
     def _detect_hardware(self) -> dict[str, str]:
         info = {
-            "gpu": "Vulkan / Auto",
+            "gpu": "CPU",
             "vram": "—",
-            "engine": "Real-ESRGAN NCNN/Vulkan",
-            "device": "Vulkan (Auto)",
+            "engine": "ARM V2.2.8 / RealESRGAN_x4plus (PyTorch)",
+            "device": "AUTO",
         }
         try:
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
-            result = subprocess.run(
-                [
-                    "nvidia-smi",
-                    "--query-gpu=name,memory.total",
-                    "--format=csv,noheader,nounits",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=2,
-                creationflags=flags,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                first = result.stdout.strip().splitlines()[0]
-                parts = [x.strip() for x in first.split(",", 1)]
-                info["gpu"] = parts[0]
-                if len(parts) > 1:
-                    try:
-                        mib = int(parts[1])
-                        info["vram"] = f"{mib / 1024:.0f} GB"
-                    except Exception:
-                        info["vram"] = f"{parts[1]} MB"
+            selected = self.pipeline.default_device()
+            info["gpu"] = selected.name
+            info["device"] = f"{selected.backend} (Auto)"
+            if getattr(selected, "memory_mb", None):
+                info["vram"] = f"{selected.memory_mb / 1024:.1f} GB"
         except Exception:
             pass
         return info
@@ -590,12 +573,13 @@ class App(tk.Tk):
             command=self._settings_changed,
             style="Dark.TCheckbutton",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(7, 2))
-        tk.Label(ai, text="Real-ESRGAN 4x เป็นแกนหลัก • ไม่เปลี่ยน Pipeline V1",
+        tk.Label(ai, text="ARM V2.2.8 • RealESRGAN_x4plus PyTorch/CUDA • V1 Quality Core",
                  bg="#111820", fg="#84D8FF", anchor="w").grid(row=2, column=0, columnspan=2, sticky="ew")
         ai.columnconfigure(1, weight=1)
 
-        # 3. Existing advanced controls, unchanged values/logic.
-        quality = self._section(parent, "3", "การตั้งค่าขั้นสูง")
+        # 3. Keep the V2 controls visually intact. ARM Core intentionally bypasses
+        # extra denoise/contrast/sharpen filters to preserve the proven V1 quality.
+        quality = self._section(parent, "3", "การตั้งค่าขั้นสูง (ARM Core รักษาคุณภาพเดิม)")
         self.denoise_var = tk.IntVar(value=18)
         self.flat_var = tk.IntVar(value=18)
         self.text_var = tk.IntVar(value=28)
@@ -617,6 +601,8 @@ class App(tk.Tk):
                  bg="#111820", fg="#9BFF70", anchor="w").pack(fill="x", pady=(6, 0))
         tk.Label(device, text=f"Device  {self.hardware_info['device']}",
                  bg="#111820", fg="#BFC8D0", anchor="w").pack(fill="x", pady=(2, 0))
+        tk.Label(device, text="Engine  ARM V2.2.8 PyTorch Core",
+                 bg="#111820", fg="#84D8FF", anchor="w").pack(fill="x", pady=(2, 0))
 
         actions = tk.Frame(parent, bg="#080B0F")
         actions.pack(fill="x", padx=2, pady=(0, 10))
@@ -915,9 +901,9 @@ class App(tk.Tk):
         if requested_scale > 1 and not self.pipeline.ai.available:
             messagebox.showerror(
                 APP_NAME,
-                "Build นี้ไม่พบ Real-ESRGAN AI backend\n\n"
-                "โปรแกรมจะไม่ใช้ Lanczos แทน AI เพราะคุณภาพต่ำกว่ารุ่นต้นแบบ "
-                "กรุณาใช้ Niyomsil Design V1 Build ที่แพ็ก AI backend ครบ"
+                "Build นี้ไม่พบ ARM RealESRGAN_x4plus model/backend\n\n"
+                "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน "
+                "กรุณาใช้ V2 ARM Core Build ที่แพ็กโมเดลครบ"
             )
             return
         if self.color_mode_var.get() == "CMYK":
@@ -1018,7 +1004,7 @@ class App(tk.Tk):
                         self.tree.item(str(i), values=vals)
                 elif kind == "preview_done":
                     self._last_result = Path(ev[1])
-                    self.right_caption.configure(text="Preview: V1 Baseline" if self.v1_mode.get() else "Preview: Advanced Detail Preserve")
+                    self.right_caption.configure(text="Preview: ARM V2.2.8 Core • AI เต็มทำงานเมื่อเริ่มประมวลผล")
                     self._refresh_preview_images()
                 elif kind == "preview_error":
                     self.right_caption.configure(text="Preview ผิดพลาด: " + ev[1])
