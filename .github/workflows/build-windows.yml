@@ -6,31 +6,65 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 120
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.12"
+
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
-      - name: Validate Python source
+
+      - name: Validate V2 UI and ARM core source
         shell: powershell
         run: |
-          python -m py_compile run.py signprint_ai\app.py signprint_ai\processing.py signprint_ai\pipeline.py signprint_ai\realesrgan_ncnn.py tools\generate_brand_assets.py
-      - name: Build
+          python -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py app\device\device_manager.py app\engine\engine_manager.py app\engine\realesrgan_engine.py tools\generate_brand_assets.py
+
+      - name: Build V2 ARM Core installer
         shell: powershell
         run: .\build_windows.ps1
-      - name: Verify AI backend is packaged
+
+      - name: Verify ARM PyTorch core package
         shell: powershell
         run: |
-          $exe = ".\dist\NiyomsilAIEnhancer\tools\realesrgan-ncnn-vulkan.exe"
-          if (-not (Test-Path $exe)) { throw "Missing packaged Real-ESRGAN backend" }
-          if (-not (Test-Path ".\dist\NiyomsilAIEnhancer\tools\models")) { throw "Missing packaged Real-ESRGAN models" }
+          $exe = ".\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe"
+          $model = ".\dist\NiyomsilAIEnhancer\_internal\models\RealESRGAN_x4plus.pth"
+          $proof = ".\dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt"
+          if (-not (Test-Path $exe)) { throw "Missing V2 executable" }
+          if (-not (Test-Path $model)) { throw "Missing ARM RealESRGAN_x4plus model" }
+          if (-not (Test-Path $proof)) { throw "Missing ARM core build proof" }
+
+          $expected = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
+          $actual = (Get-FileHash -Algorithm SHA256 $model).Hash.ToLower()
+          if ($actual -ne $expected) { throw "Packaged model SHA256 mismatch: $actual" }
+
+          if (Test-Path ".\dist\NiyomsilAIEnhancer\tools\realesrgan-ncnn-vulkan.exe") {
+            throw "NCNN backend must not be packaged in V2 ARM Core build"
+          }
+
           Get-Item $exe | Format-List FullName,Length
-      - name: Upload installer
+          Get-Item $model | Format-List FullName,Length
+          Get-Content $proof
+
+      - name: Verify installer and checksum
+        shell: powershell
+        run: |
+          $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe"
+          $checksum = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe.sha256.txt"
+          if (-not (Test-Path $installer)) { throw "Missing V2 ARM Core installer" }
+          if (-not (Test-Path $checksum)) { throw "Missing installer checksum" }
+          Get-Item $installer | Format-List FullName,Length
+          Get-Content $checksum
+
+      - name: Upload V2 ARM Core installer
         uses: actions/upload-artifact@v4
         with:
-          name: Niyomsil-Design-AI-Enhancer-V2-Windows
+          name: Niyomsil-Design-AI-Enhancer-V2-ARM-Core-Windows
+          compression-level: 0
           path: |
-            release\*.exe
-            dist\NiyomsilAIEnhancer\**
+            release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe
+            release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe.sha256.txt
+            dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt
