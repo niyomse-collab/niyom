@@ -23,8 +23,22 @@ def main() -> None:
     if bbox:
         image = image.crop(bbox)
 
-    # Keep the user's logo unchanged and center it on a clean square icon canvas.
-    canvas = Image.new("RGBA", (256, 256), (255, 255, 255, 255))
+    # Convert white background to transparency so Windows taskbar/installer
+    # show the user's original Niyomsil logo without a white square.
+    px = image.load()
+    for y in range(image.height):
+        for x in range(image.width):
+            r, g, b, a = px[x, y]
+            m = min(r, g, b)
+            if m >= 246:
+                alpha = max(0, int((255 - m) * 28))
+                px[x, y] = (r, g, b, min(a, alpha))
+
+    bbox = image.getchannel("A").getbbox()
+    if bbox:
+        image = image.crop(bbox)
+
+    canvas = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
     image.thumbnail((224, 224), Image.Resampling.LANCZOS)
     x = (256 - image.width) // 2
     y = (256 - image.height) // 2
