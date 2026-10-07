@@ -214,7 +214,10 @@ class ARMCoreAdapter:
 
         device_name = "CPU"
         try:
-            device_name = self.engine_manager.get_engine().device_name()
+            if self.engine_manager.engine is not None:
+                device_name = self.engine_manager.engine.device_name()
+            else:
+                device_name = self.engine_manager.device_manager.get_default_device().name
         except Exception:
             pass
 
