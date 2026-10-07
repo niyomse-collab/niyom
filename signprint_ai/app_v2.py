@@ -22,7 +22,7 @@ from .arm_core_adapter import ARMCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 
 APP_NAME = "Niyomsil Design AI Enhancer"
-APP_VERSION = "V2.0 ARM Core Build"
+APP_VERSION = "V2.0.1 ARM Core Queue Fix"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -51,7 +51,21 @@ class App(tk.Tk):
         self._syncing_size = False
         self._stop = threading.Event()
         self._events: queue.Queue = queue.Queue()
+
+        # One scheduler owns all full-resolution ARM/Core jobs.  The UI may add
+        # files at any time, but we never start a second competing CUDA worker.
+        # This prevents duplicated jobs, shared progress corruption and VRAM
+        # contention when Process is pressed again while another file is active.
+        self._job_queue: queue.Queue = queue.Queue()
+        self._queue_lock = threading.Lock()
+        self._processing_thread: threading.Thread | None = None
+        self._queued_indices: set[int] = set()
+        self._completed_indices: set[int] = set()
+        self._active_index: int | None = None
+        self._active_settings: EnhanceSettings | None = None
+
         self._preview_job = None
+        self._preview_generation = 0
         self._photo_left = None
         self._photo_right = None
         self._last_result: Path | None = None
@@ -626,7 +640,14 @@ class App(tk.Tk):
         ttk.Button(row, text="ล้างรายการ", command=self._clear_all_files).pack(side="left", fill="x", expand=True, padx=(3, 0))
 
     def _clear_all_files(self):
+        if self._processing_active() or self._queued_indices:
+            messagebox.showinfo(
+                APP_NAME,
+                "กำลังประมวลผลอยู่ กรุณากดหยุดการทำงานก่อนล้างรายการ"
+            )
+            return
         self.files = []
+        self._completed_indices.clear()
         self.current_index = None
         self._last_result = None
         for item in self.tree.get_children():
@@ -681,6 +702,7 @@ class App(tk.Tk):
 
     def add_files(self, paths):
         added = 0
+        added_indices = []
         for raw in paths:
             p = Path(raw)
             if p.exists() and p not in self.files:
@@ -690,16 +712,32 @@ class App(tk.Tk):
                 except Exception:
                     continue
                 self.files.append(p)
-                iid = str(len(self.files)-1)
+                idx = len(self.files) - 1
+                added_indices.append(idx)
+                iid = str(idx)
                 self.tree.insert("", "end", iid=iid, values=(p.name, f"{size[0]:,} × {size[1]:,}", "—", "พร้อม", "0%", "-"))
                 added += 1
         if added and self.current_index is None:
             self.tree.selection_set("0")
             self.tree.focus("0")
             self._select_index(0)
-        self._set_status(f"เพิ่มภาพแล้ว {added} ไฟล์")
+
+        # Files dropped/added while a batch is already running join the same
+        # scheduler automatically. They inherit the batch settings snapshot.
+        if added_indices and self._processing_active() and self._active_settings is not None:
+            queued = self._enqueue_jobs(added_indices, self._active_settings)
+            self._ensure_queue_worker()
+            self._set_status(f"เพิ่มภาพแล้ว {added} ไฟล์ • เข้าคิวเพิ่ม {queued} ไฟล์")
+        else:
+            self._set_status(f"เพิ่มภาพแล้ว {added} ไฟล์")
 
     def remove_selected(self):
+        if self._processing_active() or self._queued_indices:
+            messagebox.showinfo(
+                APP_NAME,
+                "กำลังประมวลผลอยู่ กรุณากดหยุดก่อนลบไฟล์จากคิว"
+            )
+            return
         sel = self.tree.selection()
         if not sel:
             return
@@ -830,7 +868,10 @@ class App(tk.Tk):
         self._preview_job = None
         if self.current_index is None:
             return
-        p = self.files[self.current_index]
+        preview_index = self.current_index
+        p = self.files[preview_index]
+        self._preview_generation += 1
+        generation = self._preview_generation
         try:
             settings = self._settings()
         except Exception:
@@ -860,11 +901,11 @@ class App(tk.Tk):
                     self.pipeline.process(preview_in, preview_out, ps, use_ai=False)
                     # Copy to a stable per-user temp path because TemporaryDirectory
                     # is removed as soon as this worker exits.
-                    stable = Path(tempfile.gettempdir()) / "SignPrintAI_preview.png"
+                    stable = Path(tempfile.gettempdir()) / f"SignPrintAI_preview_{generation}.png"
                     Image.open(preview_out).save(stable)
-                self._events.put(("preview_done", str(stable)))
+                self._events.put(("preview_done", generation, preview_index, str(stable)))
             except Exception as exc:
-                self._events.put(("preview_error", str(exc)))
+                self._events.put(("preview_error", generation, preview_index, str(exc)))
         threading.Thread(target=worker, daemon=True).start()
 
     def _refresh_preview_images(self):
@@ -896,11 +937,122 @@ class App(tk.Tk):
             self.output_dir_var.set(d)
             self.output_dir_label.configure(text=d)
 
-    def _output_path(self, src: Path, fmt: str) -> Path:
-        ext = {"PNG": ".png", "TIFF": ".tif", "PDF": ".pdf", "JPG": ".jpg"}[fmt]
+    def _output_path(self, src: Path, settings: EnhanceSettings) -> Path:
+        ext = {"PNG": ".png", "TIFF": ".tif", "PDF": ".pdf", "JPG": ".jpg"}[settings.export_format]
         outdir = Path(self.output_dir_var.get()) if self.output_dir_var.get() else src.parent
-        color_suffix = "_CMYK" if getattr(self, "color_mode_var", None) and self.color_mode_var.get() == "CMYK" else ""
+        color_suffix = "_CMYK" if settings.color_mode.upper() == "CMYK" else ""
         return outdir / f"{src.stem}_Niyomsil_AI{color_suffix}{ext}"
+
+    def _processing_active(self) -> bool:
+        t = self._processing_thread
+        return bool(t and t.is_alive())
+
+    def _enqueue_jobs(self, indices, settings: EnhanceSettings) -> int:
+        queued = 0
+        with self._queue_lock:
+            for idx in indices:
+                if idx < 0 or idx >= len(self.files):
+                    continue
+                if idx == self._active_index or idx in self._queued_indices or idx in self._completed_indices:
+                    continue
+                src = self.files[idx]
+                job_settings = replace(settings)
+                out = self._output_path(src, job_settings)
+                self._job_queue.put((idx, src, out, job_settings))
+                self._queued_indices.add(idx)
+                queued += 1
+                self._events.put(("row_status", idx, "รอคิว"))
+        return queued
+
+    def _ensure_queue_worker(self):
+        with self._queue_lock:
+            if self._processing_thread and self._processing_thread.is_alive():
+                return
+            self._stop.clear()
+            self._processing_started_at = time.monotonic()
+            worker = threading.Thread(target=self._queue_worker, daemon=True)
+            self._processing_thread = worker
+            worker.start()
+
+    def _queue_worker(self):
+        stopped = False
+        try:
+            while not self._stop.is_set():
+                try:
+                    idx, src, out, settings = self._job_queue.get(timeout=0.20)
+                except queue.Empty:
+                    with self._queue_lock:
+                        if self._job_queue.empty():
+                            break
+                    continue
+
+                try:
+                    with self._queue_lock:
+                        self._queued_indices.discard(idx)
+                        self._active_index = idx
+
+                    self._events.put(("row_status", idx, "กำลังประมวลผล…"))
+
+                    def pcb(v, msg, job_idx=idx):
+                        file_progress = max(0, min(100, int(v)))
+                        with self._queue_lock:
+                            completed = len(self._completed_indices)
+                        total_known = max(1, len(self.files))
+                        overall = int(((completed + file_progress / 100.0) / total_known) * 100)
+                        self._events.put((
+                            "progress",
+                            max(0, min(100, overall)),
+                            f"ไฟล์ {job_idx + 1}/{total_known}: {msg}",
+                            job_idx,
+                            file_progress,
+                        ))
+
+                    result = self.pipeline.process(
+                        src,
+                        out,
+                        settings,
+                        progress=pcb,
+                        cancel=self._stop.is_set,
+                        use_ai=True,
+                    )
+                    with self._queue_lock:
+                        self._completed_indices.add(idx)
+                    self._events.put(("row_status", idx, "เสร็จแล้ว"))
+                    self._events.put(("result_done", idx, str(out), result))
+                except InterruptedError:
+                    stopped = True
+                    self._events.put(("row_status", idx, "หยุดแล้ว"))
+                    break
+                except Exception as exc:
+                    self._events.put(("row_status", idx, f"ผิดพลาด: {exc}"))
+                finally:
+                    with self._queue_lock:
+                        if self._active_index == idx:
+                            self._active_index = None
+                    self._job_queue.task_done()
+        finally:
+            stopped = stopped or self._stop.is_set()
+
+            if stopped:
+                # Drop stale pending jobs after Stop. A later Start builds a new
+                # clean queue from the current file list/settings.
+                while True:
+                    try:
+                        idx, _src, _out, _settings = self._job_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    with self._queue_lock:
+                        self._queued_indices.discard(idx)
+                    self._events.put(("row_status", idx, "หยุดแล้ว"))
+                    self._job_queue.task_done()
+
+            with self._queue_lock:
+                if threading.current_thread() is self._processing_thread:
+                    self._processing_thread = None
+                self._active_index = None
+                self._queued_indices.clear()
+
+            self._events.put(("all_done", stopped))
 
     def start_processing(self):
         if not self.files:
@@ -938,30 +1090,23 @@ class App(tk.Tk):
         except Exception as exc:
             messagebox.showerror(APP_NAME, f"ค่าการตั้งค่าไม่ถูกต้อง: {exc}")
             return
-        self._stop.clear()
-        self._processing_started_at = time.monotonic()
+        self._active_settings = replace(settings)
         self.progress["value"] = 0
-        def worker():
-            total = len(self.files)
-            for i, src in enumerate(list(self.files)):
-                if self._stop.is_set():
-                    break
-                out = self._output_path(src, settings.export_format)
-                self._events.put(("row_status", i, "กำลังประมวลผล…"))
-                def pcb(v, msg, idx=i):
-                    overall = int(((idx + v/100.0) / total) * 100)
-                    self._events.put(("progress", overall, f"ไฟล์ {idx+1}/{total}: {msg}", idx, max(0, min(100, int(v)))))
-                try:
-                    result = self.pipeline.process(src, out, settings, progress=pcb, cancel=self._stop.is_set, use_ai=True)
-                    self._events.put(("row_status", i, "เสร็จแล้ว"))
-                    self._events.put(("result_done", i, str(out), result))
-                except InterruptedError:
-                    self._events.put(("row_status", i, "หยุดแล้ว"))
-                    break
-                except Exception as exc:
-                    self._events.put(("row_status", i, f"ผิดพลาด: {exc}"))
-            self._events.put(("all_done", self._stop.is_set()))
-        threading.Thread(target=worker, daemon=True).start()
+
+        # Pressing Process again never creates another ARM/CUDA worker. It only
+        # adds currently-unfinished files to the existing scheduler.
+        pending = [
+            i for i in range(len(self.files))
+            if i not in self._completed_indices
+        ]
+        queued = self._enqueue_jobs(pending, self._active_settings)
+        self._ensure_queue_worker()
+
+        if self._processing_active():
+            if queued:
+                self._set_status(f"เพิ่มเข้าคิว {queued} ไฟล์ • ARM Core กำลังทำงาน")
+            else:
+                self._set_status("ARM Core กำลังทำงาน • ไม่มีไฟล์ซ้ำถูกเพิ่มเข้าคิว")
 
     def stop_processing(self):
         self._stop.set()
@@ -1015,11 +1160,15 @@ class App(tk.Tk):
                             vals[4] = "100%"
                         self.tree.item(str(i), values=vals)
                 elif kind == "preview_done":
-                    self._last_result = Path(ev[1])
-                    self.right_caption.configure(text="Preview: ARM V2.2.8 Core • AI เต็มทำงานเมื่อเริ่มประมวลผล")
-                    self._refresh_preview_images()
+                    _, generation, preview_index, path = ev
+                    if generation == self._preview_generation and preview_index == self.current_index:
+                        self._last_result = Path(path)
+                        self.right_caption.configure(text="Preview: ARM V2.2.8 Core • AI เต็มทำงานเมื่อเริ่มประมวลผล")
+                        self._refresh_preview_images()
                 elif kind == "preview_error":
-                    self.right_caption.configure(text="Preview ผิดพลาด: " + ev[1])
+                    _, generation, preview_index, error = ev
+                    if generation == self._preview_generation and preview_index == self.current_index:
+                        self.right_caption.configure(text="Preview ผิดพลาด: " + error)
                 elif kind == "result_done":
                     _, idx, path, result = ev
                     if self.tree.exists(str(idx)):
@@ -1036,6 +1185,7 @@ class App(tk.Tk):
                     stopped = ev[1]
                     self.progress["value"] = 100 if not stopped else self.progress["value"]
                     self._processing_started_at = None
+                    self._active_settings = None
                     self._set_status("หยุดแล้ว" if stopped else "ประมวลผลไฟล์ทั้งหมดเสร็จแล้ว")
         except queue.Empty:
             pass
