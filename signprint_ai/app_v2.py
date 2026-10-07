@@ -85,14 +85,26 @@ class App(tk.Tk):
             raw = base64.b64decode(p.read_text(encoding="utf-8").strip())
             im = Image.open(io.BytesIO(raw)).convert("RGBA")
 
-            # Remove the white background from the user's original logo while
-            # preserving red/dark artwork and anti-aliased edges.
-            data = np.array(im, dtype=np.uint8)
-            rgb = data[..., :3]
-            white_distance = 255 - rgb.min(axis=2)
-            alpha = np.clip((white_distance.astype(np.float32) - 3.0) * 18.0, 0, 255).astype(np.uint8)
-            data[..., 3] = np.minimum(data[..., 3], alpha)
-            im = Image.fromarray(data, "RGBA")
+            # Remove only the white background connected to the outer edges.
+            # This keeps intentional white details inside the Niyomsil logo.
+            from PIL import ImageDraw, ImageFilter
+            rgb_im = im.convert("RGB")
+            mask = Image.new("L", im.size, 0)
+            src = rgb_im.load()
+            mp = mask.load()
+            for yy in range(im.height):
+                for xx in range(im.width):
+                    r, g, b = src[xx, yy]
+                    if min(r, g, b) >= 238 and max(r, g, b) - min(r, g, b) <= 18:
+                        mp[xx, yy] = 255
+            for seed in ((0, 0), (im.width - 1, 0), (0, im.height - 1), (im.width - 1, im.height - 1)):
+                try:
+                    if mask.getpixel(seed) == 255:
+                        ImageDraw.floodfill(mask, seed, 128, thresh=0)
+                except Exception:
+                    pass
+            bg = mask.point(lambda v: 255 if v == 128 else 0).filter(ImageFilter.GaussianBlur(0.7))
+            im.putalpha(ImageChops.subtract(im.getchannel("A"), bg))
             bbox = im.getchannel("A").getbbox()
             if bbox:
                 im = im.crop(bbox)
