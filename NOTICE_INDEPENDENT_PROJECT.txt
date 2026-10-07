@@ -1,8 +1,12 @@
-Niyomsil Design AI Enhancer is an independent application for NIYOMSIL DESIGN / นิยมศิลป์ดีไซน์.
+Niyomsil Design AI Enhancer is a separate application for NIYOMSIL DESIGN / นิยมศิลป์ดีไซน์.
 
-This repository does not modify, push to, or depend on the ARM AI Image Enhancer repository.
-It does not bundle ARM branding, logo, QR assets, donation information, or application source code.
+This repository and its builds do not push to or modify the upstream ARM AI Image Enhancer repository.
 
-The optional Real-ESRGAN NCNN/Vulkan backend is obtained from the official Real-ESRGAN
-upstream project and remains subject to its upstream license and model terms.
-Other third-party components remain subject to their respective licenses.
+The V2 ARM Core build uses locally included processing source corresponding to the tested ARM V2.2.8 component set:
+- DeviceManager
+- EngineManager
+- RealESRGANEngine
+
+Real-ESRGAN, BasicSR, PyTorch, TorchVision and the RealESRGAN_x4plus model remain subject to their respective upstream licenses and terms.
+
+The Niyomsil Design logo and branding are user-provided assets.
