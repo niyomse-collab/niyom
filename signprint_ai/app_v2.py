@@ -333,7 +333,7 @@ class App(tk.Tk):
         self._top_action(actions, "เปิดไฟล์", "Open Image", self.choose_files)
         self._top_action(actions, "ตั้งค่า", "Settings", lambda: self.left_canvas.yview_moveto(0.35), accent="#3B82F6")
         self._top_action(actions, "ประมวลผล", "Enhance", self.start_processing)
-        self._top_action(actions, "ผลลัพธ์", "Output", self.open_output_folder, accent="#4B5563")
+        self._top_action(actions, "บันทึก", "Save", self.open_output_folder, accent="#4B5563")
         self._top_action(actions, "โฟลเดอร์", "Open Folder", self.open_output_folder, accent="#2563EB")
 
         hw = tk.Frame(head, bg="#10161C", bd=1, relief="solid", highlightthickness=1, highlightbackground="#58636E")
@@ -528,11 +528,16 @@ class App(tk.Tk):
     def _build_controls(self, parent):
         # 1. Input and print size
         size = self._section(parent, "1", "เลือกไฟล์และขนาดงานพิมพ์")
-        ttk.Button(size, text="เลือกไฟล์ภาพ…", command=self.choose_files).grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 7))
+        ttk.Button(size, text="เลือกไฟล์ภาพ…", command=self.choose_files).grid(row=0, column=0, columnspan=4, sticky="ew", pady=(0, 5))
+        self.input_path_label = tk.Label(
+            size, text="ยังไม่ได้เลือกไฟล์", bg="#111820", fg="#B8C2CB",
+            anchor="w", justify="left", wraplength=285
+        )
+        self.input_path_label.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, 6))
 
         self.use_print_size = tk.BooleanVar(value=False)
         ttk.Checkbutton(size, text="กำหนดขนาดงานพิมพ์", variable=self.use_print_size,
-                        command=self._settings_changed, style="Dark.TCheckbutton").grid(row=1, column=0, columnspan=4, sticky="w")
+                        command=self._settings_changed, style="Dark.TCheckbutton").grid(row=2, column=0, columnspan=4, sticky="w")
 
         self.width_var = tk.StringVar(value="200")
         self.height_var = tk.StringVar(value="80")
@@ -540,26 +545,26 @@ class App(tk.Tk):
         self.unit_var = tk.StringVar(value="cm")
         self.lock_ratio = tk.BooleanVar(value=True)
 
-        tk.Label(size, text="Width", bg="#111820", fg="#E8EDF2").grid(row=2, column=0, sticky="w", pady=3)
+        tk.Label(size, text="Width", bg="#111820", fg="#E8EDF2").grid(row=3, column=0, sticky="w", pady=3)
         w = ttk.Entry(size, textvariable=self.width_var, width=9, style="Dark.TEntry")
-        w.grid(row=2, column=1, sticky="ew", padx=(5, 8))
-        tk.Label(size, text="Height", bg="#111820", fg="#E8EDF2").grid(row=2, column=2, sticky="w")
+        w.grid(row=3, column=1, sticky="ew", padx=(5, 8))
+        tk.Label(size, text="Height", bg="#111820", fg="#E8EDF2").grid(row=3, column=2, sticky="w")
         h = ttk.Entry(size, textvariable=self.height_var, width=9, style="Dark.TEntry")
-        h.grid(row=2, column=3, sticky="ew", padx=(5, 0))
+        h.grid(row=3, column=3, sticky="ew", padx=(5, 0))
 
-        tk.Label(size, text="DPI", bg="#111820", fg="#E8EDF2").grid(row=3, column=0, sticky="w", pady=3)
+        tk.Label(size, text="DPI", bg="#111820", fg="#E8EDF2").grid(row=4, column=0, sticky="w", pady=3)
         dpi = ttk.Combobox(size, textvariable=self.dpi_var, values=(72, 96, 100, 150, 200, 300, 600),
                            width=7, style="Dark.TCombobox")
-        dpi.grid(row=3, column=1, sticky="ew", padx=(5, 8))
-        tk.Label(size, text="หน่วย", bg="#111820", fg="#E8EDF2").grid(row=3, column=2, sticky="w")
+        dpi.grid(row=4, column=1, sticky="ew", padx=(5, 8))
+        tk.Label(size, text="หน่วย", bg="#111820", fg="#E8EDF2").grid(row=4, column=2, sticky="w")
         unit = ttk.Combobox(size, textvariable=self.unit_var, values=("mm", "cm", "m", "inch"),
                             state="readonly", width=7, style="Dark.TCombobox")
-        unit.grid(row=3, column=3, sticky="ew", padx=(5, 0))
+        unit.grid(row=4, column=3, sticky="ew", padx=(5, 0))
 
         ttk.Checkbutton(size, text="ล็อกอัตราส่วน Width / Height", variable=self.lock_ratio,
-                        style="Dark.TCheckbutton").grid(row=4, column=0, columnspan=4, sticky="w", pady=(5, 0))
+                        style="Dark.TCheckbutton").grid(row=5, column=0, columnspan=4, sticky="w", pady=(5, 0))
         self.pixel_info = tk.Label(size, text="ขนาดพิกเซลปลายทาง: ตาม AI Upscale", bg="#111820", fg="#B8C2CB", anchor="w")
-        self.pixel_info.grid(row=5, column=0, columnspan=4, sticky="ew", pady=(5, 0))
+        self.pixel_info.grid(row=6, column=0, columnspan=4, sticky="ew", pady=(5, 0))
         size.columnconfigure(1, weight=1)
         size.columnconfigure(3, weight=1)
         w.bind("<KeyRelease>", lambda e: self._size_edited("w"))
@@ -620,7 +625,22 @@ class App(tk.Tk):
         row = tk.Frame(actions, bg="#080B0F")
         row.pack(fill="x", pady=(5, 0))
         ttk.Button(row, text="หยุดการทำงาน", command=self.stop_processing).pack(side="left", fill="x", expand=True, padx=(0, 3))
-        ttk.Button(row, text="ล้างรายการ", command=lambda: [self.tree.delete(i) for i in self.tree.get_children()]).pack(side="left", fill="x", expand=True, padx=(3, 0))
+        ttk.Button(row, text="ล้างรายการ", command=self._clear_all_files).pack(side="left", fill="x", expand=True, padx=(3, 0))
+
+    def _clear_all_files(self):
+        self.files = []
+        self.current_index = None
+        self._last_result = None
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self.left_image.configure(image="")
+        self.right_image.configure(image="")
+        self.left_caption.configure(text="ยังไม่ได้เลือกภาพ")
+        self.right_caption.configure(text="V1 Baseline • รักษาแกนประมวลผลเดิม")
+        if hasattr(self, "input_path_label"):
+            self.input_path_label.configure(text="ยังไม่ได้เลือกไฟล์")
+        self.progress["value"] = 0
+        self._set_status("พร้อมใช้งาน")
 
     def _slider(self, parent, text, var, row, lo=0, hi=100):
         tk.Label(parent, text=text, bg="#111820", fg="#E8EDF2", anchor="w").grid(row=row, column=0, sticky="w")
@@ -720,6 +740,8 @@ class App(tk.Tk):
                 except ValueError:
                     pass
             self.left_caption.configure(text=f"{p.name}   •   {w:,} × {h:,} px")
+            if hasattr(self, "input_path_label"):
+                self.input_path_label.configure(text=str(p))
             self._refresh_preview_images()
             self._settings_changed(schedule_preview=True)
         except Exception as exc:
@@ -981,7 +1003,8 @@ class App(tk.Tk):
                             vals = list(self.tree.item(str(idx), "values"))
                             while len(vals) < 6:
                                 vals.append("")
-                            vals[4] = f"{file_progress}%"
+                            bars = max(0, min(10, round(file_progress / 10)))
+                            vals[4] = f"{'█' * bars}{'░' * (10 - bars)}  {file_progress}%"
                             self.tree.item(str(idx), values=vals)
                 elif kind == "row_status":
                     i, st = ev[1], ev[2]
