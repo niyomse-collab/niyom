@@ -22,7 +22,7 @@ from .arm_core_adapter import ARMCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 
 APP_NAME = "Niyomsil Design AI Enhancer"
-APP_VERSION = "V2.0.1 ARM Core Queue Fix"
+APP_VERSION = "V2.0.2 ARM Core Multi-File Stable"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -59,6 +59,7 @@ class App(tk.Tk):
         self._job_queue: queue.Queue = queue.Queue()
         self._queue_lock = threading.Lock()
         self._processing_thread: threading.Thread | None = None
+        self._worker_generation = 0
         self._queued_indices: set[int] = set()
         self._completed_indices: set[int] = set()
         self._active_index: int | None = None
@@ -648,6 +649,13 @@ class App(tk.Tk):
             return
         self.files = []
         self._completed_indices.clear()
+        self._queued_indices.clear()
+        while True:
+            try:
+                self._job_queue.get_nowait()
+                self._job_queue.task_done()
+            except queue.Empty:
+                break
         self.current_index = None
         self._last_result = None
         for item in self.tree.get_children():
@@ -722,12 +730,20 @@ class App(tk.Tk):
             self.tree.focus("0")
             self._select_index(0)
 
-        # Files dropped/added while a batch is already running join the same
-        # scheduler automatically. They inherit the batch settings snapshot.
-        if added_indices and self._processing_active() and self._active_settings is not None:
+        # Files dropped/added while a batch is running join the same scheduler
+        # automatically. Also cover the tiny hand-off window where the previous
+        # worker has just gone idle but its all_done event has not reached Tk yet.
+        if (
+            added_indices
+            and self._active_settings is not None
+            and not self._stop.is_set()
+        ):
             queued = self._enqueue_jobs(added_indices, self._active_settings)
-            self._ensure_queue_worker()
-            self._set_status(f"เพิ่มภาพแล้ว {added} ไฟล์ • เข้าคิวเพิ่ม {queued} ไฟล์")
+            if queued:
+                self._ensure_queue_worker()
+                self._set_status(f"เพิ่มภาพแล้ว {added} ไฟล์ • เข้าคิวเพิ่ม {queued} ไฟล์")
+            else:
+                self._set_status(f"เพิ่มภาพแล้ว {added} ไฟล์")
         else:
             self._set_status(f"เพิ่มภาพแล้ว {added} ไฟล์")
 
@@ -749,6 +765,10 @@ class App(tk.Tk):
             self.tree.delete(item)
         old = list(self.files)
         self.files = []
+        # Indices are rebuilt from zero, so completed-state indices from the
+        # previous list must not survive and block unrelated files.
+        self._completed_indices.clear()
+        self._queued_indices.clear()
         self.add_files(old)
         if not self.files:
             self.left_image.configure(image="")
@@ -970,19 +990,36 @@ class App(tk.Tk):
                 return
             self._stop.clear()
             self._processing_started_at = time.monotonic()
-            worker = threading.Thread(target=self._queue_worker, daemon=True)
+            self._worker_generation += 1
+            generation = self._worker_generation
+            worker = threading.Thread(
+                target=self._queue_worker,
+                args=(generation,),
+                daemon=True,
+                name=f"NiyomsilARMQueueWorker-{generation}",
+            )
             self._processing_thread = worker
             worker.start()
 
-    def _queue_worker(self):
+    def _queue_worker(self, generation: int):
         stopped = False
         try:
             while not self._stop.is_set():
                 try:
                     idx, src, out, settings = self._job_queue.get(timeout=0.20)
                 except queue.Empty:
+                    # Atomic hand-off: mark this worker idle while holding the
+                    # same lock used by enqueue/start. A file added immediately
+                    # after this point will see no active worker and start a new
+                    # one instead of becoming an orphaned queued job.
                     with self._queue_lock:
                         if self._job_queue.empty():
+                            if (
+                                generation == self._worker_generation
+                                and threading.current_thread() is self._processing_thread
+                            ):
+                                self._processing_thread = None
+                                self._active_index = None
                             break
                     continue
 
@@ -1047,12 +1084,20 @@ class App(tk.Tk):
                     self._job_queue.task_done()
 
             with self._queue_lock:
-                if threading.current_thread() is self._processing_thread:
+                # Never let an older finishing worker erase state belonging to
+                # a newer worker that may have started during the hand-off.
+                if (
+                    generation == self._worker_generation
+                    and threading.current_thread() is self._processing_thread
+                ):
                     self._processing_thread = None
-                self._active_index = None
-                self._queued_indices.clear()
+                    self._active_index = None
 
-            self._events.put(("all_done", stopped))
+                # Do not clear _queued_indices globally here. Each job removes
+                # its own index when it starts, and Stop removes pending jobs.
+                # Global clear was the source of cross-worker queue corruption.
+
+            self._events.put(("all_done", stopped, generation))
 
     def start_processing(self):
         if not self.files:
@@ -1100,13 +1145,19 @@ class App(tk.Tk):
             if i not in self._completed_indices
         ]
         queued = self._enqueue_jobs(pending, self._active_settings)
-        self._ensure_queue_worker()
+
+        if queued:
+            self._ensure_queue_worker()
 
         if self._processing_active():
             if queued:
                 self._set_status(f"เพิ่มเข้าคิว {queued} ไฟล์ • ARM Core กำลังทำงาน")
             else:
                 self._set_status("ARM Core กำลังทำงาน • ไม่มีไฟล์ซ้ำถูกเพิ่มเข้าคิว")
+        elif not queued:
+            # All files are already complete; do not spin up an empty worker.
+            self._active_settings = None
+            self._set_status("ไม่มีไฟล์ใหม่ที่รอประมวลผล")
 
     def stop_processing(self):
         self._stop.set()
@@ -1183,6 +1234,14 @@ class App(tk.Tk):
                         self._refresh_preview_images()
                 elif kind == "all_done":
                     stopped = ev[1]
+                    generation = ev[2] if len(ev) > 2 else self._worker_generation
+
+                    # A newer worker may already be running because a new file
+                    # arrived during the old worker's shutdown hand-off.
+                    # Ignore stale completion so it cannot reset settings/status.
+                    if generation != self._worker_generation:
+                        continue
+
                     self.progress["value"] = 100 if not stopped else self.progress["value"]
                     self._processing_started_at = None
                     self._active_settings = None
