@@ -4,7 +4,7 @@ import base64
 import io
 from pathlib import Path
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "assets"
@@ -23,16 +23,29 @@ def main() -> None:
     if bbox:
         image = image.crop(bbox)
 
-    # Convert white background to transparency so Windows taskbar/installer
-    # show the user's original Niyomsil logo without a white square.
-    px = image.load()
+    # Remove only white background connected to the outer image edges.
+    # Internal white artwork in the user's logo is preserved.
+    rgb = image.convert("RGB")
+    mask = Image.new("L", image.size, 0)
+    src = rgb.load()
+    mp = mask.load()
     for y in range(image.height):
         for x in range(image.width):
-            r, g, b, a = px[x, y]
-            m = min(r, g, b)
-            if m >= 246:
-                alpha = max(0, int((255 - m) * 28))
-                px[x, y] = (r, g, b, min(a, alpha))
+            r, g, b = src[x, y]
+            if min(r, g, b) >= 238 and max(r, g, b) - min(r, g, b) <= 18:
+                mp[x, y] = 255
+
+    for seed in ((0, 0), (image.width - 1, 0), (0, image.height - 1), (image.width - 1, image.height - 1)):
+        try:
+            if mask.getpixel(seed) == 255:
+                ImageDraw.floodfill(mask, seed, 128, thresh=0)
+        except Exception:
+            pass
+
+    bg = mask.point(lambda v: 255 if v == 128 else 0)
+    bg = bg.filter(ImageFilter.GaussianBlur(0.7))
+    alpha = ImageChops.subtract(image.getchannel("A"), bg)
+    image.putalpha(alpha)
 
     bbox = image.getchannel("A").getbbox()
     if bbox:
