@@ -73,7 +73,7 @@ class FaceProtectionModule:
         # helper used later by the render worker.
         self._detector_helper = None
         self._detector_device: str | None = None
-        self._detector_lock = threading.Lock()
+        self._detector_lock = threading.RLock()
 
     @property
     def model_dir(self) -> Path:
