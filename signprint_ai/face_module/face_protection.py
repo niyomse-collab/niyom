@@ -7,15 +7,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
 
-# Keep the optional face pass conservative on very large print masters.  If the
-# image is above this limit we return the exact ARM output instead of risking a
-# large extra memory allocation.
+# Keep the optional face pass conservative on very large print masters. If the
+# final print image is above this limit, preserve the exact ARM output instead
+# of risking a large extra memory allocation in the optional face layer.
 MAX_FACE_PIXELS = 80_000_000
+
+# Auto-detection works from a reduced preview image so adding a large banner
+# does not allocate the full print-resolution face detector graph.
+DETECT_MAX_SIDE = 1800
 
 
 @dataclass(frozen=True)
@@ -23,6 +27,7 @@ class FaceProtectionResult:
     enabled: bool
     applied: bool
     face_count: int = 0
+    detected_count: int = 0
     mode: str = "protect"
     strength: int = 35
     skipped_reason: str | None = None
@@ -32,6 +37,7 @@ class FaceProtectionResult:
             "enabled": self.enabled,
             "applied": self.applied,
             "face_count": self.face_count,
+            "detected_count": self.detected_count,
             "mode": self.mode,
             "strength": self.strength,
             "skipped_reason": self.skipped_reason,
@@ -47,17 +53,27 @@ def resource_root() -> Path:
 
 
 class FaceProtectionModule:
-    """Optional GFPGAN/FaceXLib face restoration layer.
+    """Optional GFPGAN/FaceXLib face protection layer.
 
-    The module is lazy: GFPGAN, FaceXLib and their models are not loaded until
-    Face Protection is explicitly enabled.  Failures never replace or modify
-    the successful ARM result; the caller can simply keep the original image.
+    The proven ARM/Real-ESRGAN engine is intentionally separate. Detection can
+    run automatically when a file is added, while GFPGAN itself is loaded only
+    when the user has explicitly selected one or more faces for protection.
+
+    Any failure in this optional layer must leave the already-produced ARM
+    result untouched.
     """
 
     def __init__(self):
         self._backend = None
         self._backend_device: str | None = None
         self._backend_lock = threading.Lock()
+
+        # Detector-only helper used by the upload-time automatic scan. Keeping
+        # it separate prevents UI analysis from mutating the full restoration
+        # helper used later by the render worker.
+        self._detector_helper = None
+        self._detector_device: str | None = None
+        self._detector_lock = threading.Lock()
 
     @property
     def model_dir(self) -> Path:
@@ -75,11 +91,21 @@ class FaceProtectionModule:
         except Exception:
             return False
 
+    @property
+    def detector_available(self) -> bool:
+        try:
+            return (
+                importlib.util.find_spec("facexlib") is not None
+                and (self.model_dir / "detection_Resnet50_Final.pth").is_file()
+            )
+        except Exception:
+            return False
+
     @staticmethod
     def _effective_device(device_name: str | None) -> str:
         value = (device_name or "cpu").strip()
-        # Keep the behavior used by the ARM source: DirectML is not validated
-        # for GFPGAN/FaceXLib, so face recovery uses CPU in that case.
+        # GFPGAN/FaceXLib on DirectML is not validated. Keep the optional face
+        # layer on CPU there while the ARM engine can still use DirectML.
         if value.lower().startswith("dml:"):
             return "cpu"
         if value.upper() == "AUTO":
@@ -90,6 +116,37 @@ class FaceProtectionModule:
                 return "cpu"
         return value
 
+    def _make_helper(self, device):
+        from facexlib.utils.face_restoration_helper import FaceRestoreHelper
+
+        return FaceRestoreHelper(
+            1,
+            face_size=512,
+            crop_ratio=(1, 1),
+            det_model="retinaface_resnet50",
+            save_ext="png",
+            use_parse=False,
+            device=device,
+            model_rootpath=str(self.model_dir),
+        )
+
+    def _load_detector(self, device_name: str | None = "cpu"):
+        effective = self._effective_device(device_name)
+        with self._detector_lock:
+            if self._detector_helper is not None and self._detector_device == effective:
+                return self._detector_helper
+
+            import torch
+
+            detector_model = self.model_dir / "detection_Resnet50_Final.pth"
+            if not detector_model.is_file():
+                raise FileNotFoundError(f"Missing face detector model: {detector_model}")
+
+            helper = self._make_helper(torch.device(effective))
+            self._detector_helper = helper
+            self._detector_device = effective
+            return helper
+
     def _load_backend(self, device_name: str | None):
         effective = self._effective_device(device_name)
         with self._backend_lock:
@@ -97,7 +154,6 @@ class FaceProtectionModule:
                 return self._backend
 
             import torch
-            from facexlib.utils.face_restoration_helper import FaceRestoreHelper
             from gfpgan.archs.gfpganv1_clean_arch import GFPGANv1Clean
 
             model_dir = self.model_dir
@@ -127,19 +183,7 @@ class FaceProtectionModule:
             network.load_state_dict(weights, strict=True)
             network.eval().to(device)
 
-            # use_parse=False intentionally avoids the extra ParseNet model.  We
-            # need only RetinaFace landmarks + the soft paste mask for this
-            # conservative signage workflow.
-            helper = FaceRestoreHelper(
-                1,
-                face_size=512,
-                crop_ratio=(1, 1),
-                det_model="retinaface_resnet50",
-                save_ext="png",
-                use_parse=False,
-                device=device,
-                model_rootpath=str(model_dir),
-            )
+            helper = self._make_helper(device)
 
             self._backend = {
                 "network": network,
@@ -151,14 +195,7 @@ class FaceProtectionModule:
             return self._backend
 
     def smoke_test(self, device_name: str = "cpu") -> None:
-        """Lightweight packaged-backend validation for CI.
-
-        Full GFPGAN + RetinaFace initialization on a CPU-only GitHub runner can
-        take long enough to hit the workflow timeout.  Runtime inference remains
-        lazy and is exercised on the user's CUDA machine when Face Protection is
-        enabled.  CI validates the packaged imports and exact model files here;
-        SHA256 checks are performed separately by the workflow.
-        """
+        """Lightweight packaged-backend validation for CI."""
         from facexlib.utils.face_restoration_helper import FaceRestoreHelper  # noqa: F401
         from gfpgan.archs.gfpganv1_clean_arch import GFPGANv1Clean  # noqa: F401
 
@@ -171,14 +208,163 @@ class FaceProtectionModule:
             raise FileNotFoundError("Missing packaged Face Protect model(s): " + ", ".join(missing))
 
     @staticmethod
+    def _box_from_landmarks(landmarks, width: int, height: int):
+        import numpy as np
+
+        pts = np.asarray(landmarks, dtype=np.float32).reshape(-1, 2)
+        min_xy = pts.min(axis=0)
+        max_xy = pts.max(axis=0)
+        center = pts.mean(axis=0)
+
+        span_x = max(12.0, float(max_xy[0] - min_xy[0]))
+        span_y = max(12.0, float(max_xy[1] - min_xy[1]))
+
+        # Expand well beyond the 5 landmarks so the clickable rectangle covers
+        # the full face rather than only eyes/nose/mouth.
+        box_w = max(span_x * 2.4, span_y * 1.8, 40.0)
+        box_h = max(span_y * 2.9, span_x * 2.1, 48.0)
+
+        cx = float(center[0])
+        cy = float(center[1] - 0.08 * box_h)
+        x1 = max(0.0, cx - box_w / 2)
+        y1 = max(0.0, cy - box_h / 2)
+        x2 = min(float(width), cx + box_w / 2)
+        y2 = min(float(height), cy + box_h / 2)
+
+        return (
+            int(round(x1)),
+            int(round(y1)),
+            int(round(x2)),
+            int(round(y2)),
+        )
+
+    def detect_faces(
+        self,
+        image_or_path: Image.Image | str | Path,
+        *,
+        device_name: str | None = "cpu",
+        max_side: int = DETECT_MAX_SIDE,
+    ) -> list[dict]:
+        """Detect faces for UI selection without loading the GFPGAN network.
+
+        Returns original-image pixel boxes and normalized face centers. The
+        normalized centers are later used to match the user's selected faces
+        after ARM upscaling, even if the output dimensions differ.
+        """
+        if not self.detector_available:
+            return []
+
+        import cv2
+        import numpy as np
+
+        close_after = False
+        if isinstance(image_or_path, Image.Image):
+            source = ImageOps.exif_transpose(image_or_path).convert("RGB")
+        else:
+            opened = Image.open(image_or_path)
+            close_after = True
+            source = ImageOps.exif_transpose(opened).convert("RGB")
+
+        try:
+            original_w, original_h = source.size
+            scale = min(1.0, float(max_side) / max(original_w, original_h))
+            if scale < 1.0:
+                detect_image = source.resize(
+                    (
+                        max(1, round(original_w * scale)),
+                        max(1, round(original_h * scale)),
+                    ),
+                    Image.Resampling.LANCZOS,
+                )
+            else:
+                detect_image = source
+
+            rgb = np.asarray(detect_image)
+            bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+            # Serialize detector-helper access because FaceRestoreHelper mutates
+            # internal lists on every image.
+            with self._detector_lock:
+                helper = self._load_detector(device_name)
+                helper.clean_all()
+                helper.read_image(bgr.copy())
+                helper.get_face_landmarks_5()
+                helper.align_warp_face()
+                landmarks_list = [
+                    np.asarray(face, dtype=np.float32).copy()
+                    for face in helper.all_landmarks_5
+                ]
+                helper.clean_all()
+
+            results: list[dict] = []
+            inv_scale = 1.0 / max(scale, 1e-8)
+            for index, landmarks in enumerate(landmarks_list):
+                original_landmarks = landmarks * inv_scale
+                box = self._box_from_landmarks(original_landmarks, original_w, original_h)
+                center_x = float(original_landmarks[:, 0].mean()) / max(1, original_w)
+                center_y = float(original_landmarks[:, 1].mean()) / max(1, original_h)
+                results.append(
+                    {
+                        "index": index,
+                        "box": box,
+                        "center": (
+                            max(0.0, min(1.0, center_x)),
+                            max(0.0, min(1.0, center_y)),
+                        ),
+                    }
+                )
+            return results
+        finally:
+            if close_after:
+                try:
+                    opened.close()
+                except Exception:
+                    pass
+
+    @staticmethod
     def _blend_alpha(mode: str, strength: int) -> float:
         normalized = max(0.0, min(1.0, float(strength) / 100.0))
         if str(mode).lower() == "recover":
-            # Recovery may be stronger but is still capped to preserve identity.
             return min(0.75, normalized)
-        # Protect is deliberately conservative: it should stabilize facial
-        # structure, not invent a new face.
         return min(0.45, normalized)
+
+    @staticmethod
+    def _match_selected_faces(landmarks_list, image_size, targets):
+        import numpy as np
+
+        width, height = image_size
+        if targets is None:
+            return list(range(len(landmarks_list)))
+        if not targets or not landmarks_list:
+            return []
+
+        centers = []
+        for landmarks in landmarks_list:
+            pts = np.asarray(landmarks, dtype=np.float32).reshape(-1, 2)
+            centers.append(
+                (
+                    float(pts[:, 0].mean()) / max(1, width),
+                    float(pts[:, 1].mean()) / max(1, height),
+                )
+            )
+
+        selected: list[int] = []
+        unused = set(range(len(centers)))
+        # A 0.20 normalized-distance gate avoids selecting a completely
+        # different person if detector order changes after upscaling.
+        max_dist_sq = 0.20 * 0.20
+        for tx, ty in targets:
+            if not unused:
+                break
+            best = min(
+                unused,
+                key=lambda i: (centers[i][0] - tx) ** 2 + (centers[i][1] - ty) ** 2,
+            )
+            dist_sq = (centers[best][0] - tx) ** 2 + (centers[best][1] - ty) ** 2
+            if dist_sq <= max_dist_sq:
+                selected.append(best)
+                unused.remove(best)
+        return selected
 
     def apply(
         self,
@@ -187,6 +373,7 @@ class FaceProtectionModule:
         device_name: str | None,
         mode: str = "protect",
         strength: int = 35,
+        selected_targets: tuple[tuple[float, float], ...] | None = None,
         progress: ProgressFn = None,
         cancel: CancelFn = None,
     ) -> tuple[Image.Image, FaceProtectionResult]:
@@ -198,7 +385,6 @@ class FaceProtectionModule:
             return rgb_image, FaceProtectionResult(
                 enabled=True,
                 applied=False,
-                face_count=0,
                 mode=mode,
                 strength=strength,
                 skipped_reason="ภาพมีขนาดใหญ่เกินขีดจำกัดหน่วยความจำของ Face Protect",
@@ -208,14 +394,13 @@ class FaceProtectionModule:
             return rgb_image, FaceProtectionResult(
                 enabled=True,
                 applied=False,
-                face_count=0,
                 mode=mode,
                 strength=strength,
                 skipped_reason="ไม่พบ GFPGAN / FaceXLib หรือโมเดลใบหน้าที่แพ็กไว้",
             )
 
         if progress:
-            progress(0, "Face Protect · ตรวจจับใบหน้า")
+            progress(0, "Face Protect · ตรวจจับใบหน้าที่เลือก")
 
         import cv2
         import numpy as np
@@ -227,7 +412,6 @@ class FaceProtectionModule:
         network = backend["network"]
         torch = backend["torch"]
 
-        # Clear unused cached CUDA blocks left by the preceding ARM inference.
         try:
             if str(backend["device"]).startswith("cuda"):
                 torch.cuda.empty_cache()
@@ -240,25 +424,54 @@ class FaceProtectionModule:
         helper.get_face_landmarks_5()
         helper.align_warp_face()
 
-        face_count = len(helper.cropped_faces)
-        if face_count == 0:
+        all_crops = [face.copy() for face in helper.cropped_faces]
+        all_landmarks = [face.copy() for face in helper.all_landmarks_5]
+        all_affine = [matrix.copy() for matrix in helper.affine_matrices]
+        detected_count = len(all_crops)
+
+        if detected_count == 0:
             helper.clean_all()
             return rgb_image, FaceProtectionResult(
                 enabled=True,
                 applied=False,
                 face_count=0,
+                detected_count=0,
                 mode=mode,
                 strength=strength,
-                skipped_reason=None,
             )
 
-        if progress:
-            progress(20, f"Face Protect · พบ {face_count} ใบหน้า")
+        selected_indices = self._match_selected_faces(
+            all_landmarks,
+            rgb_image.size,
+            selected_targets,
+        )
+        if not selected_indices:
+            helper.clean_all()
+            return rgb_image, FaceProtectionResult(
+                enabled=True,
+                applied=False,
+                face_count=0,
+                detected_count=detected_count,
+                mode=mode,
+                strength=strength,
+                skipped_reason="ไม่พบใบหน้าที่ตรงกับตำแหน่งที่ผู้ใช้เลือก",
+            )
 
+        # Mirror the selection behavior of the original ARM face workflow: only
+        # selected geometry is kept before inverse-affine paste-back.
+        helper.cropped_faces = [all_crops[i].copy() for i in selected_indices]
+        helper.all_landmarks_5 = [all_landmarks[i].copy() for i in selected_indices]
+        helper.affine_matrices = [all_affine[i].copy() for i in selected_indices]
+        helper.restored_faces = []
         helper.get_inverse_affine()
+
+        selected_count = len(selected_indices)
+        if progress:
+            progress(20, f"Face Protect · เลือก {selected_count}/{detected_count} ใบหน้า")
+
         alpha = self._blend_alpha(mode, strength)
 
-        for index, crop in enumerate(list(helper.cropped_faces)):
+        for position, crop in enumerate(list(helper.cropped_faces), start=1):
             if cancel and cancel():
                 helper.clean_all()
                 raise InterruptedError("Processing stopped by user")
@@ -281,8 +494,6 @@ class FaceProtectionModule:
                 min_max=(-1, 1),
             ).astype(np.uint8)
 
-            # Blend the restored crop with the ARM crop before paste-back.  This
-            # is the identity-preservation guard that keeps Protect mode mild.
             if alpha < 1.0:
                 restored_face = cv2.addWeighted(
                     crop,
@@ -295,21 +506,21 @@ class FaceProtectionModule:
             helper.add_restored_face(restored_face)
 
             if progress:
-                done = 20 + round(65 * (index + 1) / max(1, face_count))
-                progress(done, f"Face Protect · ใบหน้า {index + 1}/{face_count}")
+                done = 20 + round(65 * position / max(1, selected_count))
+                progress(done, f"Face Protect · ใบหน้า {position}/{selected_count}")
 
         result_bgr = helper.paste_faces_to_input_image()
         helper.clean_all()
         result_rgb = cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB)
 
         if progress:
-            progress(100, f"Face Protect · เสร็จ {face_count} ใบหน้า")
+            progress(100, f"Face Protect · เสร็จ {selected_count} ใบหน้า")
 
         return Image.fromarray(result_rgb), FaceProtectionResult(
             enabled=True,
             applied=True,
-            face_count=face_count,
+            face_count=selected_count,
+            detected_count=detected_count,
             mode=mode,
             strength=strength,
-            skipped_reason=None,
         )
