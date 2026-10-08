@@ -10,6 +10,7 @@ from PIL import Image, ImageOps
 
 from app.engine.engine_manager import EngineManager
 from .processing import EnhanceSettings, print_pixels, save_image
+from .face_module import FaceProtectionModule
 
 ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
@@ -33,6 +34,7 @@ class ARMCoreAdapter:
 
     def __init__(self):
         self.engine_manager = EngineManager()
+        self.face_module = FaceProtectionModule()
         # app_v2 historically checks pipeline.ai.available; keep that API.
         self.ai = self
 
@@ -186,8 +188,49 @@ class ARMCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
+        # Optional face layer: disabled means the exact proven ARM output above
+        # flows directly to Save Output unchanged.
+        face_info = {
+            "enabled": bool(getattr(settings, "face_protection", False)),
+            "applied": False,
+            "face_count": 0,
+            "mode": getattr(settings, "face_mode", "protect"),
+            "strength": int(getattr(settings, "face_strength", 35)),
+            "skipped_reason": None,
+        }
+        if use_ai and face_info["enabled"]:
+            try:
+                selected_device = self.engine_manager.device_manager.get_default_device()
+                device_id = getattr(selected_device, "device_id", "cpu")
+
+                def face_progress(value, message):
+                    if progress:
+                        progress(88 + round(6 * max(0, min(100, value)) / 100), message)
+
+                protected, face_result = self.face_module.apply(
+                    output,
+                    device_name=device_id,
+                    mode=face_info["mode"],
+                    strength=face_info["strength"],
+                    progress=face_progress,
+                    cancel=cancel,
+                )
+                output = protected
+                face_info = face_result.as_dict()
+            except InterruptedError:
+                raise
+            except Exception as exc:
+                # Face Protection is optional by design. If it fails, keep the
+                # exact ARM result instead of failing or altering the job.
+                face_info["skipped_reason"] = f"Face Protect ข้ามการทำงาน: {exc}"
+                if progress:
+                    progress(94, "Face Protect ข้าม — ใช้ผล ARM Core เดิม")
+
+        if cancel and cancel():
+            raise InterruptedError("Processing stopped by user")
+
         if progress:
-            progress(94, "Save Output")
+            progress(96 if face_info["enabled"] else 94, "Save Output")
 
         dst.parent.mkdir(parents=True, exist_ok=True)
 
@@ -231,4 +274,5 @@ class ARMCoreAdapter:
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "ARM V2.2.8 / RealESRGAN_x4plus (PyTorch)",
+            "face_protection": face_info,
         }
