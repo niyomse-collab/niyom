@@ -22,7 +22,7 @@ from .arm_core_adapter import ARMCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 
 APP_NAME = "Niyomsil Design AI Enhancer"
-APP_VERSION = "V2.0.2 ARM Core Multi-File Stable"
+APP_VERSION = "V2.1 Face Protect Build"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -328,7 +328,7 @@ class App(tk.Tk):
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
         tk.Label(line1, text="ดีไซน์", bg="#111820", fg="#FF2028",
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
-        tk.Label(line1, text=" V2.0", bg="#111820", fg="#FFFFFF",
+        tk.Label(line1, text=" V2.1", bg="#111820", fg="#FFFFFF",
                  font=(self.ui_font_family, 16, "bold")).pack(side="left", padx=(6, 0), pady=(8, 0))
         tk.Label(
             title,
@@ -620,6 +620,47 @@ class App(tk.Tk):
         self._slider(quality, "Anti-Halo Sharpen", self.sharp_var, 4)
         self._slider(quality, "Saturation", self.sat_var, 5, -30, 30)
 
+        # Optional face module. OFF is the compatibility mode: the exact ARM
+        # output path is unchanged and no GFPGAN/FaceXLib model is loaded.
+        tk.Frame(quality, bg="#37414B", height=1).grid(
+            row=6, column=0, columnspan=3, sticky="ew", pady=(8, 7)
+        )
+        self.face_enabled_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            quality,
+            text="Face Protection (โมดูลเสริมสำหรับภาพบุคคล)",
+            variable=self.face_enabled_var,
+            command=self._settings_changed,
+            style="Dark.TCheckbutton",
+        ).grid(row=7, column=0, columnspan=3, sticky="w")
+
+        tk.Label(
+            quality, text="โหมด", bg="#111820", fg="#E8EDF2", anchor="w"
+        ).grid(row=8, column=0, sticky="w", pady=(5, 0))
+        self.face_mode_var = tk.StringVar(value="Protect")
+        face_mode = ttk.Combobox(
+            quality,
+            textvariable=self.face_mode_var,
+            values=("Protect", "Recover"),
+            state="readonly",
+            width=14,
+            style="Dark.TCombobox",
+        )
+        face_mode.grid(row=8, column=1, sticky="ew", padx=6, pady=(5, 0))
+        face_mode.bind("<<ComboboxSelected>>", lambda _e: self._settings_changed())
+
+        self.face_strength_var = tk.IntVar(value=35)
+        self._slider(quality, "Face Strength", self.face_strength_var, 9, 10, 80)
+        tk.Label(
+            quality,
+            text="ปิด Face Protection = ผลลัพธ์ ARM Core เดิม • Protect แนะนำสำหรับงานป้าย",
+            bg="#111820",
+            fg="#84D8FF",
+            anchor="w",
+            justify="left",
+            wraplength=285,
+        ).grid(row=10, column=0, columnspan=3, sticky="ew", pady=(5, 0))
+
         # 4. Device status — display only; processing backend is untouched.
         device = self._section(parent, "4", "เลือกอุปกรณ์ประมวลผล")
         tk.Label(device, text="AUTO (แนะนำ)", bg="#0B1015", fg="#FFFFFF", anchor="w",
@@ -878,6 +919,9 @@ class App(tk.Tk):
             v1_baseline=self.v1_mode.get(),
             color_mode=self.color_mode_var.get(),
             icc_profile_path=(self.icc_profile_path_var.get() or None),
+            face_protection=self.face_enabled_var.get(),
+            face_mode=self.face_mode_var.get().lower(),
+            face_strength=round(self.face_strength_var.get()),
         )
         if self.use_print_size.get():
             s.print_width = float(self.width_var.get())
@@ -1222,15 +1266,34 @@ class App(tk.Tk):
                         self.right_caption.configure(text="Preview ผิดพลาด: " + error)
                 elif kind == "result_done":
                     _, idx, path, result = ev
+                    face = result.get("face_protection") or {}
+                    face_text = ""
+                    if face.get("enabled"):
+                        if face.get("applied"):
+                            face_text = f" • Face {face.get('face_count', 0)}"
+                        elif face.get("skipped_reason"):
+                            face_text = " • Face ข้าม"
+                        else:
+                            face_text = " • ไม่พบใบหน้า"
+
                     if self.tree.exists(str(idx)):
                         vals = list(self.tree.item(str(idx), "values"))
                         while len(vals) < 6:
                             vals.append("")
-                        vals[5] = "สำเร็จ"
+                        vals[5] = "สำเร็จ" + face_text
                         self.tree.item(str(idx), values=vals)
+
                     if idx == self.current_index:
                         self._last_result = Path(path)
-                        self.right_caption.configure(text=f"ผลลัพธ์จริง: {result['output_size'][0]:,} × {result['output_size'][1]:,} px")
+                        caption = f"ผลลัพธ์จริง: {result['output_size'][0]:,} × {result['output_size'][1]:,} px"
+                        if face.get("enabled"):
+                            if face.get("applied"):
+                                caption += f" • Face Protect {face.get('face_count', 0)} ใบหน้า"
+                            elif face.get("skipped_reason"):
+                                caption += f" • {face.get('skipped_reason')}"
+                            else:
+                                caption += " • ไม่พบใบหน้า"
+                        self.right_caption.configure(text=caption)
                         self._refresh_preview_images()
                 elif kind == "all_done":
                     stopped = ev[1]
