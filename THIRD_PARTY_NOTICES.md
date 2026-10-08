@@ -1,12 +1,21 @@
 # Third-party notices
 
-This project is an independent application. It can use these third-party components when built:
+Niyomsil Design AI Enhancer is an independent application.
 
-- **Real-ESRGAN / realesrgan-ncnn-vulkan** — official upstream project by Xintao Wang and contributors. The build helper downloads the official Windows NCNN/Vulkan release directly from its GitHub releases. Review the upstream license/model terms included with that release before redistribution.
-- **OpenCV** — used for edge-preserving denoise, flat-area smoothing, local contrast and anti-halo sharpening. Subject to the OpenCV license.
-- **Pillow** — used for image I/O and previews. Subject to the Pillow license.
-- **NumPy** — numerical array processing. Subject to the NumPy license.
-- **PyInstaller** — used only to freeze the Windows desktop application. Subject to its upstream license and bootloader exception.
-- **windnd** — optional Windows drag-and-drop helper. Subject to its upstream license.
+The V2.1 build can include these third-party components:
 
-No source code, logo, QR image, donation information, installer code, or branding from ARM AI Image Enhancer is bundled in this project.
+- **Real-ESRGAN / BasicSR** — image super-resolution and supporting model architecture. Upstream projects by Xintao Wang and contributors; subject to their upstream licenses and model terms.
+- **PyTorch / TorchVision** — neural inference runtime; subject to their upstream licenses.
+- **GFPGAN 1.3.8** — optional face-restoration module. Upstream TencentARC/GFPGAN project, Apache-2.0 project license.
+- **facexlib 0.3.0** — optional face detection/alignment helpers, including the RetinaFace integration; subject to its upstream license.
+- **GFPGANv1.4.pth** — optional face-restoration checkpoint distributed from the official GFPGAN release.
+- **detection_Resnet50_Final.pth** — RetinaFace ResNet50 detector checkpoint distributed through the facexlib release.
+- **OpenCV** — image conversion/blending utilities.
+- **Pillow** — image I/O, previews, and color-management integration.
+- **NumPy** — numerical array processing.
+- **PyInstaller** — Windows application freezing.
+- **windnd** — optional Windows drag-and-drop helper.
+
+Face Protection is an optional post-ARM layer and defaults OFF. No ARM engine source file is modified by enabling or disabling this optional feature.
+
+The Niyomsil Design logo and branding are user-provided assets.
