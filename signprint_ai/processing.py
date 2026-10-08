@@ -32,6 +32,12 @@ class EnhanceSettings:
     color_mode: str = "RGB"
     icc_profile_path: str | None = None
 
+    # Optional face layer. These fields are metadata only; the legacy image
+    # enhancement functions in this module do not read them.
+    face_protection: bool = False
+    face_mode: str = "protect"  # protect | recover
+    face_strength: int = 35
+
 
 def _notify(cb: ProgressFn, value: int, label: str) -> None:
     if cb:
