@@ -646,7 +646,6 @@ class App(tk.Tk):
         ).grid(row=7, column=0, columnspan=3, sticky="ew")
 
         # 4. Device status — display only; processing backend is untouched.
-        # 4. Device status — display only; processing backend is untouched.
         device = self._section(parent, "4", "เลือกอุปกรณ์ประมวลผล")
         tk.Label(device, text="AUTO (แนะนำ)", bg="#0B1015", fg="#FFFFFF", anchor="w",
                  padx=8, pady=7, bd=1, relief="solid").pack(fill="x")
@@ -1108,7 +1107,6 @@ class App(tk.Tk):
         self.after(100, self.start_processing)
 
     def remove_selected(self):
-    def remove_selected(self):
         if self._processing_active() or self._queued_indices:
             messagebox.showinfo(
                 APP_NAME,
@@ -1129,6 +1127,7 @@ class App(tk.Tk):
         self._face_detection_generation += 1
         self._face_states.clear()
         self._face_selector_queue.clear()
+        self._pending_start_after_face_analysis = False
         if self._face_selector_window is not None:
             try:
                 self._face_selector_window.destroy()
@@ -1376,7 +1375,6 @@ class App(tk.Tk):
                     self._events.put(("row_status", idx, "รอคิว"))
         return queued
 
-    def _ensure_queue_worker(self):
     def _ensure_queue_worker(self):
         with self._queue_lock:
             if self._processing_thread and self._processing_thread.is_alive():
