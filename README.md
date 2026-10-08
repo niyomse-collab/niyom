@@ -1,36 +1,25 @@
-# Niyomsil Design AI Enhancer — V2.0 ARM Core Build
+# Niyomsil Design AI Enhancer — V2.1 Face Protect Build
 
-V2 keeps the black/red Niyomsil Design interface and switches the AI engine to the tested ARM V2.2.8 PyTorch/CUDA processing path.
+V2.1 preserves the proven V2.0.2 ARM V2.2.8 / RealESRGAN_x4plus processing path and adds an isolated optional face-protection layer.
 
-Processing path:
-V2 UI → ARMCoreAdapter → EngineManager → RealESRGANEngine → RealESRGAN_x4plus.pth
+Compatibility rule:
+- Face Protection defaults OFF.
+- OFF means the existing ARM output path is used unchanged.
+- GFPGAN/FaceXLib are loaded only when the option is enabled.
+- A Face Protect failure falls back to the already-produced ARM result.
 
-The imported ARM core files match the proven `v1-arm-core` branch by Git blob SHA.
+Stable pre-face snapshot:
+`v2.0.2-arm-stable-before-face-module`
 
-Core behavior:
-- PyTorch CUDA
-- RealESRGAN_x4plus
-- CUDA tile 256, tile pad 10, pre-pad 0
-- FP32 tested path
-- 8x uses a 4x AI pass followed by a 2x AI pass
-- no NCNN backend in this build
-- no post-AI denoise/contrast/sharpen filters
-- RGB PNG preserves final ARM-core pixels
-- CMYK/ICC is export-only
+Optional path:
+ARM Core → RetinaFace detection → GFPGAN restoration → conservative blend → export.
 
-Model SHA256:
-`4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1`
+Modes:
+- Protect: conservative identity-preserving blend for signage.
+- Recover: stronger restoration for damaged/blurred faces.
 
-The Windows application and installer icons use the user's Niyomsil Design logo with edge-connected white background removed to alpha transparency while preserving intentional internal white artwork.
-
-Pre-ARM V2 snapshot:
-`v2-ncnn-stable`
-
-Build:
-GitHub Actions → Build Windows Installer → Run workflow
-
-Artifact:
-`Niyomsil-Design-AI-Enhancer-V2-ARM-Core-Windows`
+Build artifact:
+`Niyomsil-Design-AI-Enhancer-V2.1-Face-Protect-Windows`
 
 Installer:
-`Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe`
+`Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe`
