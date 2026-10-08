@@ -2,7 +2,7 @@
 
 Niyomsil Design AI Enhancer is an independent application.
 
-The V2.1 build can include these third-party components:
+The V2.1.1 build can include these third-party components:
 
 - **Real-ESRGAN / BasicSR** — image super-resolution and supporting model architecture. Upstream projects by Xintao Wang and contributors; subject to their upstream licenses and model terms.
 - **PyTorch / TorchVision** — neural inference runtime; subject to their upstream licenses.
@@ -16,6 +16,6 @@ The V2.1 build can include these third-party components:
 - **PyInstaller** — Windows application freezing.
 - **windnd** — optional Windows drag-and-drop helper.
 
-Face Protection is an optional post-ARM layer and defaults OFF. No ARM engine source file is modified by enabling or disabling this optional feature.
+RetinaFace detection runs automatically at upload time to offer face selection. GFPGAN restoration remains optional and is applied only to user-selected faces after ARM processing. No ARM engine source file is modified by this feature.
 
 The Niyomsil Design logo and branding are user-provided assets.
