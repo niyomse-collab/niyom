@@ -24,7 +24,7 @@ jobs:
       - name: Validate V2 UI and ARM core source
         shell: powershell
         run: |
-          python -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py app\device\device_manager.py app\engine\engine_manager.py app\engine\realesrgan_engine.py tools\generate_brand_assets.py
+          python -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py signprint_ai\face_module\__init__.py signprint_ai\face_module\face_protection.py app\device\device_manager.py app\engine\engine_manager.py app\engine\realesrgan_engine.py tools\generate_brand_assets.py
 
       - name: Build V2 ARM Core installer
         shell: powershell
@@ -43,19 +43,44 @@ jobs:
           }
           Write-Host "Packaged EXE import smoke test passed."
 
+      - name: Smoke-test packaged Face Protect backend
+        shell: powershell
+        run: |
+          $exe = ".\\dist\\NiyomsilAIEnhancer\\NiyomsilAIEnhancer.exe"
+          if (-not (Test-Path $exe)) { throw "Missing packaged EXE before Face Protect smoke test" }
+          $env:NIYOMSIL_FACE_BACKEND_SMOKE = "1"
+          $proc = Start-Process -FilePath $exe -PassThru -Wait
+          Remove-Item Env:NIYOMSIL_FACE_BACKEND_SMOKE -ErrorAction SilentlyContinue
+          if ($proc.ExitCode -ne 0) {
+            throw "Packaged Face Protect backend smoke test failed with exit code $($proc.ExitCode)"
+          }
+          Write-Host "Packaged Face Protect backend smoke test passed."
+
       - name: Verify ARM PyTorch core package
         shell: powershell
         run: |
           $exe = ".\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe"
           $model = ".\dist\NiyomsilAIEnhancer\_internal\models\RealESRGAN_x4plus.pth"
+          $gfpgan = ".\dist\NiyomsilAIEnhancer\_internal\models\face\GFPGANv1.4.pth"
+          $retina = ".\dist\NiyomsilAIEnhancer\_internal\models\face\detection_Resnet50_Final.pth"
           $proof = ".\dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt"
-          if (-not (Test-Path $exe)) { throw "Missing V2 executable" }
+          if (-not (Test-Path $exe)) { throw "Missing V2.1 executable" }
           if (-not (Test-Path $model)) { throw "Missing ARM RealESRGAN_x4plus model" }
+          if (-not (Test-Path $gfpgan)) { throw "Missing GFPGANv1.4 model" }
+          if (-not (Test-Path $retina)) { throw "Missing RetinaFace detector model" }
           if (-not (Test-Path $proof)) { throw "Missing ARM core build proof" }
 
           $expected = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
           $actual = (Get-FileHash -Algorithm SHA256 $model).Hash.ToLower()
           if ($actual -ne $expected) { throw "Packaged model SHA256 mismatch: $actual" }
+
+          $expectedGfpgan = "e2cd4703ab14f4d01fd1383a8a8b266f9a5833dacee8e6a79d3bf21a1b6be5ad"
+          $actualGfpgan = (Get-FileHash -Algorithm SHA256 $gfpgan).Hash.ToLower()
+          if ($actualGfpgan -ne $expectedGfpgan) { throw "Packaged GFPGAN SHA256 mismatch: $actualGfpgan" }
+
+          $expectedRetina = "6d1de9c2944f2ccddca5f5e010ea5ae64a39845a86311af6fdf30841b0a5a16d"
+          $actualRetina = (Get-FileHash -Algorithm SHA256 $retina).Hash.ToLower()
+          if ($actualRetina -ne $expectedRetina) { throw "Packaged RetinaFace SHA256 mismatch: $actualRetina" }
 
           if (Test-Path ".\dist\NiyomsilAIEnhancer\tools\realesrgan-ncnn-vulkan.exe") {
             throw "NCNN backend must not be packaged in V2 ARM Core build"
@@ -68,19 +93,19 @@ jobs:
       - name: Verify installer and checksum
         shell: powershell
         run: |
-          $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe"
-          $checksum = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe.sha256.txt"
+          $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe"
+          $checksum = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe.sha256.txt"
           if (-not (Test-Path $installer)) { throw "Missing V2 ARM Core installer" }
           if (-not (Test-Path $checksum)) { throw "Missing installer checksum" }
           Get-Item $installer | Format-List FullName,Length
           Get-Content $checksum
 
-      - name: Upload V2 ARM Core installer
+      - name: Upload V2.1 Face Protect installer
         uses: actions/upload-artifact@v4
         with:
-          name: Niyomsil-Design-AI-Enhancer-V2-ARM-Core-Windows
+          name: Niyomsil-Design-AI-Enhancer-V2.1-Face-Protect-Windows
           compression-level: 0
           path: |
-            release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe
-            release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe.sha256.txt
+            release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe
+            release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe.sha256.txt
             dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt
