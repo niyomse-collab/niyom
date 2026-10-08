@@ -22,7 +22,7 @@ from .arm_core_adapter import ARMCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 
 APP_NAME = "Niyomsil Design AI Enhancer"
-APP_VERSION = "V2.1 Face Protect Build"
+APP_VERSION = "V2.1.1 Face Auto-Select"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -64,6 +64,15 @@ class App(tk.Tk):
         self._completed_indices: set[int] = set()
         self._active_index: int | None = None
         self._active_settings: EnhanceSettings | None = None
+
+        # Automatic face analysis is per file and fully separate from ARM Core.
+        # Files with no detected face follow the legacy render path unchanged.
+        self._face_states: dict[str, dict] = {}
+        self._face_selector_queue: list[str] = []
+        self._face_selector_window = None
+        self._face_selector_photo = None
+        self._face_detection_generation = 0
+        self._pending_start_after_face_analysis = False
 
         self._preview_job = None
         self._preview_generation = 0
@@ -328,7 +337,7 @@ class App(tk.Tk):
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
         tk.Label(line1, text="ดีไซน์", bg="#111820", fg="#FF2028",
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
-        tk.Label(line1, text=" V2.1", bg="#111820", fg="#FFFFFF",
+        tk.Label(line1, text=" V2.1.1", bg="#111820", fg="#FFFFFF",
                  font=(self.ui_font_family, 16, "bold")).pack(side="left", padx=(6, 0), pady=(8, 0))
         tk.Label(
             title,
@@ -620,47 +629,23 @@ class App(tk.Tk):
         self._slider(quality, "Anti-Halo Sharpen", self.sharp_var, 4)
         self._slider(quality, "Saturation", self.sat_var, 5, -30, 30)
 
-        # Optional face module. OFF is the compatibility mode: the exact ARM
-        # output path is unchanged and no GFPGAN/FaceXLib model is loaded.
+        # Face Protection is automatic in V2.1.1. No extra toolbar or
+        # permanent control is required; a selector appears only when a face is
+        # detected in an uploaded image.
         tk.Frame(quality, bg="#37414B", height=1).grid(
             row=6, column=0, columnspan=3, sticky="ew", pady=(8, 7)
         )
-        self.face_enabled_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            quality,
-            text="Face Protection (โมดูลเสริมสำหรับภาพบุคคล)",
-            variable=self.face_enabled_var,
-            command=self._settings_changed,
-            style="Dark.TCheckbutton",
-        ).grid(row=7, column=0, columnspan=3, sticky="w")
-
-        tk.Label(
-            quality, text="โหมด", bg="#111820", fg="#E8EDF2", anchor="w"
-        ).grid(row=8, column=0, sticky="w", pady=(5, 0))
-        self.face_mode_var = tk.StringVar(value="Protect")
-        face_mode = ttk.Combobox(
-            quality,
-            textvariable=self.face_mode_var,
-            values=("Protect", "Recover"),
-            state="readonly",
-            width=14,
-            style="Dark.TCombobox",
-        )
-        face_mode.grid(row=8, column=1, sticky="ew", padx=6, pady=(5, 0))
-        face_mode.bind("<<ComboboxSelected>>", lambda _e: self._settings_changed())
-
-        self.face_strength_var = tk.IntVar(value=35)
-        self._slider(quality, "Face Strength", self.face_strength_var, 9, 10, 80)
         tk.Label(
             quality,
-            text="ปิด Face Protection = ผลลัพธ์ ARM Core เดิม • Protect แนะนำสำหรับงานป้าย",
+            text="Face Protect: ตรวจจับอัตโนมัติ • พบใบหน้าแล้วจะแสดงภาพให้คลิกเลือก",
             bg="#111820",
             fg="#84D8FF",
             anchor="w",
             justify="left",
             wraplength=285,
-        ).grid(row=10, column=0, columnspan=3, sticky="ew", pady=(5, 0))
+        ).grid(row=7, column=0, columnspan=3, sticky="ew")
 
+        # 4. Device status — display only; processing backend is untouched.
         # 4. Device status — display only; processing backend is untouched.
         device = self._section(parent, "4", "เลือกอุปกรณ์ประมวลผล")
         tk.Label(device, text="AUTO (แนะนำ)", bg="#0B1015", fg="#FFFFFF", anchor="w",
@@ -691,6 +676,17 @@ class App(tk.Tk):
         self.files = []
         self._completed_indices.clear()
         self._queued_indices.clear()
+        self._face_detection_generation += 1
+        self._face_states.clear()
+        self._face_selector_queue.clear()
+        self._pending_start_after_face_analysis = False
+        if self._face_selector_window is not None:
+            try:
+                self._face_selector_window.destroy()
+            except Exception:
+                pass
+            self._face_selector_window = None
+            self._face_selector_photo = None
         while True:
             try:
                 self._job_queue.get_nowait()
@@ -749,9 +745,33 @@ class App(tk.Tk):
         if paths:
             self.add_files(paths)
 
+    @staticmethod
+    def _face_file_key(path: str | Path) -> str:
+        p = str(Path(path).resolve())
+        return p.lower() if os.name == "nt" else p
+
+    def _index_for_face_path(self, path: str | Path):
+        key = self._face_file_key(path)
+        for idx, candidate in enumerate(self.files):
+            if self._face_file_key(candidate) == key:
+                return idx
+        return None
+
+    def _face_state(self, path: str | Path) -> dict:
+        key = self._face_file_key(path)
+        return self._face_states.setdefault(
+            key,
+            {
+                "status": "detecting",
+                "faces": [],
+                "selected": set(),
+                "error": None,
+            },
+        )
+
     def add_files(self, paths):
         added = 0
-        added_indices = []
+        new_paths = []
         for raw in paths:
             p = Path(raw)
             if p.exists() and p not in self.files:
@@ -760,34 +780,334 @@ class App(tk.Tk):
                         size = im.size
                 except Exception:
                     continue
+
                 self.files.append(p)
                 idx = len(self.files) - 1
-                added_indices.append(idx)
                 iid = str(idx)
-                self.tree.insert("", "end", iid=iid, values=(p.name, f"{size[0]:,} × {size[1]:,}", "—", "พร้อม", "0%", "-"))
+                self.tree.insert(
+                    "",
+                    "end",
+                    iid=iid,
+                    values=(
+                        p.name,
+                        f"{size[0]:,} × {size[1]:,}",
+                        "—",
+                        "กำลังตรวจหาใบหน้า…",
+                        "0%",
+                        "-",
+                    ),
+                )
+                self._face_states[self._face_file_key(p)] = {
+                    "status": "detecting",
+                    "faces": [],
+                    "selected": set(),
+                    "error": None,
+                }
+                new_paths.append(p)
                 added += 1
+
         if added and self.current_index is None:
             self.tree.selection_set("0")
             self.tree.focus("0")
             self._select_index(0)
 
-        # Files dropped/added while a batch is running join the same scheduler
-        # automatically. Also cover the tiny hand-off window where the previous
-        # worker has just gone idle but its all_done event has not reached Tk yet.
-        if (
-            added_indices
-            and self._active_settings is not None
-            and not self._stop.is_set()
-        ):
-            queued = self._enqueue_jobs(added_indices, self._active_settings)
-            if queued:
-                self._ensure_queue_worker()
-                self._set_status(f"เพิ่มภาพแล้ว {added} ไฟล์ • เข้าคิวเพิ่ม {queued} ไฟล์")
-            else:
-                self._set_status(f"เพิ่มภาพแล้ว {added} ไฟล์")
-        else:
-            self._set_status(f"เพิ่มภาพแล้ว {added} ไฟล์")
+        for path in new_paths:
+            self._start_face_detection(path)
 
+        if added:
+            self._set_status(
+                f"เพิ่มภาพแล้ว {added} ไฟล์ • กำลังตรวจจับใบหน้าอัตโนมัติ"
+            )
+        else:
+            self._set_status("ไม่มีไฟล์ใหม่ถูกเพิ่ม")
+
+    def _start_face_detection(self, path: Path):
+        generation = self._face_detection_generation
+        path_text = str(path)
+
+        def worker():
+            try:
+                faces = self.pipeline.detect_faces(path)
+                self._events.put(
+                    ("face_detected", generation, path_text, faces)
+                )
+            except Exception as exc:
+                self._events.put(
+                    ("face_detect_error", generation, path_text, str(exc))
+                )
+
+        threading.Thread(
+            target=worker,
+            daemon=True,
+            name=f"NiyomsilFaceDetect-{Path(path).name}",
+        ).start()
+
+    def _set_face_row_status(self, idx: int, text: str):
+        if self.tree.exists(str(idx)):
+            values = list(self.tree.item(str(idx), "values"))
+            while len(values) < 6:
+                values.append("")
+            values[3] = text
+            self.tree.item(str(idx), values=values)
+
+    def _selected_face_targets(self, idx: int):
+        if idx < 0 or idx >= len(self.files):
+            return ()
+        state = self._face_states.get(self._face_file_key(self.files[idx])) or {}
+        faces = state.get("faces") or []
+        selected = sorted(state.get("selected") or set())
+        targets = []
+        for face_index in selected:
+            if 0 <= face_index < len(faces):
+                center = faces[face_index].get("center")
+                if center and len(center) == 2:
+                    targets.append((float(center[0]), float(center[1])))
+        return tuple(targets)
+
+    def _face_analysis_unresolved(self):
+        unresolved = []
+        for path in self.files:
+            state = self._face_states.get(self._face_file_key(path))
+            if state and state.get("status") in ("detecting", "needs_selection"):
+                unresolved.append((path, state.get("status")))
+        return unresolved
+
+    def _enqueue_face_ready_path(self, path: str | Path):
+        if self._active_settings is None or self._stop.is_set():
+            return
+        idx = self._index_for_face_path(path)
+        if idx is None or idx in self._completed_indices:
+            return
+        queued = self._enqueue_jobs([idx], self._active_settings)
+        if queued:
+            self._ensure_queue_worker()
+            self._set_status(
+                f"ใบหน้าไฟล์ {idx + 1} พร้อมแล้ว • เพิ่มเข้าคิวประมวลผล"
+            )
+
+    def _queue_face_selector(self, path: str | Path):
+        key = self._face_file_key(path)
+        if key not in self._face_selector_queue:
+            self._face_selector_queue.append(key)
+        self._show_next_face_selector()
+
+    def _show_next_face_selector(self):
+        if self._face_selector_window is not None:
+            try:
+                if self._face_selector_window.winfo_exists():
+                    return
+            except Exception:
+                pass
+            self._face_selector_window = None
+
+        while self._face_selector_queue:
+            key = self._face_selector_queue.pop(0)
+            state = self._face_states.get(key)
+            if not state or state.get("status") != "needs_selection":
+                continue
+            idx = None
+            path = None
+            for i, candidate in enumerate(self.files):
+                if self._face_file_key(candidate) == key:
+                    idx = i
+                    path = candidate
+                    break
+            if idx is None or path is None:
+                continue
+            self._open_face_selector(idx, path, state)
+            return
+
+        self._maybe_resume_pending_start()
+
+    def _open_face_selector(self, idx: int, path: Path, state: dict):
+        faces = state.get("faces") or []
+        if not faces:
+            state["status"] = "ready"
+            state["selected"] = set()
+            self._enqueue_face_ready_path(path)
+            self._show_next_face_selector()
+            return
+
+        try:
+            with Image.open(path) as opened:
+                source = ImageOps.exif_transpose(opened).convert("RGB").copy()
+        except Exception as exc:
+            state["status"] = "ready"
+            state["error"] = str(exc)
+            self._set_face_row_status(idx, "พร้อม • เปิดภาพเลือกหน้าไม่ได้")
+            self._enqueue_face_ready_path(path)
+            self._show_next_face_selector()
+            return
+
+        top = tk.Toplevel(self)
+        self._face_selector_window = top
+        top.title("ตรวจพบใบหน้า — คลิกเลือกใบหน้าที่ต้องการโฟกัส")
+        top.transient(self)
+        top.configure(bg="#0B1015")
+        top.grab_set()
+
+        tk.Label(
+            top,
+            text=f"{path.name} • ตรวจพบ {len(faces)} ใบหน้า",
+            bg="#0B1015",
+            fg="#FFFFFF",
+            font=(self.ui_font_family, 11, "bold"),
+        ).pack(pady=(10, 2))
+        tk.Label(
+            top,
+            text="คลิกกรอบใบหน้าเพื่อเลือก/ยกเลิก • สีเขียว = เลือกใช้ Face Protect",
+            bg="#0B1015",
+            fg="#C7D0D8",
+        ).pack(pady=(0, 8))
+
+        max_w = min(1000, max(520, self.winfo_screenwidth() - 220))
+        max_h = min(650, max(360, self.winfo_screenheight() - 300))
+        display = source.copy()
+        display.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+
+        canvas = tk.Canvas(
+            top,
+            width=display.width,
+            height=display.height,
+            bg="#151515",
+            highlightthickness=1,
+            highlightbackground="#3A4650",
+            cursor="hand2",
+        )
+        canvas.pack(padx=12, pady=4)
+
+        photo = ImageTk.PhotoImage(display)
+        self._face_selector_photo = photo
+        top._face_photo = photo
+        canvas.create_image(0, 0, image=photo, anchor="nw")
+
+        scale_x = display.width / max(1, source.width)
+        scale_y = display.height / max(1, source.height)
+        selected = set(state.get("selected") or set())
+        box_items = {}
+
+        def face_color(face_index: int):
+            return "#35D07F" if face_index in selected else "#FFB020"
+
+        def redraw(face_index: int):
+            items = box_items.get(face_index)
+            if not items:
+                return
+            color = face_color(face_index)
+            canvas.itemconfigure(items[0], outline=color)
+            canvas.itemconfigure(items[1], fill=color)
+
+        def toggle(face_index: int):
+            if face_index in selected:
+                selected.remove(face_index)
+            else:
+                selected.add(face_index)
+            redraw(face_index)
+
+        for face_index, face in enumerate(faces):
+            x1, y1, x2, y2 = face.get("box", (0, 0, 0, 0))
+            x1, x2 = x1 * scale_x, x2 * scale_x
+            y1, y2 = y1 * scale_y, y2 * scale_y
+            tag = f"face_{face_index}"
+            rect = canvas.create_rectangle(
+                x1, y1, x2, y2,
+                outline=face_color(face_index),
+                width=4,
+                tags=(tag,),
+            )
+            label = canvas.create_text(
+                x1 + 7,
+                max(12, y1 + 7),
+                text=f"ใบหน้า {face_index + 1}",
+                fill=face_color(face_index),
+                anchor="nw",
+                font=(self.ui_font_family, 10, "bold"),
+                tags=(tag,),
+            )
+            box_items[face_index] = (rect, label)
+            canvas.tag_bind(
+                tag,
+                "<Button-1>",
+                lambda _event, i=face_index: toggle(i),
+            )
+
+        buttons = tk.Frame(top, bg="#0B1015")
+        buttons.pack(fill="x", padx=12, pady=(8, 12))
+
+        def select_all():
+            selected.clear()
+            selected.update(range(len(faces)))
+            for i in range(len(faces)):
+                redraw(i)
+
+        def finish(skip=False):
+            if skip:
+                selected.clear()
+            state["selected"] = set(selected)
+            state["status"] = "ready"
+            count = len(selected)
+            if count:
+                self._set_face_row_status(
+                    idx,
+                    f"พร้อม • เลือก Face Protect {count}/{len(faces)}",
+                )
+            else:
+                self._set_face_row_status(
+                    idx,
+                    f"พร้อม • พบ {len(faces)} ใบหน้า • ข้าม Face Protect",
+                )
+
+            try:
+                top.grab_release()
+            except Exception:
+                pass
+            top.destroy()
+            self._face_selector_window = None
+            self._face_selector_photo = None
+
+            self._enqueue_face_ready_path(path)
+            self._show_next_face_selector()
+            self._maybe_resume_pending_start()
+
+        ttk.Button(
+            buttons,
+            text="เลือกทั้งหมด",
+            command=select_all,
+        ).pack(side="left", padx=(0, 5))
+        ttk.Button(
+            buttons,
+            text="ข้าม Face Protection",
+            command=lambda: finish(True),
+        ).pack(side="right", padx=(5, 0))
+        ttk.Button(
+            buttons,
+            text="ใช้ใบหน้าที่เลือก",
+            command=lambda: finish(False),
+            style="Red.TButton",
+        ).pack(side="right", padx=5)
+
+        top.protocol("WM_DELETE_WINDOW", lambda: finish(True))
+        top.update_idletasks()
+        top.geometry(
+            f"+{max(20, (top.winfo_screenwidth() - top.winfo_reqwidth()) // 2)}"
+            f"+{max(20, (top.winfo_screenheight() - top.winfo_reqheight()) // 2)}"
+        )
+
+    def _maybe_resume_pending_start(self):
+        if not self._pending_start_after_face_analysis:
+            return
+        if self._face_analysis_unresolved():
+            return
+        if self._face_selector_window is not None:
+            try:
+                if self._face_selector_window.winfo_exists():
+                    return
+            except Exception:
+                pass
+        self._pending_start_after_face_analysis = False
+        self.after(100, self.start_processing)
+
+    def remove_selected(self):
     def remove_selected(self):
         if self._processing_active() or self._queued_indices:
             messagebox.showinfo(
@@ -806,6 +1126,16 @@ class App(tk.Tk):
             self.tree.delete(item)
         old = list(self.files)
         self.files = []
+        self._face_detection_generation += 1
+        self._face_states.clear()
+        self._face_selector_queue.clear()
+        if self._face_selector_window is not None:
+            try:
+                self._face_selector_window.destroy()
+            except Exception:
+                pass
+            self._face_selector_window = None
+            self._face_selector_photo = None
         # Indices are rebuilt from zero, so completed-state indices from the
         # previous list must not survive and block unrelated files.
         self._completed_indices.clear()
@@ -919,9 +1249,10 @@ class App(tk.Tk):
             v1_baseline=self.v1_mode.get(),
             color_mode=self.color_mode_var.get(),
             icc_profile_path=(self.icc_profile_path_var.get() or None),
-            face_protection=self.face_enabled_var.get(),
-            face_mode=self.face_mode_var.get().lower(),
-            face_strength=round(self.face_strength_var.get()),
+            face_protection=False,
+            face_mode="protect",
+            face_strength=35,
+            face_targets=(),
         )
         if self.use_print_size.get():
             s.print_width = float(self.width_var.get())
@@ -1019,15 +1350,33 @@ class App(tk.Tk):
                     continue
                 if idx == self._active_index or idx in self._queued_indices or idx in self._completed_indices:
                     continue
+
                 src = self.files[idx]
-                job_settings = replace(settings)
+                state = self._face_states.get(self._face_file_key(src)) or {}
+                if state.get("status") in ("detecting", "needs_selection"):
+                    continue
+
+                targets = self._selected_face_targets(idx)
+                job_settings = replace(
+                    settings,
+                    face_protection=bool(targets),
+                    face_mode="protect",
+                    face_strength=35,
+                    face_targets=targets,
+                )
                 out = self._output_path(src, job_settings)
                 self._job_queue.put((idx, src, out, job_settings))
                 self._queued_indices.add(idx)
                 queued += 1
-                self._events.put(("row_status", idx, "รอคิว"))
+                if targets:
+                    self._events.put(
+                        ("row_status", idx, f"รอคิว • Face {len(targets)}")
+                    )
+                else:
+                    self._events.put(("row_status", idx, "รอคิว"))
         return queued
 
+    def _ensure_queue_worker(self):
     def _ensure_queue_worker(self):
         with self._queue_lock:
             if self._processing_thread and self._processing_thread.is_alive():
@@ -1147,6 +1496,22 @@ class App(tk.Tk):
         if not self.files:
             messagebox.showinfo(APP_NAME, "กรุณาเพิ่มภาพก่อน")
             return
+
+        unresolved = self._face_analysis_unresolved()
+        if unresolved:
+            self._pending_start_after_face_analysis = True
+            for path, status in unresolved:
+                if status == "needs_selection":
+                    self._queue_face_selector(path)
+            detecting = sum(1 for _path, status in unresolved if status == "detecting")
+            selecting = sum(1 for _path, status in unresolved if status == "needs_selection")
+            parts = []
+            if detecting:
+                parts.append(f"กำลังตรวจใบหน้า {detecting} ไฟล์")
+            if selecting:
+                parts.append(f"รอเลือกใบหน้า {selecting} ไฟล์")
+            self._set_status(" • ".join(parts) + " • จะเริ่มประมวลผลอัตโนมัติ")
+            return
         try:
             requested_scale = int(self.scale_var.get().rstrip("x"))
         except Exception:
@@ -1232,7 +1597,47 @@ class App(tk.Tk):
             while True:
                 ev = self._events.get_nowait()
                 kind = ev[0]
-                if kind == "progress":
+                if kind == "face_detected":
+                    _, generation, path_text, faces = ev
+                    if generation != self._face_detection_generation:
+                        continue
+                    idx = self._index_for_face_path(path_text)
+                    if idx is None:
+                        continue
+                    state = self._face_state(path_text)
+                    state["faces"] = list(faces or [])
+                    state["selected"] = set()
+                    state["error"] = None
+                    if state["faces"]:
+                        state["status"] = "needs_selection"
+                        self._set_face_row_status(
+                            idx,
+                            f"พบ {len(state['faces'])} ใบหน้า • รอเลือก",
+                        )
+                        self._queue_face_selector(path_text)
+                    else:
+                        state["status"] = "ready"
+                        self._set_face_row_status(idx, "พร้อม • ไม่พบใบหน้า")
+                        self._enqueue_face_ready_path(path_text)
+                    self._maybe_resume_pending_start()
+
+                elif kind == "face_detect_error":
+                    _, generation, path_text, error = ev
+                    if generation != self._face_detection_generation:
+                        continue
+                    idx = self._index_for_face_path(path_text)
+                    if idx is None:
+                        continue
+                    state = self._face_state(path_text)
+                    state["status"] = "ready"
+                    state["faces"] = []
+                    state["selected"] = set()
+                    state["error"] = error
+                    self._set_face_row_status(idx, "พร้อม • Face scan ข้าม")
+                    self._enqueue_face_ready_path(path_text)
+                    self._maybe_resume_pending_start()
+
+                elif kind == "progress":
                     self.progress["value"] = ev[1]
                     self._set_status(ev[2])
                     if len(ev) >= 5:
@@ -1307,8 +1712,18 @@ class App(tk.Tk):
 
                     self.progress["value"] = 100 if not stopped else self.progress["value"]
                     self._processing_started_at = None
-                    self._active_settings = None
-                    self._set_status("หยุดแล้ว" if stopped else "ประมวลผลไฟล์ทั้งหมดเสร็จแล้ว")
+                    waiting_faces = bool(self._face_analysis_unresolved())
+                    if stopped:
+                        self._active_settings = None
+                        self._pending_start_after_face_analysis = False
+                        self._set_status("หยุดแล้ว")
+                    elif waiting_faces and self._active_settings is not None:
+                        self._set_status(
+                            "ARM Core ว่างชั่วคราว • รอตรวจจับ/เลือกใบหน้าของไฟล์ที่เพิ่มใหม่"
+                        )
+                    else:
+                        self._active_settings = None
+                        self._set_status("ประมวลผลไฟล์ทั้งหมดเสร็จแล้ว")
         except queue.Empty:
             pass
         self.after(80, self._drain_events)
