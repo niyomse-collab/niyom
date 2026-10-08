@@ -37,6 +37,9 @@ class EnhanceSettings:
     face_protection: bool = False
     face_mode: str = "protect"  # protect | recover
     face_strength: int = 35
+    # Normalized (x, y) centers of the faces explicitly selected by the user.
+    # Empty when no face should receive the optional protection layer.
+    face_targets: tuple[tuple[float, float], ...] = ()
 
 
 def _notify(cb: ProgressFn, value: int, label: str) -> None:
