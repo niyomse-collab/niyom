@@ -55,12 +55,35 @@ if ($actualModelHash -ne $expectedModelHash) {
 }
 Write-Host "MODEL SHA256 OK: $actualModelHash"
 
-Write-Host "Validating ARM core imports..."
-& $py -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py app\device\device_manager.py app\engine\engine_manager.py app\engine\realesrgan_engine.py tools\generate_brand_assets.py
+Write-Host "Downloading optional Face Protect models..."
+$faceModelDir = ".\\models\\face"
+New-Item -ItemType Directory -Force -Path $faceModelDir | Out-Null
+
+$gfpganUrl = "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth"
+$gfpganPath = Join-Path $faceModelDir "GFPGANv1.4.pth"
+Invoke-WebRequest -Uri $gfpganUrl -OutFile $gfpganPath
+$expectedGfpganHash = "e2cd4703ab14f4d01fd1383a8a8b266f9a5833dacee8e6a79d3bf21a1b6be5ad"
+$actualGfpganHash = (Get-FileHash -Algorithm SHA256 $gfpganPath).Hash.ToLower()
+if ($actualGfpganHash -ne $expectedGfpganHash) {
+    throw "GFPGANv1.4 SHA256 mismatch: $actualGfpganHash"
+}
+
+$retinaUrl = "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth"
+$retinaPath = Join-Path $faceModelDir "detection_Resnet50_Final.pth"
+Invoke-WebRequest -Uri $retinaUrl -OutFile $retinaPath
+$expectedRetinaHash = "6d1de9c2944f2ccddca5f5e010ea5ae64a39845a86311af6fdf30841b0a5a16d"
+$actualRetinaHash = (Get-FileHash -Algorithm SHA256 $retinaPath).Hash.ToLower()
+if ($actualRetinaHash -ne $expectedRetinaHash) {
+    throw "RetinaFace SHA256 mismatch: $actualRetinaHash"
+}
+Write-Host "FACE MODELS VERIFIED"
+
+Write-Host "Validating ARM core + optional face module imports..."
+& $py -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py signprint_ai\face_module\__init__.py signprint_ai\face_module\face_protection.py app\device\device_manager.py app\engine\engine_manager.py app\engine\realesrgan_engine.py tools\generate_brand_assets.py
 if ($LASTEXITCODE -ne 0) { throw "Python source validation failed" }
 
-& $py -c "exec(open('pyi_rth_basicsr_compat.py', encoding='utf-8').read()); from app.engine.realesrgan_engine import RealESRGANEngine; print('ARM RealESRGANEngine import OK')"
-if ($LASTEXITCODE -ne 0) { throw "ARM engine import validation failed" }
+& $py -c "exec(open('pyi_rth_basicsr_compat.py', encoding='utf-8').read()); from app.engine.realesrgan_engine import RealESRGANEngine; from gfpgan.archs.gfpganv1_clean_arch import GFPGANv1Clean; from facexlib.utils.face_restoration_helper import FaceRestoreHelper; print('ARM + Face Protect imports OK')"
+if ($LASTEXITCODE -ne 0) { throw "ARM/Face module import validation failed" }
 
 Remove-Item build, dist, release -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -70,6 +93,8 @@ if ($LASTEXITCODE -ne 0) { throw "PyInstaller ARM Core build failed" }
 
 $exe = ".\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe"
 $packedModel = ".\dist\NiyomsilAIEnhancer\_internal\models\RealESRGAN_x4plus.pth"
+$packedGfpgan = ".\dist\NiyomsilAIEnhancer\_internal\models\face\GFPGANv1.4.pth"
+$packedRetina = ".\dist\NiyomsilAIEnhancer\_internal\models\face\detection_Resnet50_Final.pth"
 
 if (-not (Test-Path $exe)) {
     throw "V2 executable was not generated."
@@ -77,14 +102,28 @@ if (-not (Test-Path $exe)) {
 if (-not (Test-Path $packedModel)) {
     throw "RealESRGAN_x4plus.pth was not packaged."
 }
+if (-not (Test-Path $packedGfpgan)) {
+    throw "GFPGANv1.4.pth was not packaged."
+}
+if (-not (Test-Path $packedRetina)) {
+    throw "RetinaFace detector model was not packaged."
+}
 
 $packedHash = (Get-FileHash -Algorithm SHA256 $packedModel).Hash.ToLower()
 if ($packedHash -ne $expectedModelHash) {
     throw "Packaged RealESRGAN model hash mismatch: $packedHash"
 }
+$packedGfpganHash = (Get-FileHash -Algorithm SHA256 $packedGfpgan).Hash.ToLower()
+if ($packedGfpganHash -ne $expectedGfpganHash) {
+    throw "Packaged GFPGAN model hash mismatch: $packedGfpganHash"
+}
+$packedRetinaHash = (Get-FileHash -Algorithm SHA256 $packedRetina).Hash.ToLower()
+if ($packedRetinaHash -ne $expectedRetinaHash) {
+    throw "Packaged RetinaFace model hash mismatch: $packedRetinaHash"
+}
 
 @"
-NIYOMSIL DESIGN V2.0 - ARM CORE BUILD PROOF
+NIYOMSIL DESIGN V2.1 - ARM CORE + OPTIONAL FACE PROTECT BUILD PROOF
 
 UI:
 - signprint_ai/app_v2.py
@@ -96,9 +135,15 @@ AI processing core:
 - app/engine/realesrgan_engine.py
 - signprint_ai/arm_core_adapter.py
 
-Model:
+ARM model:
 - RealESRGAN_x4plus.pth
 - SHA256: $expectedModelHash
+
+Optional Face Protect models:
+- GFPGANv1.4.pth
+- SHA256: $expectedGfpganHash
+- detection_Resnet50_Final.pth
+- SHA256: $expectedRetinaHash
 
 Runtime:
 - PyTorch 2.11.0 + CUDA 12.8 wheels
@@ -110,13 +155,19 @@ Important:
 - NCNN backend is NOT used by this build.
 - No fallback to Lanczos replaces the ARM AI engine.
 - No extra denoise / contrast / sharpen filter is applied after ARM AI processing.
-- RGB PNG output preserves the final ARM Core pixels.
+- Face Protection is OPTIONAL and defaults OFF.
+- With Face Protection OFF, output follows the proven V2.0.2 ARM path unchanged.
+- When enabled, GFPGAN/RetinaFace runs only as a post-ARM face layer.
+- If Face Protect fails, the ARM result is preserved.
 - CMYK/ICC conversion is export-only.
 "@ | Set-Content ".\dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt" -Encoding utf8
 
 Get-Item $exe | Format-List FullName,Length
 Get-Item $packedModel | Format-List FullName,Length
+Get-Item $packedGfpgan | Format-List FullName,Length
+Get-Item $packedRetina | Format-List FullName,Length
 Write-Host "ARM CORE MODEL VERIFIED: $packedHash"
+Write-Host "FACE MODELS VERIFIED: $packedGfpganHash / $packedRetinaHash"
 
 if (-not $SkipInstaller) {
     $isccCandidates = @(
@@ -134,17 +185,17 @@ if (-not $SkipInstaller) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
 
-    $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe"
+    $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe"
     if (-not (Test-Path $installer)) {
         throw "Installer compile reported success but the expected EXE is missing."
     }
 
     $installerHash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
-    "$installerHash  Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe" |
-        Set-Content ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.0.0.exe.sha256.txt" -Encoding ascii
+    "$installerHash  Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe" |
+        Set-Content ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe.sha256.txt" -Encoding ascii
 
     Get-Item $installer | Format-List FullName,Length
     Write-Host "Installer SHA256: $installerHash"
 }
 
-Write-Host "V2 ARM CORE BUILD COMPLETE"
+Write-Host "V2.1 ARM CORE + FACE PROTECT BUILD COMPLETE"
