@@ -1,64 +1,59 @@
-# Niyomsil Design AI Enhancer — V2.1 Face Protect Build
+# Niyomsil Design AI Enhancer — V2.1.1 Auto Face Select
 
-V2.1 รักษา **ARM V2.2.8 / RealESRGAN_x4plus Core** ของ V2.0.2 ไว้ และเพิ่ม Face Protection เป็นโมดูลเสริมแยกต่างหากสำหรับงานป้ายที่มีภาพบุคคล
+V2.1.1 รักษา **ARM V2.2.8 / RealESRGAN_x4plus Core** เดิม และเปลี่ยน Face Protect ให้ทำงานแบบอัตโนมัติสำหรับงานป้ายที่มีภาพบุคคล โดยไม่เพิ่มแถบเครื่องมือถาวรใน UI
 
-## กฎความเข้ากันได้
-- Face Protection ค่าเริ่มต้น = **OFF**
-- เมื่อ OFF โปรแกรมใช้เส้นทาง ARM Core เดิมของ V2.0.2
-- ไม่มี GFPGAN / FaceXLib เข้ามาเปลี่ยนภาพเมื่อปิดโมดูล
-- ARM Engine files ไม่ถูกแก้เพื่อเพิ่ม Face Protection
-- หาก Face Protection เกิดข้อผิดพลาด โปรแกรมเก็บผล ARM Core เดิมและข้ามโมดูลใบหน้าแทนการทำให้งานล้ม
+## หลักการสำคัญ
+- ARM Engine เดิมไม่ถูกแก้
+- เมื่อเพิ่มภาพ โปรแกรมสแกนหาใบหน้าด้วย RetinaFace อัตโนมัติ
+- ถ้า **ไม่พบใบหน้า** ไฟล์จะพร้อมเข้าลำดับ ARM Core เดิมทันที
+- ถ้า **พบใบหน้า** โปรแกรมเปิดหน้าต่างภาพและวาดกรอบให้คลิกเลือกใบหน้าที่ต้องการโฟกัส
+- GFPGAN ทำงานเฉพาะใบหน้าที่ผู้ใช้เลือก
+- ถ้ากดข้าม หรือไม่เลือกใบหน้า ไฟล์ใช้ ARM Core เดิมโดยไม่มี Face Protect
+- ถ้า Face Module มีข้อผิดพลาด ผล ARM Core เดิมจะถูกเก็บไว้ ไม่ทำให้งานทั้งไฟล์ล้ม
+
+Snapshot ก่อนเพิ่ม Auto Select:
+`v2.1-face-protect-before-auto-select`
 
 Snapshot ก่อนเพิ่ม Face Module:
 `v2.0.2-arm-stable-before-face-module`
 
-## Processing path
-เมื่อ Face Protection ปิด:
-**V2.1 UI → ARMCoreAdapter → EngineManager → RealESRGANEngine → Export**
+## Workflow
+### ภาพไม่มีบุคคล
+**Upload → Auto Face Scan → ไม่พบใบหน้า → ARM Core เดิม → Export**
 
-เมื่อ Face Protection เปิด:
-**V2.1 UI → ARM Core เดิม → Face Protect (GFPGAN + RetinaFace) → Export**
+### ภาพมีบุคคล
+**Upload → Auto Face Scan → Popup แสดงภาพเต็ม + กรอบใบหน้า → คลิกเลือก → ARM Core เดิม → Face Protect เฉพาะหน้าที่เลือก → Export**
 
-## Face Protection
-โหมด:
-- **Protect** — ค่าแนะนำสำหรับงานป้าย เน้นรักษาโครงหน้าและจำกัดความแรงสูงสุด
-- **Recover** — ฟื้นฟูใบหน้าแรงกว่า ใช้เมื่อหน้าต้นฉบับเบลอหรือเสียรายละเอียดมาก
+Popup มีเพียงปุ่ม:
+- เลือกทั้งหมด
+- ใช้ใบหน้าที่เลือก
+- ข้าม Face Protection
 
-ค่าเริ่มต้น:
-- Face Protection: OFF
-- Mode: Protect
-- Strength: 35
+ไม่มี Face toolbar เพิ่มในหน้าหลัก
 
-ระบบจะ:
-1. ประมวลผลภาพด้วย ARM Core เดิมก่อน
-2. ตรวจจับใบหน้าด้วย RetinaFace เฉพาะเมื่อเปิด Face Protection
-3. ฟื้นฟู crop ใบหน้าด้วย GFPGAN
-4. Blend ใบหน้ากลับแบบอนุรักษ์โครงหน้า
-5. หากไม่พบใบหน้า จะใช้ผล ARM เดิม
-6. หากภาพใหญ่เกินขีดจำกัดหน่วยความจำของโมดูลใบหน้า จะข้าม Face Protect และใช้ผล ARM เดิม
+## การเลือกใบหน้า
+ตำแหน่งใบหน้าถูกเก็บเป็นพิกัด normalized ต่อไฟล์ และถูกแปลงตามการจัดวาง `ImageOps.contain` เมื่อขนาดป้ายปลายทางมีอัตราส่วนต่างจากต้นฉบับ จึงลดโอกาสเลือกผิดคนหลัง resize
+
+## Multi-file
+ระบบคิว V2.0.2 ยังคงหลักเดิม:
+- หนึ่ง ARM/CUDA worker ต่อครั้ง
+- Auto face detection ใช้ CPU แยก เพื่อไม่แย่ง CUDA กับ ARM Core
+- เพิ่มไฟล์ระหว่าง render ได้
+- ถ้าไฟล์ใหม่ไม่มีหน้า จะเข้าคิวตามปกติ
+- ถ้าพบหน้า จะรอผู้ใช้เลือกก่อนเข้าคิว
+- state ของใบหน้าแยกต่อไฟล์ ไม่ปนกัน
 
 ## Models
 ARM:
 - `RealESRGAN_x4plus.pth`
 
-Face Protect:
+Face module:
 - `GFPGANv1.4.pth`
 - `detection_Resnet50_Final.pth`
 
-Face models ถูกแพ็กใน Installer เพื่อใช้งานแบบ offline หลังติดตั้ง
-
-## Multi-file
-ระบบคิว V2.0.2 ยังคงเดิม:
-- หนึ่ง ARM/CUDA worker ต่อครั้ง
-- เพิ่มไฟล์ระหว่างประมวลผลได้
-- ไฟล์ใหม่เข้าคิวต่อโดยไม่เปิด worker แข่ง GPU
-- Face Protection ใช้ค่าที่ถูก snapshot ต่อ job
-
 ## Build
-GitHub → Actions → **Build Windows Installer**
-
 Artifact:
-`Niyomsil-Design-AI-Enhancer-V2.1-Face-Protect-Windows`
+`Niyomsil-Design-AI-Enhancer-V2.1.1-Auto-Face-Select-Windows`
 
 Installer:
-`Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe`
+`Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe`
