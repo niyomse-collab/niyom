@@ -67,6 +67,43 @@ class ARMCoreAdapter:
         return 2 if required <= 2 else (4 if required <= 4 else 8)
 
     @staticmethod
+    def _map_face_targets_to_output(
+        source_size: tuple[int, int],
+        target_size: tuple[int, int],
+        targets: tuple[tuple[float, float], ...],
+    ) -> tuple[tuple[float, float], ...]:
+        """Map normalized source face centers through ImageOps.contain + canvas.
+
+        The ARM core pixels remain untouched; this only keeps the user's face
+        selection aligned when the requested print canvas has a different
+        aspect ratio from the uploaded image.
+        """
+        if not targets:
+            return ()
+        sw, sh = source_size
+        tw, th = target_size
+        if sw <= 0 or sh <= 0 or tw <= 0 or th <= 0:
+            return tuple(targets)
+
+        scale = min(tw / sw, th / sh)
+        rendered_w = sw * scale
+        rendered_h = sh * scale
+        offset_x = (tw - rendered_w) / 2.0
+        offset_y = (th - rendered_h) / 2.0
+
+        mapped = []
+        for x, y in targets:
+            px = (float(x) * sw * scale + offset_x) / tw
+            py = (float(y) * sh * scale + offset_y) / th
+            mapped.append(
+                (
+                    max(0.0, min(1.0, px)),
+                    max(0.0, min(1.0, py)),
+                )
+            )
+        return tuple(mapped)
+
+    @staticmethod
     def _mapped_progress(progress: ProgressFn, lo: int, hi: int, label: str):
         def callback(value: int):
             if progress:
@@ -215,12 +252,18 @@ class ARMCoreAdapter:
                     if progress:
                         progress(88 + round(6 * max(0, min(100, value)) / 100), message)
 
+                raw_targets = tuple(getattr(settings, "face_targets", ()) or ())
+                mapped_targets = self._map_face_targets_to_output(
+                    source_size,
+                    target_size,
+                    raw_targets,
+                )
                 protected, face_result = self.face_module.apply(
                     output,
                     device_name=device_id,
                     mode=face_info["mode"],
                     strength=face_info["strength"],
-                    selected_targets=tuple(getattr(settings, "face_targets", ()) or ()),
+                    selected_targets=mapped_targets,
                     progress=face_progress,
                     cancel=cancel,
                 )
