@@ -22,6 +22,8 @@ hiddenimports = [
 # BasicSR module.
 hiddenimports += collect_submodules("basicsr")
 hiddenimports += collect_submodules("realesrgan")
+hiddenimports += collect_submodules("gfpgan")
+hiddenimports += collect_submodules("facexlib")
 
 dynamic_files = []
 for package, folders in {
@@ -29,6 +31,8 @@ for package, folders in {
     # at runtime to discover *_arch.py, *_dataset.py, *_loss.py, etc.
     "basicsr": ("archs", "data", "losses", "models", "ops", "utils"),
     "realesrgan": ("archs", "data", "models"),
+    "gfpgan": ("archs", "data", "models", "utils"),
+    "facexlib": ("alignment", "detection", "headpose", "parsing", "recognition", "tracking", "utils"),
 }.items():
     package_spec = importlib.util.find_spec(package)
     if package_spec is None or not package_spec.origin:
