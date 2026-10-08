@@ -53,6 +53,14 @@ class ARMCoreAdapter:
     def default_device(self):
         return self.engine_manager.device_manager.get_default_device()
 
+    def detect_faces(self, input_path: str | Path) -> list[dict]:
+        """Upload-time face scan.
+
+        Use CPU deliberately so auto-detection can run without competing for the
+        CUDA device that may already be busy with the ARM render worker.
+        """
+        return self.face_module.detect_faces(input_path, device_name="cpu")
+
     @staticmethod
     def _model_scale_for_dimensions(width: int, height: int, target_size: tuple[int, int]) -> int:
         required = max(target_size[0] / width, target_size[1] / height)
@@ -212,6 +220,7 @@ class ARMCoreAdapter:
                     device_name=device_id,
                     mode=face_info["mode"],
                     strength=face_info["strength"],
+                    selected_targets=tuple(getattr(settings, "face_targets", ()) or ()),
                     progress=face_progress,
                     cancel=cancel,
                 )
