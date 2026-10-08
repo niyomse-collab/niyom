@@ -1,25 +1,21 @@
-# Niyomsil Design AI Enhancer — V2.1 Face Protect Build
+# Niyomsil Design AI Enhancer — V2.1.1 Auto Face Select
 
-V2.1 preserves the proven V2.0.2 ARM V2.2.8 / RealESRGAN_x4plus processing path and adds an isolated optional face-protection layer.
+V2.1.1 preserves the proven ARM V2.2.8 / RealESRGAN_x4plus core and makes face handling automatic without adding a permanent toolbar.
 
-Compatibility rule:
-- Face Protection defaults OFF.
-- OFF means the existing ARM output path is used unchanged.
-- GFPGAN/FaceXLib are loaded only when the option is enabled.
-- A Face Protect failure falls back to the already-produced ARM result.
+- Upload-time RetinaFace scan runs automatically.
+- No face detected: the file follows the unchanged ARM path.
+- Face detected: a full-image dialog appears with clickable face boxes.
+- GFPGAN is applied only to faces explicitly selected by the user.
+- Skip/no selection: unchanged ARM output path.
+- Face-module failure: keep the ARM result.
+- Upload-time face detection uses a separate CPU helper so it does not compete with the ARM CUDA render worker.
 
-Stable pre-face snapshot:
-`v2.0.2-arm-stable-before-face-module`
+Stable snapshots:
+- `v2.1-face-protect-before-auto-select`
+- `v2.0.2-arm-stable-before-face-module`
 
-Optional path:
-ARM Core → RetinaFace detection → GFPGAN restoration → conservative blend → export.
-
-Modes:
-- Protect: conservative identity-preserving blend for signage.
-- Recover: stronger restoration for damaged/blurred faces.
-
-Build artifact:
-`Niyomsil-Design-AI-Enhancer-V2.1-Face-Protect-Windows`
+Artifact:
+`Niyomsil-Design-AI-Enhancer-V2.1.1-Auto-Face-Select-Windows`
 
 Installer:
-`Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe`
+`Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe`
