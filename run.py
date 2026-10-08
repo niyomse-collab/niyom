@@ -5,6 +5,10 @@ import os
 from signprint_ai.app_v2 import main
 
 if __name__ == "__main__":
+    if os.environ.get("NIYOMSIL_FACE_BACKEND_SMOKE") == "1":
+        from signprint_ai.face_module import FaceProtectionModule
+        FaceProtectionModule().smoke_test("cpu")
+        raise SystemExit(0)
     if os.environ.get("NIYOMSIL_IMPORT_SMOKE") == "1":
         raise SystemExit(0)
     main()
