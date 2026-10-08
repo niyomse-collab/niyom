@@ -123,7 +123,7 @@ if ($packedRetinaHash -ne $expectedRetinaHash) {
 }
 
 @"
-NIYOMSIL DESIGN V2.1 - ARM CORE + OPTIONAL FACE PROTECT BUILD PROOF
+NIYOMSIL DESIGN V2.1.1 - ARM CORE + AUTO FACE SELECT BUILD PROOF
 
 UI:
 - signprint_ai/app_v2.py
@@ -155,9 +155,10 @@ Important:
 - NCNN backend is NOT used by this build.
 - No fallback to Lanczos replaces the ARM AI engine.
 - No extra denoise / contrast / sharpen filter is applied after ARM AI processing.
-- Face Protection is OPTIONAL and defaults OFF.
-- With Face Protection OFF, output follows the proven V2.0.2 ARM path unchanged.
-- When enabled, GFPGAN/RetinaFace runs only as a post-ARM face layer.
+- RetinaFace scans uploaded images automatically for UI selection.
+- GFPGAN is applied only to faces explicitly selected by the user.
+- Images with no face, or with no selected face, follow the proven V2.0.2 ARM path unchanged.
+- Auto face detection uses a separate CPU helper and does not compete with the ARM CUDA render worker.
 - If Face Protect fails, the ARM result is preserved.
 - CMYK/ICC conversion is export-only.
 "@ | Set-Content ".\dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt" -Encoding utf8
@@ -185,17 +186,17 @@ if (-not $SkipInstaller) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
 
-    $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe"
+    $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe"
     if (-not (Test-Path $installer)) {
         throw "Installer compile reported success but the expected EXE is missing."
     }
 
     $installerHash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
-    "$installerHash  Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe" |
-        Set-Content ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe.sha256.txt" -Encoding ascii
+    "$installerHash  Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe" |
+        Set-Content ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe.sha256.txt" -Encoding ascii
 
     Get-Item $installer | Format-List FullName,Length
     Write-Host "Installer SHA256: $installerHash"
 }
 
-Write-Host "V2.1 ARM CORE + FACE PROTECT BUILD COMPLETE"
+Write-Host "V2.1.1 ARM CORE + AUTO FACE SELECT BUILD COMPLETE"
