@@ -77,3 +77,26 @@ def test_error_does_not_mark_file_reviewed(monkeypatch, tmp_path):
                           _face_key=app_v2.App._face_key, _set_status=lambda message: None)
     app_v2.App._face_scan_done(app, key, (), 'missing detector')
     assert errors and key not in app._face_reviews and not app._resume_after_faces
+
+
+def test_protect_keeps_source_detail_without_loading_gfpgan(tmp_path, monkeypatch):
+    from signprint_ai.face_module.face_protection import FaceProtectionModule
+    source = tmp_path/'detail.png'
+    original = Image.new('RGB', (100,100), (210, 91, 43))
+    original.save(source)
+    module = FaceProtectionModule()
+    monkeypatch.setattr(module, '_load_backend', lambda *args: (_ for _ in ()).throw(AssertionError('Protect must not initialize GFPGAN')))
+    output = Image.new('RGB', (100,100), 'black')
+    result, info = module.apply(output, device_name='cpu', mode='protect',
+                                source_path=source, source_regions=((.2,.2,.6,.6),))
+    assert result.getpixel((40,40)) == original.getpixel((40,40))
+    assert result.getpixel((90,90)) == output.getpixel((90,90))
+    assert info.applied and info.face_count == 1
+
+
+def test_explicit_no_faces_keeps_output_pixels(tmp_path):
+    from signprint_ai.face_module.face_protection import FaceProtectionModule
+    output = Image.new('RGB', (50,50), (12,13,14))
+    result, info = FaceProtectionModule().apply(output, device_name='cpu', mode='protect',
+                                               source_path=tmp_path/'unused.png', source_regions=())
+    assert result.tobytes() == output.tobytes() and not info.applied

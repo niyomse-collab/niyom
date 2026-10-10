@@ -193,6 +193,8 @@ class FaceProtectionModule:
         mode: str = "protect",
         strength: int = 35,
         regions: tuple | None = None,
+        source_path: str | Path | None = None,
+        source_regions: tuple | None = None,
         progress: ProgressFn = None,
         cancel: CancelFn = None,
     ) -> tuple[Image.Image, FaceProtectionResult]:
@@ -200,6 +202,15 @@ class FaceProtectionModule:
             raise InterruptedError("Processing stopped by user")
 
         rgb_image = image.convert("RGB")
+        if str(mode).lower() == "protect" and source_path is not None and source_regions is not None:
+            from .source_preservation import preserve_source_faces
+            if progress:
+                progress(0, "Protect • รักษารายละเอียดใบหน้าต้นฉบับ")
+            protected, count = preserve_source_faces(rgb_image, source_path, source_regions, cancel)
+            if progress:
+                progress(100, "Protect • ไม่สร้างใบหน้าใหม่")
+            return protected, FaceProtectionResult(enabled=True, applied=bool(count),
+                                                   face_count=count, mode=mode, strength=strength)
         if rgb_image.width * rgb_image.height > MAX_FACE_PIXELS:
             return rgb_image, FaceProtectionResult(
                 enabled=True,

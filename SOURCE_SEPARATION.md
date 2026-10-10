@@ -52,3 +52,13 @@ The existing GFPGAN layer remains optional and is not a newly trained portrait
 model. The 80-million-pixel restoration limit remains and is reported as a skip.
 An unused ParseNet initializer in facexlib is bypassed for use_parse=False;
 there is no runtime download of that unused model.
+
+V1.0.2 additionally gives Before/After grid columns a shared uniform width and
+disables pane geometry propagation so caption/image requests cannot widen one
+pane. The packaged UI smoke test asserts equal viewport widths/heights.
+Protect now preserves confirmed source-face regions at the requested final
+resolution with feathered margins, without GFPGAN or its 512-pixel face crop.
+Recover retains optional generative restoration. This is source preservation,
+not a newly trained AI portrait model or a promise to recover absent detail.
+Requested dimensions/DPI can still reduce source pixel dimensions; the UI
+explicitly labels that reduction. Sign-only inference settings stay unchanged.

@@ -214,6 +214,8 @@ class ARMCoreAdapter:
                     mode=face_info["mode"],
                     strength=face_info["strength"],
                     regions=regions,
+                    source_path=src,
+                    source_regions=settings.face_regions,
                     progress=face_progress,
                     cancel=cancel,
                 )

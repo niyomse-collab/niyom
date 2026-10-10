@@ -25,7 +25,7 @@ from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
 
 APP_NAME = "นิยมศิลป์ดีไซน์ — NiyomSilp Independent Core"
-APP_VERSION = "V1.0.1"
+APP_VERSION = "V1.0.2"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -409,14 +409,15 @@ class App(tk.Tk):
         compare = tk.Frame(preview_shell, bg="#0B1015")
         compare.grid(row=1, column=0, sticky="nsew", padx=7, pady=(0, 7))
         compare.rowconfigure(0, weight=1)
-        compare.columnconfigure(0, weight=1)
-        compare.columnconfigure(1, weight=1)
+        compare.columnconfigure(0, weight=1, uniform="preview")
+        compare.columnconfigure(1, weight=1, uniform="preview")
 
         left_pane = tk.Frame(compare, bg="#0B1015", bd=1, relief="solid")
         right_pane = tk.Frame(compare, bg="#0B1015", bd=1, relief="solid")
         left_pane.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         right_pane.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         for pane in (left_pane, right_pane):
+            pane.grid_propagate(False)
             pane.rowconfigure(1, weight=1)
             pane.columnconfigure(0, weight=1)
 
@@ -673,7 +674,7 @@ class App(tk.Tk):
         self._slider(quality, "Face Strength", self.face_strength_var, 9, 10, 80)
         tk.Label(
             quality,
-            text="ปิด Face Protection = ผลลัพธ์ ARM Core เดิม • Protect แนะนำสำหรับงานป้าย",
+            text="Protect: รักษารายละเอียดต้นฉบับ • Recover: ฟื้นฟูด้วย AI (ใช้ Face Strength)",
             bg="#111820",
             fg="#84D8FF",
             anchor="w",
@@ -962,7 +963,12 @@ class App(tk.Tk):
             return
         try:
             px = print_pixels(float(self.width_var.get()), float(self.height_var.get()), self.unit_var.get(), int(float(self.dpi_var.get())))
-            self.pixel_info.configure(text=f"ขนาดพิกเซลปลายทาง: {px[0]:,} × {px[1]:,} px")
+            note = ""
+            if self.current_index is not None:
+                with Image.open(self.files[self.current_index]) as source:
+                    if px[0] < source.width or px[1] < source.height:
+                        note = " • ลดพิกเซลต้นฉบับ"
+            self.pixel_info.configure(text=f"ขนาดพิกเซลปลายทาง: {px[0]:,} × {px[1]:,} px{note}")
         except Exception:
             self.pixel_info.configure(text="ขนาดพิกเซลปลายทาง: —")
 
@@ -1436,6 +1442,8 @@ class App(tk.Tk):
                     if idx == self.current_index:
                         self._last_result = Path(path)
                         caption = f"ผลลัพธ์จริง: {result['output_size'][0]:,} × {result['output_size'][1]:,} px"
+                        if result["output_size"][0] < result["original_size"][0] or result["output_size"][1] < result["original_size"][1]:
+                            caption += " • ลดพิกเซลตามขนาด/DPI ที่ตั้ง"
                         if face.get("enabled"):
                             if face.get("applied"):
                                 caption += f" • Face Protect {face.get('face_count', 0)} ใบหน้า"

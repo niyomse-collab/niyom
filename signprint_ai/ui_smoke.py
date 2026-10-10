@@ -17,6 +17,9 @@ def run():
         app.current_index = 0
         app.update()
         app._refresh_preview_images()
+        app.update()
+        assert abs(app.left_image.winfo_width()-app.right_image.winfo_width()) <= 1
+        assert abs(app.left_image.winfo_height()-app.right_image.winfo_height()) <= 1
         app._zoom_preview(1.25)
         assert app.viewport.zoom == 1.25
         app._actual_preview()
