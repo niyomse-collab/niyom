@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - codex/niyomsil-independent-core
 
 jobs:
   build:
@@ -18,13 +19,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Run Independent Core regression checks
+        run: |
+          python -m pip install pytest numpy Pillow "opencv-python-headless<5"
+          python -m pytest -q
+
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
       - name: Validate V2 UI and ARM core source
         shell: powershell
         run: |
-          python -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py signprint_ai\face_module\__init__.py signprint_ai\face_module\face_protection.py app\device\device_manager.py app\engine\engine_manager.py app\engine\realesrgan_engine.py tools\generate_brand_assets.py
+          python -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py signprint_ai\face_module\__init__.py signprint_ai\face_module\face_protection.py signprint_ai\independent_core.py tools\generate_brand_assets.py
 
       - name: Build V2 ARM Core installer
         shell: powershell
@@ -93,19 +99,19 @@ jobs:
       - name: Verify installer and checksum
         shell: powershell
         run: |
-          $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe"
-          $checksum = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe.sha256.txt"
+          $installer = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.0.exe"
+          $checksum = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.0.exe.sha256.txt"
           if (-not (Test-Path $installer)) { throw "Missing V2 ARM Core installer" }
           if (-not (Test-Path $checksum)) { throw "Missing installer checksum" }
           Get-Item $installer | Format-List FullName,Length
           Get-Content $checksum
 
-      - name: Upload V2.1 Face Protect installer
+      - name: Upload Independent Core 1.0 installer
         uses: actions/upload-artifact@v4
         with:
-          name: Niyomsil-Design-AI-Enhancer-V2.1-Face-Protect-Windows
+          name: NiyomSilp-Independent-Core-v1.0.0-Windows
           compression-level: 0
           path: |
-            release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe
-            release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe.sha256.txt
+            release\NiyomSilp-Independent-Core-Setup-v1.0.0.exe
+            release\NiyomSilp-Independent-Core-Setup-v1.0.0.exe.sha256.txt
             dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt

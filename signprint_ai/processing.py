@@ -21,6 +21,7 @@ class EnhanceSettings:
     contrast: int = 20
     sharpness: int = 46
     saturation: int = 6
+    device: str = "AUTO"
     ai_scale: int = 4
     print_width: float | None = None
     print_height: float | None = None

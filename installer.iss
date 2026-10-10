@@ -1,5 +1,5 @@
-#define MyAppName "Niyomsil Design AI Enhancer"
-#define MyAppVersion "2.1.0"
+#define MyAppName "NiyomSilp Independent Core"
+#define MyAppVersion "1.0.0"
 #define MyAppPublisher "Niyomsil Design"
 #define MyAppExeName "NiyomsilAIEnhancer.exe"
 
@@ -12,7 +12,7 @@ DefaultDirName={autopf}\NiyomsilDesignAIEnhancer
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=release
-OutputBaseFilename=Niyomsil-Design-AI-Enhancer-Setup-v2.1.0
+OutputBaseFilename=NiyomSilp-Independent-Core-Setup-v1.0.0
 Compression=lzma2/normal
 SolidCompression=yes
 WizardStyle=modern

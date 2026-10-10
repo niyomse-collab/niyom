@@ -16,6 +16,6 @@ The V2.1 build can include these third-party components:
 - **PyInstaller** — Windows application freezing.
 - **windnd** — optional Windows drag-and-drop helper.
 
-Face Protection is an optional post-ARM layer and defaults OFF. No ARM engine source file is modified by enabling or disabling this optional feature.
+Face Protection is an optional post-ARM layer and defaults OFF. The independent orchestration core invokes this optional layer through the existing adapter; upstream inference libraries and model terms remain applicable.
 
 The Niyomsil Design logo and branding are user-provided assets.

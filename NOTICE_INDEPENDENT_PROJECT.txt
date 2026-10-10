@@ -1,12 +1,12 @@
-Niyomsil Design AI Enhancer is a separate application for NIYOMSIL DESIGN / นิยมศิลป์ดีไซน์.
+NiyomSilp Independent Core is developed for นิยมศิลป์ดีไซน์ / NiyomSilp Design.
 
-This repository and its builds do not push to or modify the upstream ARM AI Image Enhancer repository.
+New source in signprint_ai/independent_core.py is independently written for this
+shop. It replaces the three ARM-derived application runtime modules in app/.
+The existing interface and adapter remain, with third-party inference libraries.
 
-The V2 ARM Core build uses locally included processing source corresponding to the tested ARM V2.2.8 component set:
-- DeviceManager
-- EngineManager
-- RealESRGANEngine
+Real-ESRGAN, BasicSR, PyTorch, TorchVision, GFPGAN, facexlib and all model weights
+remain subject to upstream terms. No claim of exclusive shop ownership is made
+for those components or for pre-existing source of unverified provenance.
+See SOURCE_SEPARATION.md and THIRD_PARTY_NOTICES.md.
 
-Real-ESRGAN, BasicSR, PyTorch, TorchVision and the RealESRGAN_x4plus model remain subject to their respective upstream licenses and terms.
-
-The Niyomsil Design logo and branding are user-provided assets.
+The shop logo and branding are user-provided assets.

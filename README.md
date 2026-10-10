@@ -1,3 +1,5 @@
+> Independent Core update (2026-10-10): runtime now uses `signprint_ai/independent_core.py`; ARM application modules have been removed. UI and model settings remain unchanged. See [audit and validation limits](SOURCE_SEPARATION.md). The following describes the historical compatibility workflow.
+
 # Niyomsil Design AI Enhancer — V2.1 Face Protect Build
 
 V2.1 preserves the proven V2.0.2 ARM V2.2.8 / RealESRGAN_x4plus processing path and adds an isolated optional face-protection layer.

@@ -20,9 +20,10 @@ import numpy as np
 
 from .arm_core_adapter import ARMCoreAdapter
 from .processing import EnhanceSettings, print_pixels
+from .preview_viewport import PreviewViewport
 
-APP_NAME = "Niyomsil Design AI Enhancer"
-APP_VERSION = "V2.1 Face Protect Build"
+APP_NAME = "นิยมศิลป์ดีไซน์ — NiyomSilp Independent Core"
+APP_VERSION = "V1.0.0"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -65,6 +66,9 @@ class App(tk.Tk):
         self._active_index: int | None = None
         self._active_settings: EnhanceSettings | None = None
 
+        self.viewport = PreviewViewport()
+        self._preview_cache = {}
+        self._drag_start = None
         self._preview_job = None
         self._preview_generation = 0
         self._photo_left = None
@@ -328,7 +332,7 @@ class App(tk.Tk):
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
         tk.Label(line1, text="ดีไซน์", bg="#111820", fg="#FF2028",
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
-        tk.Label(line1, text=" V2.1", bg="#111820", fg="#FFFFFF",
+        tk.Label(line1, text=" V1.0", bg="#111820", fg="#FFFFFF",
                  font=(self.ui_font_family, 16, "bold")).pack(side="left", padx=(6, 0), pady=(8, 0))
         tk.Label(
             title,
@@ -389,10 +393,10 @@ class App(tk.Tk):
         phead.grid_propagate(False)
         tk.Label(phead, text="5. ตัวอย่างภาพ", bg="#D71920", fg="white",
                  font=(self.ui_font_family, 10, "bold"), padx=12).pack(side="left", fill="y")
-        ttk.Button(phead, text="−", command=self._refresh_preview_images, width=4).pack(side="left", padx=(8, 3), pady=4)
-        ttk.Button(phead, text="+", command=self._refresh_preview_images, width=4).pack(side="left", padx=3, pady=4)
-        ttk.Button(phead, text="พอดีหน้าจอ", command=self._refresh_preview_images).pack(side="left", padx=3, pady=4)
-        ttk.Button(phead, text="1:1", command=self._refresh_preview_images, width=6).pack(side="left", padx=3, pady=4)
+        ttk.Button(phead, text="−", command=lambda: self._zoom_preview(1/1.25), width=4).pack(side="left", padx=(8, 3), pady=4)
+        ttk.Button(phead, text="+", command=lambda: self._zoom_preview(1.25), width=4).pack(side="left", padx=3, pady=4)
+        ttk.Button(phead, text="พอดีหน้าจอ", command=self._fit_preview).pack(side="left", padx=3, pady=4)
+        ttk.Button(phead, text="1:1", command=self._actual_preview, width=6).pack(side="left", padx=3, pady=4)
         self.auto_preview = tk.BooleanVar(value=True)
         ttk.Checkbutton(phead, text="Auto Preview", variable=self.auto_preview, style="Dark.TCheckbutton").pack(side="right", padx=10)
 
@@ -426,6 +430,14 @@ class App(tk.Tk):
         self.right_caption.grid(row=2, column=0, sticky="ew")
         self.left_image.bind("<Configure>", lambda e: self._refresh_preview_images())
         self.right_image.bind("<Configure>", lambda e: self._refresh_preview_images())
+        for panel in (self.left_image, self.right_image):
+            panel.configure(cursor="fleur")
+            panel.bind("<ButtonPress-1>", self._preview_drag_start)
+            panel.bind("<B1-Motion>", self._preview_drag)
+            panel.bind("<ButtonRelease-1>", lambda e: setattr(self, "_drag_start", None))
+            panel.bind("<MouseWheel>", self._preview_wheel)
+            panel.bind("<Button-4>", lambda e: self._zoom_preview(1.25))
+            panel.bind("<Button-5>", lambda e: self._zoom_preview(1/1.25))
 
         # 6. Queue / progress
         queue_shell = tk.Frame(work, bg="#111820", bd=1, relief="solid")
@@ -661,10 +673,15 @@ class App(tk.Tk):
             wraplength=285,
         ).grid(row=10, column=0, columnspan=3, sticky="ew", pady=(5, 0))
 
-        # 4. Device status — display only; processing backend is untouched.
+        # Persist a device ID in each queued job, independent of subsequent UI changes.
         device = self._section(parent, "4", "เลือกอุปกรณ์ประมวลผล")
-        tk.Label(device, text="AUTO (แนะนำ)", bg="#0B1015", fg="#FFFFFF", anchor="w",
-                 padx=8, pady=7, bd=1, relief="solid").pack(fill="x")
+        self._device_choices = {"AUTO (แนะนำ)": "AUTO"}
+        for item in self.pipeline.engine_manager.device_manager.get_devices():
+            if item.available:
+                self._device_choices[f"{item.backend} • {item.name} [{item.device_id}]"] = item.device_id
+        self.device_var = tk.StringVar(value="AUTO (แนะนำ)")
+        ttk.Combobox(device, textvariable=self.device_var, state="readonly",
+                     values=list(self._device_choices)).pack(fill="x")
         tk.Label(device, text=f"GPU  {self.hardware_info['gpu']}  ({self.hardware_info['vram']})",
                  bg="#111820", fg="#9BFF70", anchor="w").pack(fill="x", pady=(6, 0))
         tk.Label(device, text=f"Device  {self.hardware_info['device']}",
@@ -824,6 +841,11 @@ class App(tk.Tk):
     def _select_index(self, idx: int):
         if idx < 0 or idx >= len(self.files):
             return
+        if self.current_index != idx:
+            self.viewport.fit()
+            self._preview_cache.clear()
+            self._last_result = None
+            self.right_image.configure(image="")
         self.current_index = idx
         p = self.files[idx]
         try:
@@ -913,6 +935,7 @@ class App(tk.Tk):
             sharpness=round(self.sharp_var.get()),
             saturation=round(self.sat_var.get()),
             ai_scale=int(self.scale_var.get().rstrip("x")),
+            device=self._device_choices[self.device_var.get()],
             dpi=max(1, int(float(self.dpi_var.get() or 150))),
             print_unit=self.unit_var.get(),
             export_format=self.format_var.get(),
@@ -987,13 +1010,60 @@ class App(tk.Tk):
             except Exception:
                 pass
 
-    def _photo_for_label(self, path: Path, label: ttk.Label):
-        with Image.open(path) as im:
-            im = ImageOps.exif_transpose(im).convert("RGB")
-            w = max(250, label.winfo_width() - 12)
-            h = max(180, label.winfo_height() - 12)
-            im.thumbnail((w, h), Image.Resampling.LANCZOS)
-            return ImageTk.PhotoImage(im.copy())
+    def _preview_source(self, path):
+        path = Path(path)
+        stat = path.stat()
+        key = (str(path), stat.st_mtime_ns, stat.st_size)
+        if key not in self._preview_cache:
+            # Retain only the current Before and After sources.
+            for old in list(self._preview_cache):
+                if old[0] == str(path):
+                    del self._preview_cache[old]
+            if len(self._preview_cache) >= 2:
+                self._preview_cache.pop(next(iter(self._preview_cache)))
+            with Image.open(path) as image:
+                self._preview_cache[key] = ImageOps.exif_transpose(image).convert("RGB")
+        return self._preview_cache[key]
+
+    def _preview_box(self, panel):
+        return max(1, panel.winfo_width()), max(1, panel.winfo_height())
+
+    def _photo_for_label(self, path, label):
+        return ImageTk.PhotoImage(self.viewport.render(self._preview_source(path), self._preview_box(label)))
+
+    def _zoom_preview(self, factor):
+        self.viewport.magnify(factor)
+        self._refresh_preview_images()
+        return "break"
+
+    def _fit_preview(self):
+        self.viewport.fit()
+        self._refresh_preview_images()
+
+    def _actual_preview(self):
+        self.viewport.one_to_one()
+        self._refresh_preview_images()
+
+    def _preview_wheel(self, event):
+        if event.delta:
+            self._zoom_preview(1.25 if event.delta > 0 else 1/1.25)
+        return "break"
+
+    def _preview_drag_start(self, event):
+        self._drag_start = (event.widget, event.x, event.y)
+        return "break"
+
+    def _preview_drag(self, event):
+        if self._drag_start is None or self.current_index is None:
+            return "break"
+        panel, x, y = self._drag_start
+        path = self.files[self.current_index] if panel is self.left_image else self._last_result
+        if path and Path(path).exists():
+            image = self._preview_source(path)
+            self.viewport.pan(event.x-x, event.y-y, image.size, self._preview_box(panel))
+            self._drag_start = (panel, event.x, event.y)
+            self._refresh_preview_images()
+        return "break"
 
     def choose_output_dir(self):
         d = filedialog.askdirectory(title="เลือกโฟลเดอร์ผลลัพธ์")

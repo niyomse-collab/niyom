@@ -8,7 +8,7 @@ from typing import Callable, Optional
 import numpy as np
 from PIL import Image, ImageOps
 
-from app.engine.engine_manager import EngineManager
+from .independent_core import EngineManager, model_path
 from .processing import EnhanceSettings, print_pixels, save_image
 from .face_module import FaceProtectionModule
 
@@ -41,12 +41,7 @@ class ARMCoreAdapter:
     @property
     def available(self) -> bool:
         try:
-            root = Path(__file__).resolve().parents[1]
-            candidates = [
-                root / "models" / "RealESRGAN_x4plus.pth",
-                root / "_internal" / "models" / "RealESRGAN_x4plus.pth",
-            ]
-            return any(p.is_file() for p in candidates)
+            return model_path().is_file()
         except Exception:
             return False
 
@@ -113,7 +108,7 @@ class ARMCoreAdapter:
             with Image.open(src) as im:
                 output = ImageOps.exif_transpose(im).convert("RGB")
         else:
-            engine = self.engine_manager.create_engine("AUTO")
+            engine = self.engine_manager.create_engine(settings.device)
 
             with tempfile.TemporaryDirectory(prefix="niyomsil_arm_core_") as td:
                 td = Path(td)
@@ -200,7 +195,9 @@ class ARMCoreAdapter:
         }
         if use_ai and face_info["enabled"]:
             try:
-                selected_device = self.engine_manager.device_manager.get_default_device()
+                selected_device = (self.engine_manager.device_manager.get_default_device()
+                                   if settings.device == "AUTO" else
+                                   self.engine_manager.device_manager.get_device(settings.device))
                 device_id = getattr(selected_device, "device_id", "cpu")
 
                 def face_progress(value, message):

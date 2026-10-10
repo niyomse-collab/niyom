@@ -79,10 +79,10 @@ if ($actualRetinaHash -ne $expectedRetinaHash) {
 Write-Host "FACE MODELS VERIFIED"
 
 Write-Host "Validating ARM core + optional face module imports..."
-& $py -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py signprint_ai\face_module\__init__.py signprint_ai\face_module\face_protection.py app\device\device_manager.py app\engine\engine_manager.py app\engine\realesrgan_engine.py tools\generate_brand_assets.py
+& $py -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py signprint_ai\face_module\__init__.py signprint_ai\face_module\face_protection.py signprint_ai\independent_core.py tools\generate_brand_assets.py
 if ($LASTEXITCODE -ne 0) { throw "Python source validation failed" }
 
-& $py -c "exec(open('pyi_rth_basicsr_compat.py', encoding='utf-8').read()); from app.engine.realesrgan_engine import RealESRGANEngine; from gfpgan.archs.gfpganv1_clean_arch import GFPGANv1Clean; from facexlib.utils.face_restoration_helper import FaceRestoreHelper; print('ARM + Face Protect imports OK')"
+& $py -c "exec(open('pyi_rth_basicsr_compat.py', encoding='utf-8').read()); from signprint_ai.independent_core import RealESRGANEngine; from gfpgan.archs.gfpganv1_clean_arch import GFPGANv1Clean; from facexlib.utils.face_restoration_helper import FaceRestoreHelper; print('ARM + Face Protect imports OK')"
 if ($LASTEXITCODE -ne 0) { throw "ARM/Face module import validation failed" }
 
 Remove-Item build, dist, release -Recurse -Force -ErrorAction SilentlyContinue
@@ -123,16 +123,14 @@ if ($packedRetinaHash -ne $expectedRetinaHash) {
 }
 
 @"
-NIYOMSIL DESIGN V2.1 - ARM CORE + OPTIONAL FACE PROTECT BUILD PROOF
+NIYOMSIL DESIGN V1.0.0 - INDEPENDENT ORCHESTRATION CORE BUILD PROOF
 
 UI:
 - signprint_ai/app_v2.py
 - Black/Red Niyomsil Design V2 interface
 
 AI processing core:
-- app/device/device_manager.py
-- app/engine/engine_manager.py
-- app/engine/realesrgan_engine.py
+- signprint_ai/independent_core.py
 - signprint_ai/arm_core_adapter.py
 
 ARM model:
@@ -156,7 +154,10 @@ Important:
 - No fallback to Lanczos replaces the ARM AI engine.
 - No extra denoise / contrast / sharpen filter is applied after ARM AI processing.
 - Face Protection is OPTIONAL and defaults OFF.
-- With Face Protection OFF, output follows the proven V2.0.2 ARM path unchanged.
+- Model settings and pass order preserve the legacy compatibility contract.
+- Shop user reports matching quality on their tested images; GPU pixel parity is not independently certified.
+- AUTO / CPU / detected GPU selection is stored in each queued job.
+- Preview zoom, 1:1, Fit and synchronized mouse pan are enabled.
 - When enabled, GFPGAN/RetinaFace runs only as a post-ARM face layer.
 - If Face Protect fails, the ARM result is preserved.
 - CMYK/ICC conversion is export-only.
@@ -185,17 +186,17 @@ if (-not $SkipInstaller) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
 
-    $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe"
+    $installer = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.0.exe"
     if (-not (Test-Path $installer)) {
         throw "Installer compile reported success but the expected EXE is missing."
     }
 
     $installerHash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
-    "$installerHash  Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe" |
-        Set-Content ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe.sha256.txt" -Encoding ascii
+    "$installerHash  NiyomSilp-Independent-Core-Setup-v1.0.0.exe" |
+        Set-Content ".\release\NiyomSilp-Independent-Core-Setup-v1.0.0.exe.sha256.txt" -Encoding ascii
 
     Get-Item $installer | Format-List FullName,Length
     Write-Host "Installer SHA256: $installerHash"
 }
 
-Write-Host "V2.1 ARM CORE + FACE PROTECT BUILD COMPLETE"
+Write-Host "V1.0.0 INDEPENDENT CORE BUILD COMPLETE"
