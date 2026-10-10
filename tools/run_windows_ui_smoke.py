@@ -28,6 +28,8 @@ def main() -> int:
     stub.ARMCoreAdapter = ARMCoreAdapter
     sys.modules["signprint_ai.arm_core_adapter"] = stub
 
+    # Script entrypoints add tools/ (not the repository root) to sys.path on Windows.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from signprint_ai.app_v2 import App
     window = App()
     try:
