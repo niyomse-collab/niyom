@@ -1,0 +1,49 @@
+name: Independent Core - Real Model CPU Parity
+
+on:
+  push:
+    branches:
+      - dev-niyomsil-independent-core-20261010
+    paths:
+      - ".github/workflows/independent-core-real-model.yml"
+      - "tools/run_real_core_parity.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline-vs-independent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install CPU PyTorch and TorchVision
+        run: |
+          python -m pip install --disable-pip-version-check \
+            torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cpu
+      - name: Install pinned model runtime
+        run: |
+          python -m pip install --disable-pip-version-check \
+            basicsr==1.4.2 realesrgan==0.3.0 \
+            numpy==2.5.2 Pillow==12.3.0 opencv-python==5.0.0.93
+      - name: Download official model and verify exact baseline SHA256
+        run: |
+          mkdir -p models
+          curl --fail --location --retry 3 --retry-delay 3 \
+            "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth" \
+            --output models/RealESRGAN_x4plus.pth
+          echo "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1  models/RealESRGAN_x4plus.pth" | sha256sum -c -
+      - name: Real model reference / candidate parity, 2x 4x 8x on CPU
+        run: python tools/run_real_core_parity.py --output core-parity-report --scales 2 4 8
+      - name: Upload comparison PNGs and JSON whether pass or fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: niyomsil-real-model-cpu-parity
+          path: core-parity-report/
+          if-no-files-found: warn
+          retention-days: 30
