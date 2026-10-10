@@ -126,6 +126,34 @@ def read_cmyk_profile(source: str | Path, description: str) -> bytes:
     return blob
 
 
+
+def read_cmyk_profile_by_sha(source: str | Path, sha256: str) -> bytes:
+    """Unambiguously select a CMYK printer ICC by digest, never by filename.
+
+    Returned bytes remain in memory. For ZIP archives no files are extracted.
+    The digest is checked again to catch archive changes between list and read.
+    """
+    if len(sha256) != 64 or any(c not in "0123456789abcdef" for c in sha256.lower()):
+        raise ValueError("Invalid ICC SHA-256 identifier")
+    path = Path(source)
+    found = [item for item in list_external_profiles(path)
+             if item.sha256.lower() == sha256.lower()]
+    if len(found) != 1:
+        raise ValueError("Choose one unique ICC profile SHA-256")
+    selected = found[0]
+    if selected.color_space != "CMYK" or selected.device_class != "prtr":
+        raise ValueError("Selected ICC is not a CMYK printer profile")
+    if path.is_dir():
+        blob = (path / selected.source_member).read_bytes()
+    elif path.suffix.lower() == ".zip":
+        with ZipFile(path) as archive:
+            blob = archive.read(selected.source_member)
+    else:
+        blob = path.read_bytes()
+    if hashlib.sha256(blob).hexdigest() != sha256.lower():
+        raise ValueError("ICC source changed since selected")
+    return blob
+
 def main() -> int:
     import argparse
     parser = argparse.ArgumentParser(description="List user-provided ICC profiles without copying them")

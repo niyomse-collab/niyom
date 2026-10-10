@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
+from io import BytesIO
 import numpy as np
 from PIL import Image, ImageCms, ImageOps
 
@@ -10,18 +11,31 @@ _INCHES = {"mm": 1/25.4, "cm": 1/2.54, "m": 100/2.54,
 _FORMATS = {".png", ".tif", ".tiff", ".jpg", ".jpeg", ".pdf"}
 
 
-def open_cmyk_output_profile(path: str | Path):
+def open_cmyk_output_profile(path: str | Path | bytes):
     """Reject RGB, broken or unrelated ICC files before rendering output."""
-    path = Path(path)
-    if not path.is_file():
-        raise ValueError(f"Valid CMYK ICC output profile is required: {path}")
+    if isinstance(path, bytes):
+        if not path or len(path) > 10_000_000:
+            raise ValueError("CMYK ICC profile bytes missing or too large")
+        try:
+            profile = ImageCms.ImageCmsProfile(BytesIO(path))
+        except Exception as exc:
+            raise ValueError(f"Cannot open ICC output profile: {exc}") from exc
+    else:
+        file = Path(path)
+        if not file.is_file():
+            raise ValueError(f"Valid CMYK ICC output profile is required: {file}")
+        try:
+            profile = ImageCms.getOpenProfile(str(file))
+        except Exception as exc:
+            raise ValueError(f"Cannot open ICC output profile: {exc}") from exc
     try:
-        profile = ImageCms.getOpenProfile(str(path))
         space = str(profile.profile.xcolor_space).strip().upper()
     except Exception as exc:
         raise ValueError(f"Cannot open ICC output profile: {exc}") from exc
     if space != "CMYK":
         raise ValueError(f"ICC must be CMYK output profile, got {space}")
+    if str(profile.profile.device_class).strip().lower() != "prtr":
+        raise ValueError("ICC must be a CMYK printer/output profile")
     return profile
 
 
@@ -32,7 +46,7 @@ class PrintSpec:
     height: float | None = None
     unit: str = "cm"
     color_mode: str = "RGB"
-    icc_profile: str | Path | None = None
+    icc_profile: str | Path | bytes | None = None
 
     def target_pixels(self) -> tuple[int, int] | None:
         if not isinstance(self.dpi, int) or self.dpi <= 0:
@@ -79,16 +93,19 @@ def export_print_image(pixels: Image.Image | np.ndarray, destination: str | Path
     if color == "CMYK" and suffix == ".png":
         raise ValueError("CMYK cannot be exported as PNG")
     target = spec.target_pixels()
-    profile = None
+    profile_bytes = None
     opened_profile = None
     if color == "CMYK":
         if not spec.icc_profile:
             raise ValueError("Valid CMYK ICC profile is required")
-        profile = Path(spec.icc_profile)
-        opened_profile = open_cmyk_output_profile(profile)
+        opened_profile = open_cmyk_output_profile(spec.icc_profile)
+        profile_bytes = (
+            spec.icc_profile if isinstance(spec.icc_profile, bytes)
+            else Path(spec.icc_profile).read_bytes()
+        )
     source = pixels if isinstance(pixels, Image.Image) else Image.fromarray(np.asarray(pixels))
     out = fit_rgb_to_print(source, target)
-    if profile is not None:
+    if profile_bytes is not None:
         try:
             out = ImageCms.profileToProfile(
                 out, ImageCms.createProfile("sRGB"), opened_profile,
@@ -99,8 +116,8 @@ def export_print_image(pixels: Image.Image | np.ndarray, destination: str | Path
 
     path.parent.mkdir(parents=True, exist_ok=True)
     options = {"dpi": (spec.dpi, spec.dpi)}
-    if profile is not None:
-        options["icc_profile"] = profile.read_bytes()
+    if profile_bytes is not None:
+        options["icc_profile"] = profile_bytes
     if suffix == ".png":
         out.save(path, "PNG", compress_level=3, **options)
     elif suffix in {".tif", ".tiff"}:

@@ -57,8 +57,34 @@ def main() -> int:
             raise AssertionError(f"CMYK comparison failed at {dpi} DPI: {results}")
         tests[str(dpi)] = results
 
+    # Wrap this generic, publicly supplied profile in ZIP to prove the exact
+    # same exported CMYK pixels with the new in-memory ZIP selector.
+    from zipfile import ZipFile
+    import numpy as np
+    from independent_core.icc_library import list_external_profiles
+    from independent_core.icc_external_export import export_selected_cmyk
+    zip_path = args.out / "generic-cmyk-test.zip"
+    with ZipFile(zip_path, "w") as archive:
+        archive.write(args.icc, arcname="generic/test-output.icc")
+    choices = list_external_profiles(zip_path)
+    if len(choices) != 1 or choices[0].color_space != "CMYK":
+        raise AssertionError("No unique CMYK profile in ZIP test")
+    selected = choices[0]
+    out_from_zip = args.out / "generic-zip-selected.tif"
+    with Image.open(fixture) as image:
+        export_selected_cmyk(image.convert("RGB"), out_from_zip,
+                             zip_path, selected.sha256, dpi=300)
+    reference_tiff = args.out / "output_300dpi" / "reference-arm-cmyk.tif"
+    with Image.open(reference_tiff) as baseline, Image.open(out_from_zip) as candidate:
+        if not np.array_equal(np.asarray(baseline), np.asarray(candidate)):
+            raise AssertionError("Selected ZIP ICC conversion differs from legacy output")
+        if candidate.info.get("icc_profile") != args.icc.read_bytes():
+            raise AssertionError("Selected ICC bytes not embedded")
+    zip_selected_pass = True
+
     report = {
         "passed": True,
+        "zip_selected_cmyk_parity": zip_selected_pass,
         "profile_origin": "generic Ghostscript libgs-common default_cmyk.icc",
         "NOT_SHOP_PROFILE": True,
         "tests": tests,
@@ -77,6 +103,7 @@ def main() -> int:
         "reference_parity": {k: tests[k]["pixels_identical"] for k in tests},
         "ICC_profile_embedded": {k: tests[k]["icc_embedded_exact_match"] for k in tests},
         "NOT_SHOP_PROFILE": True,
+        "zip_selected_cmyk_parity": zip_selected_pass,
     }, indent=2))
     return 0
 

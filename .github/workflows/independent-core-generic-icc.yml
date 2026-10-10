@@ -9,6 +9,8 @@ on:
       - "tools/run_generic_icc_integration.py"
       - "tools/run_shop_icc.py"
       - "independent_core/print_output.py"
+      - "independent_core/icc_library.py"
+      - "independent_core/icc_external_export.py"
   workflow_dispatch:
 
 permissions:

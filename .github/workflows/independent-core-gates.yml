@@ -28,3 +28,4 @@ jobs:
           python -m unittest discover -s tests -p 'test_print_contract.py' -v
           python -m unittest discover -s tests -p 'test_shop_icc.py' -v
           python -m unittest discover -s tests -p 'test_icc_library.py' -v
+          python -m unittest discover -s tests -p 'test_zip_cmyk_export.py' -v
