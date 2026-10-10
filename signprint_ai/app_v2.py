@@ -21,8 +21,8 @@ import numpy as np
 from .arm_core_adapter import ARMCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 
-APP_NAME = "Niyomsil Design AI Enhancer"
-APP_VERSION = "V2.1.2 Face Popup + Portrait"
+APP_NAME = "NiyomSilp AI Core - Portrait Gentle TEST"
+APP_VERSION = "V2.1.3 Portrait Gentle TEST"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]

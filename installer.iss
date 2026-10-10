@@ -1,18 +1,18 @@
-#define MyAppName "Niyomsil Design AI Enhancer"
-#define MyAppVersion "2.1.1"
+#define MyAppName "NiyomSilp AI Core - Portrait Gentle TEST"
+#define MyAppVersion "2.1.3-test"
 #define MyAppPublisher "Niyomsil Design"
 #define MyAppExeName "NiyomsilAIEnhancer.exe"
 
 [Setup]
-AppId={{B0DD9E45-BD74-48A0-8C7B-B87227371EB1}
+AppId={{A8ECF5DD-5C21-4E44-91D0-20261010A111}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\NiyomsilDesignAIEnhancer
+DefaultDirName={autopf}\NiyomSilpPortraitGentleTEST
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=release
-OutputBaseFilename=Niyomsil-Design-AI-Enhancer-Setup-v2.1.1
+OutputBaseFilename=NiyomSilp-Portrait-Gentle-TEST-Setup-v2.1.3
 Compression=lzma2/normal
 SolidCompression=yes
 WizardStyle=modern

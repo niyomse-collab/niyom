@@ -102,8 +102,8 @@ jobs:
       - name: Verify installer and checksum
         shell: powershell
         run: |
-          $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe"
-          $checksum = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe.sha256.txt"
+          $installer = ".\release\NiyomSilp-Portrait-Gentle-TEST-Setup-v2.1.3.exe"
+          $checksum = ".\release\NiyomSilp-Portrait-Gentle-TEST-Setup-v2.1.3.exe.sha256.txt"
           if (-not (Test-Path $installer)) { throw "Missing V2 ARM Core installer" }
           if (-not (Test-Path $checksum)) { throw "Missing installer checksum" }
           Get-Item $installer | Format-List FullName,Length
@@ -115,6 +115,6 @@ jobs:
           name: Niyomsil-Design-AI-Enhancer-V2.1.2-Face-Popup-Portrait-Windows
           compression-level: 0
           path: |
-            release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe
-            release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe.sha256.txt
+            release\NiyomSilp-Portrait-Gentle-TEST-Setup-v2.1.3.exe
+            release\NiyomSilp-Portrait-Gentle-TEST-Setup-v2.1.3.exe.sha256.txt
             dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt

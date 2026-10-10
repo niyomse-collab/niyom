@@ -210,14 +210,14 @@ if (-not $SkipInstaller) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
 
-    $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe"
+    $installer = ".\release\NiyomSilp-Portrait-Gentle-TEST-Setup-v2.1.3.exe"
     if (-not (Test-Path $installer)) {
         throw "Installer compile reported success but the expected EXE is missing."
     }
 
     $installerHash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
-    "$installerHash  Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe" |
-        Set-Content ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe.sha256.txt" -Encoding ascii
+    "$installerHash  NiyomSilp-Portrait-Gentle-TEST-Setup-v2.1.3.exe" |
+        Set-Content ".\release\NiyomSilp-Portrait-Gentle-TEST-Setup-v2.1.3.exe.sha256.txt" -Encoding ascii
 
     Get-Item $installer | Format-List FullName,Length
     Write-Host "Installer SHA256: $installerHash"
