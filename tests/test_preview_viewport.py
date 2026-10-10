@@ -34,3 +34,15 @@ def test_one_to_one_crop_and_bounded_render():
     np.testing.assert_array_equal(np.asarray(rendered), pixels[40:60, 90:110])
     view.magnify(64)
     assert view.render(image, (20, 20)).size == (20, 20)
+
+
+def test_one_to_one_uses_common_output_scale():
+    view = PreviewViewport(actual=True)
+    reference = (2000, 1000)
+    assert view.scale((1000,500),(500,300),reference) == 2
+    assert view.scale((2000,1000),(500,300),reference) == 1
+    view.pan(100,0,(1000,500),(500,300),reference)
+    center = view.center_x
+    view.center_x = .5
+    view.pan(100,0,(2000,1000),(500,300),reference)
+    assert view.center_x == center

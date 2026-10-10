@@ -1095,8 +1095,16 @@ class App(tk.Tk):
     def _preview_box(self, panel):
         return max(1, panel.winfo_width()), max(1, panel.winfo_height())
 
+    def _preview_reference_size(self):
+        if self._last_result and self._last_result.exists():
+            return self._preview_source(self._last_result).size
+        if self.current_index is not None:
+            return self._preview_source(self.files[self.current_index]).size
+        return None
+
     def _photo_for_label(self, path, label):
-        return ImageTk.PhotoImage(self.viewport.render(self._preview_source(path), self._preview_box(label)))
+        return ImageTk.PhotoImage(self.viewport.render(self._preview_source(path), self._preview_box(label),
+                                                       self._preview_reference_size()))
 
     def _zoom_preview(self, factor):
         self.viewport.magnify(factor)
@@ -1127,7 +1135,7 @@ class App(tk.Tk):
         path = self.files[self.current_index] if panel is self.left_image else self._last_result
         if path and Path(path).exists():
             image = self._preview_source(path)
-            self.viewport.pan(event.x-x, event.y-y, image.size, self._preview_box(panel))
+            self.viewport.pan(event.x-x, event.y-y, image.size, self._preview_box(panel), self._preview_reference_size())
             self._drag_start = (panel, event.x, event.y)
             self._refresh_preview_images()
         return "break"

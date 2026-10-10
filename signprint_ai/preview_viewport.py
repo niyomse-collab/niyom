@@ -21,18 +21,23 @@ class PreviewViewport:
     def magnify(self, factor):
         self.zoom = max(0.05, min(64.0, self.zoom * factor))
 
-    def scale(self, image_size, box):
-        return self.zoom * (1.0 if self.actual else min(box[0]/image_size[0], box[1]/image_size[1]))
+    def scale(self, image_size, box, reference_size=None):
+        if self.actual:
+            # 1:1 means output pixels; Before is mapped to the same output scale.
+            base = reference_size[0]/image_size[0] if reference_size else 1.0
+        else:
+            base = min(box[0]/image_size[0], box[1]/image_size[1])
+        return self.zoom * base
 
-    def pan(self, dx, dy, image_size, box):
-        scale = self.scale(image_size, box)
+    def pan(self, dx, dy, image_size, box, reference_size=None):
+        scale = self.scale(image_size, box, reference_size)
         self.center_x = max(0.0, min(1.0, self.center_x - dx/(image_size[0]*scale)))
         self.center_y = max(0.0, min(1.0, self.center_y - dy/(image_size[1]*scale)))
 
-    def render(self, image, box):
+    def render(self, image, box, reference_size=None):
         # Allocate only the viewport, even when viewing a very large print at 1:1.
         width, height = box
-        scale = self.scale(image.size, box)
+        scale = self.scale(image.size, box, reference_size)
         left = self.center_x*image.width - width/(2*scale)
         top = self.center_y*image.height - height/(2*scale)
         return image.transform(box, Image.Transform.AFFINE,
