@@ -53,6 +53,19 @@ class ARMCoreAdapter:
     def default_device(self):
         return self.engine_manager.device_manager.get_default_device()
 
+    def available_devices(self):
+        """Return detected execution devices without modifying ARM Core."""
+        return list(self.engine_manager.device_manager.get_devices())
+
+    def resolve_device(self, device_id: str | None):
+        requested = (device_id or "AUTO").strip()
+        if requested.upper() == "AUTO":
+            return self.engine_manager.device_manager.get_default_device()
+        selected = self.engine_manager.device_manager.get_device(requested)
+        if selected is None:
+            raise RuntimeError(f"ไม่พบ Device: {requested}")
+        return selected
+
     def detect_faces(self, input_path: str | Path) -> list[dict]:
         """Upload-time face scan.
 
@@ -158,7 +171,8 @@ class ARMCoreAdapter:
             with Image.open(src) as im:
                 output = ImageOps.exif_transpose(im).convert("RGB")
         else:
-            engine = self.engine_manager.create_engine("AUTO")
+            requested_device = getattr(settings, "device_id", "AUTO") or "AUTO"
+            engine = self.engine_manager.create_engine(requested_device)
 
             with tempfile.TemporaryDirectory(prefix="niyomsil_arm_core_") as td:
                 td = Path(td)
@@ -245,7 +259,9 @@ class ARMCoreAdapter:
         }
         if use_ai and face_info["enabled"]:
             try:
-                selected_device = self.engine_manager.device_manager.get_default_device()
+                selected_device = self.resolve_device(
+                    getattr(settings, "device_id", "AUTO")
+                )
                 device_id = getattr(selected_device, "device_id", "cpu")
 
                 def face_progress(value, message):
