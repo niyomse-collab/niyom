@@ -1,0 +1,27 @@
+name: NiyomSilp Independent Test - Windows GUI Smoke
+
+on:
+  push:
+    branches:
+      - dev-niyomsil-independent-core-20261010
+    paths:
+      - "tools/run_independent_ui_smoke.py"
+      - ".github/workflows/independent-test-ui-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gui-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install UI-only test dependencies
+        run: python -m pip install --disable-pip-version-check numpy pillow opencv-python==5.0.0.93
+      - name: Construct the real unchanged NiyomSilp GUI with independent backend
+        run: python tools/run_independent_ui_smoke.py
