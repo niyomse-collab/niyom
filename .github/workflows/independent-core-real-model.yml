@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/independent-core-real-model.yml"
       - "tools/run_real_core_parity.py"
+      - "tools/run_signage_regression.py"
   workflow_dispatch:
 
 permissions:
@@ -15,7 +16,7 @@ permissions:
 jobs:
   baseline-vs-independent:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,6 +31,11 @@ jobs:
           python -m pip install --disable-pip-version-check \
             basicsr==1.4.2 realesrgan==0.3.0 \
             numpy==2.5.2 Pillow==12.3.0 opencv-python==5.0.0.93
+      - name: Install Thai fonts for signage fixtures
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-thai-tlwg fontconfig
+          fc-match ':lang=th'
       - name: Download official model and verify exact baseline SHA256
         run: |
           mkdir -p models
@@ -39,7 +45,9 @@ jobs:
           echo "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1  models/RealESRGAN_x4plus.pth" | sha256sum -c -
       - name: Real model reference / candidate parity, 2x 4x 8x on CPU
         run: python tools/run_real_core_parity.py --output core-parity-report --scales 2 4 8
-      - name: Upload comparison PNGs and JSON whether pass or fail
+      - name: Thai signage, gradient and illustrated face multi-tile regression
+        run: python tools/run_signage_regression.py --output core-parity-report/signage
+      - name: Upload inputs outputs and reports whether pass or fail
         if: always()
         uses: actions/upload-artifact@v4
         with:
