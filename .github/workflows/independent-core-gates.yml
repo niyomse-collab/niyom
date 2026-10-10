@@ -21,8 +21,9 @@ jobs:
       - name: Install contract test requirements
         run: python -m pip install --disable-pip-version-check numpy pillow opencv-python==5.0.0.93
       - name: Syntax validation
-        run: python -m compileall -q independent_core tests/test_independent_core.py tests/test_print_contract.py
-      - name: Verify frozen UI and core, button bindings and print contract
+        run: python -m compileall -q independent_core tests tools/run_shop_icc.py tools/run_gpu_parity.py
+      - name: Verify UI frozen, output geometry, ICC failure-safe and GPU tool syntax
         run: |
           python -m unittest discover -s tests -p 'test_independent_core.py' -v
           python -m unittest discover -s tests -p 'test_print_contract.py' -v
+          python -m unittest discover -s tests -p 'test_shop_icc.py' -v

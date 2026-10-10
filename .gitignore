@@ -7,3 +7,5 @@ __pycache__/
 tools/realesrgan-ncnn-vulkan.exe
 tools/models/
 tools/*.dll
+local-qa-results/
+shop-private/

@@ -10,6 +10,21 @@ _INCHES = {"mm": 1/25.4, "cm": 1/2.54, "m": 100/2.54,
 _FORMATS = {".png", ".tif", ".tiff", ".jpg", ".jpeg", ".pdf"}
 
 
+def open_cmyk_output_profile(path: str | Path):
+    """Reject RGB, broken or unrelated ICC files before rendering output."""
+    path = Path(path)
+    if not path.is_file():
+        raise ValueError(f"Valid CMYK ICC output profile is required: {path}")
+    try:
+        profile = ImageCms.getOpenProfile(str(path))
+        space = str(profile.profile.xcolor_space).strip().upper()
+    except Exception as exc:
+        raise ValueError(f"Cannot open ICC output profile: {exc}") from exc
+    if space != "CMYK":
+        raise ValueError(f"ICC must be CMYK output profile, got {space}")
+    return profile
+
+
 @dataclass(frozen=True)
 class PrintSpec:
     dpi: int = 150
@@ -65,16 +80,18 @@ def export_print_image(pixels: Image.Image | np.ndarray, destination: str | Path
         raise ValueError("CMYK cannot be exported as PNG")
     target = spec.target_pixels()
     profile = None
+    opened_profile = None
     if color == "CMYK":
-        if not spec.icc_profile or not Path(spec.icc_profile).is_file():
+        if not spec.icc_profile:
             raise ValueError("Valid CMYK ICC profile is required")
         profile = Path(spec.icc_profile)
+        opened_profile = open_cmyk_output_profile(profile)
     source = pixels if isinstance(pixels, Image.Image) else Image.fromarray(np.asarray(pixels))
     out = fit_rgb_to_print(source, target)
     if profile is not None:
         try:
             out = ImageCms.profileToProfile(
-                out, ImageCms.createProfile("sRGB"), ImageCms.getOpenProfile(str(profile)),
+                out, ImageCms.createProfile("sRGB"), opened_profile,
                 renderingIntent=0, outputMode="CMYK"
             )
         except Exception as exc:
