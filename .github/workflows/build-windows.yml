@@ -66,7 +66,7 @@ jobs:
           $gfpgan = ".\dist\NiyomsilAIEnhancer\_internal\models\face\GFPGANv1.4.pth"
           $retina = ".\dist\NiyomsilAIEnhancer\_internal\models\face\detection_Resnet50_Final.pth"
           $proof = ".\dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt"
-          if (-not (Test-Path $exe)) { throw "Missing V2.1.1 executable" }
+          if (-not (Test-Path $exe)) { throw "Missing V2.1.2 executable" }
           if (-not (Test-Path $model)) { throw "Missing ARM RealESRGAN_x4plus model" }
           if (-not (Test-Path $gfpgan)) { throw "Missing GFPGANv1.4 model" }
           if (-not (Test-Path $retina)) { throw "Missing RetinaFace detector model" }
@@ -102,10 +102,10 @@ jobs:
           Get-Item $installer | Format-List FullName,Length
           Get-Content $checksum
 
-      - name: Upload V2.1.1 Auto Face Select installer
+      - name: Upload V2.1.2 Face Popup Portrait installer
         uses: actions/upload-artifact@v4
         with:
-          name: Niyomsil-Design-AI-Enhancer-V2.1.1-Auto-Face-Select-Windows
+          name: Niyomsil-Design-AI-Enhancer-V2.1.2-Face-Popup-Portrait-Windows
           compression-level: 0
           path: |
             release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.1.exe
