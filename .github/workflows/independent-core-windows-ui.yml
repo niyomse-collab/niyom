@@ -1,0 +1,29 @@
+name: NiyomSilp Original Windows UI Smoke
+
+on:
+  push:
+    branches:
+      - dev-niyomsil-independent-core-20261010
+    paths:
+      - "tools/run_windows_ui_smoke.py"
+      - ".github/workflows/independent-core-windows-ui.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  existing-ui-widgets:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install UI smoke requirements without any AI model
+        run: python -m pip install --disable-pip-version-check numpy pillow opencv-python==5.0.0.93
+      - name: Validate static syntax of CUDA tester
+        run: python -m py_compile tools/run_gpu_parity.py
+      - name: Start original GUI and validate key controls on Windows
+        run: python tools/run_windows_ui_smoke.py
