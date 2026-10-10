@@ -31,6 +31,8 @@ class EnhanceSettings:
     v1_baseline: bool = True
     color_mode: str = "RGB"
     icc_profile_path: str | None = None
+    # Execution preference only; it does not alter the image-processing recipe.
+    device_id: str = "AUTO"
 
     # Optional face layer. These fields are metadata only; the legacy image
     # enhancement functions in this module do not read them.
