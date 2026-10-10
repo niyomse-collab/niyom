@@ -35,7 +35,7 @@ class EnhanceSettings:
     # Optional face layer. These fields are metadata only; the legacy image
     # enhancement functions in this module do not read them.
     face_protection: bool = False
-    face_mode: str = "protect"  # protect | recover
+    face_mode: str = "protect"  # protect | portrait | recover
     face_strength: int = 35
     # Normalized (x, y) centers of the faces explicitly selected by the user.
     # Empty when no face should receive the optional protection layer.
