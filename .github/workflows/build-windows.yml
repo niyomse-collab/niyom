@@ -65,11 +65,13 @@ jobs:
           $model = ".\dist\NiyomsilAIEnhancer\_internal\models\RealESRGAN_x4plus.pth"
           $gfpgan = ".\dist\NiyomsilAIEnhancer\_internal\models\face\GFPGANv1.4.pth"
           $retina = ".\dist\NiyomsilAIEnhancer\_internal\models\face\detection_Resnet50_Final.pth"
+          $parser = ".\dist\NiyomsilAIEnhancer\_internal\models\face\parsing_parsenet.pth"
           $proof = ".\dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt"
           if (-not (Test-Path $exe)) { throw "Missing V2.1.2 executable" }
           if (-not (Test-Path $model)) { throw "Missing ARM RealESRGAN_x4plus model" }
           if (-not (Test-Path $gfpgan)) { throw "Missing GFPGANv1.4 model" }
           if (-not (Test-Path $retina)) { throw "Missing RetinaFace detector model" }
+          if (-not (Test-Path $parser)) { throw "Missing FaceXLib ParseNet model" }
           if (-not (Test-Path $proof)) { throw "Missing ARM core build proof" }
 
           $expected = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
@@ -83,6 +85,10 @@ jobs:
           $expectedRetina = "6d1de9c2944f2ccddca5f5e010ea5ae64a39845a86311af6fdf30841b0a5a16d"
           $actualRetina = (Get-FileHash -Algorithm SHA256 $retina).Hash.ToLower()
           if ($actualRetina -ne $expectedRetina) { throw "Packaged RetinaFace SHA256 mismatch: $actualRetina" }
+
+          $expectedParser = "3d558d8d0e42c20224f13cf5a29c79eba2d59913419f945545d8cf7b72920de2"
+          $actualParser = (Get-FileHash -Algorithm SHA256 $parser).Hash.ToLower()
+          if ($actualParser -ne $expectedParser) { throw "Packaged ParseNet SHA256 mismatch: $actualParser" }
 
           if (Test-Path ".\dist\NiyomsilAIEnhancer\tools\realesrgan-ncnn-vulkan.exe") {
             throw "NCNN backend must not be packaged in V2 ARM Core build"
