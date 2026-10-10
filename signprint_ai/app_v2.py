@@ -22,7 +22,7 @@ from .arm_core_adapter import ARMCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 
 APP_NAME = "Niyomsil Design AI Enhancer"
-APP_VERSION = "V2.1.1 Face Auto-Select"
+APP_VERSION = "V2.1.2 Face Popup + Portrait"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -73,6 +73,7 @@ class App(tk.Tk):
         self._face_selector_photo = None
         self._face_detection_generation = 0
         self._pending_start_after_face_analysis = False
+        self._face_detector_error_shown = False
 
         self._preview_job = None
         self._preview_generation = 0
@@ -629,21 +630,40 @@ class App(tk.Tk):
         self._slider(quality, "Anti-Halo Sharpen", self.sharp_var, 4)
         self._slider(quality, "Saturation", self.sat_var, 5, -30, 30)
 
-        # Face Protection is automatic in V2.1.1. No extra toolbar or
-        # permanent control is required; a selector appears only when a face is
-        # detected in an uploaded image.
+        # Face workflow is a strictly optional layer. OFF keeps the proven ARM
+        # Core path unchanged. ON scans uploaded images and opens the selector
+        # only when faces are detected.
         tk.Frame(quality, bg="#37414B", height=1).grid(
             row=6, column=0, columnspan=3, sticky="ew", pady=(8, 7)
         )
+        self.face_enabled_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            quality,
+            text="ตรวจจับ / เลือกใบหน้าอัตโนมัติ",
+            variable=self.face_enabled_var,
+            command=self._face_detection_toggled,
+            style="Dark.TCheckbutton",
+        ).grid(row=7, column=0, columnspan=3, sticky="w")
+
+        self.face_count_var = tk.StringVar(value="Face Detection: ปิด")
         tk.Label(
             quality,
-            text="Face Protect: ตรวจจับอัตโนมัติ • พบใบหน้าแล้วจะแสดงภาพให้คลิกเลือก",
+            textvariable=self.face_count_var,
             bg="#111820",
             fg="#84D8FF",
             anchor="w",
             justify="left",
             wraplength=285,
-        ).grid(row=7, column=0, columnspan=3, sticky="ew")
+        ).grid(row=8, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+        tk.Label(
+            quality,
+            text="พบใบหน้า → ป๊อปอัพให้เลือก • หน้าที่เลือกใช้ Portrait Enhance อัตโนมัติ",
+            bg="#111820",
+            fg="#BFC8D0",
+            anchor="w",
+            justify="left",
+            wraplength=285,
+        ).grid(row=9, column=0, columnspan=3, sticky="ew", pady=(3, 0))
 
         # 4. Device status — display only; processing backend is untouched.
         device = self._section(parent, "4", "เลือกอุปกรณ์ประมวลผล")
@@ -744,6 +764,54 @@ class App(tk.Tk):
         if paths:
             self.add_files(paths)
 
+    def _face_detection_toggled(self):
+        enabled = bool(self.face_enabled_var.get())
+        self._face_detection_generation += 1
+        self._pending_start_after_face_analysis = False
+        self._face_selector_queue.clear()
+
+        if self._face_selector_window is not None:
+            try:
+                self._face_selector_window.grab_release()
+            except Exception:
+                pass
+            try:
+                self._face_selector_window.destroy()
+            except Exception:
+                pass
+            self._face_selector_window = None
+            self._face_selector_photo = None
+
+        if not enabled:
+            for idx, path in enumerate(self.files):
+                self._face_states[self._face_file_key(path)] = {
+                    "status": "ready",
+                    "faces": [],
+                    "selected": set(),
+                    "error": None,
+                }
+                self._set_face_row_status(idx, "พร้อม • Face Detection ปิด")
+            self._update_face_count_label()
+            self._set_status("Face Detection ปิด • ใช้ ARM Core เดิม")
+            return
+
+        self._face_detector_error_shown = False
+        for idx, path in enumerate(self.files):
+            self._face_states[self._face_file_key(path)] = {
+                "status": "detecting",
+                "faces": [],
+                "selected": set(),
+                "error": None,
+            }
+            self._set_face_row_status(idx, "กำลังตรวจหาใบหน้า…")
+            self._start_face_detection(path)
+
+        self._update_face_count_label()
+        if self.files:
+            self._set_status(f"เปิด Face Detection • กำลังตรวจ {len(self.files)} ไฟล์")
+        else:
+            self._set_status("เปิด Face Detection • ภาพใหม่จะถูกตรวจใบหน้าอัตโนมัติ")
+
     @staticmethod
     def _face_file_key(path: str | Path) -> str:
         p = str(Path(path).resolve())
@@ -796,13 +864,20 @@ class App(tk.Tk):
                         "-",
                     ),
                 )
+                face_enabled = bool(
+                    getattr(self, "face_enabled_var", None)
+                    and self.face_enabled_var.get()
+                )
                 self._face_states[self._face_file_key(p)] = {
-                    "status": "detecting",
+                    "status": "detecting" if face_enabled else "ready",
                     "faces": [],
                     "selected": set(),
                     "error": None,
                 }
-                new_paths.append(p)
+                if face_enabled:
+                    new_paths.append(p)
+                else:
+                    self._set_face_row_status(idx, "พร้อม • Face Detection ปิด")
                 added += 1
 
         if added and self.current_index is None:
@@ -813,14 +888,31 @@ class App(tk.Tk):
         for path in new_paths:
             self._start_face_detection(path)
 
+        self._update_face_count_label()
         if added:
-            self._set_status(
-                f"เพิ่มภาพแล้ว {added} ไฟล์ • กำลังตรวจจับใบหน้าอัตโนมัติ"
-            )
+            if self.face_enabled_var.get():
+                self._set_status(
+                    f"เพิ่มภาพแล้ว {added} ไฟล์ • กำลังตรวจจับใบหน้าอัตโนมัติ"
+                )
+            else:
+                self._set_status(
+                    f"เพิ่มภาพแล้ว {added} ไฟล์ • Face Detection ปิด • ใช้ ARM Core เดิม"
+                )
         else:
             self._set_status("ไม่มีไฟล์ใหม่ถูกเพิ่ม")
 
     def _start_face_detection(self, path: Path):
+        if not self.face_enabled_var.get():
+            idx = self._index_for_face_path(path)
+            state = self._face_state(path)
+            state["status"] = "ready"
+            state["faces"] = []
+            state["selected"] = set()
+            if idx is not None:
+                self._set_face_row_status(idx, "พร้อม • Face Detection ปิด")
+            self._update_face_count_label()
+            return
+
         generation = self._face_detection_generation
         path_text = str(path)
 
@@ -849,6 +941,33 @@ class App(tk.Tk):
             values[3] = text
             self.tree.item(str(idx), values=values)
 
+    def _update_face_count_label(self):
+        if not hasattr(self, "face_count_var"):
+            return
+        if not self.face_enabled_var.get():
+            self.face_count_var.set("Face Detection: ปิด")
+            return
+
+        total = 0
+        files_with_faces = 0
+        detecting = 0
+        selected = 0
+        for state in self._face_states.values():
+            if state.get("status") == "detecting":
+                detecting += 1
+            faces = state.get("faces") or []
+            if faces:
+                files_with_faces += 1
+                total += len(faces)
+            selected += len(state.get("selected") or set())
+
+        text = f"ตรวจพบ {total} ใบหน้า / {files_with_faces} ไฟล์"
+        if selected:
+            text += f" • เลือก {selected} ใบหน้า"
+        if detecting:
+            text += f" • กำลังตรวจ {detecting} ไฟล์"
+        self.face_count_var.set(text)
+
     def _selected_face_targets(self, idx: int):
         if idx < 0 or idx >= len(self.files):
             return ()
@@ -864,6 +983,8 @@ class App(tk.Tk):
         return tuple(targets)
 
     def _face_analysis_unresolved(self):
+        if not self.face_enabled_var.get():
+            return []
         unresolved = []
         for path in self.files:
             state = self._face_states.get(self._face_file_key(path))
@@ -885,6 +1006,8 @@ class App(tk.Tk):
             )
 
     def _queue_face_selector(self, path: str | Path):
+        if not self.face_enabled_var.get():
+            return
         key = self._face_file_key(path)
         if key not in self._face_selector_queue:
             self._face_selector_queue.append(key)
@@ -954,7 +1077,7 @@ class App(tk.Tk):
         ).pack(pady=(10, 2))
         tk.Label(
             top,
-            text="คลิกกรอบใบหน้าเพื่อเลือก/ยกเลิก • สีเขียว = เลือกใช้ Face Protect",
+            text="คลิกกรอบใบหน้าเพื่อเลือก/ยกเลิก • สีเขียว = เลือกใช้ Portrait Enhance",
             bg="#0B1015",
             fg="#C7D0D8",
         ).pack(pady=(0, 8))
@@ -1048,12 +1171,12 @@ class App(tk.Tk):
             if count:
                 self._set_face_row_status(
                     idx,
-                    f"พร้อม • เลือก Face Protect {count}/{len(faces)}",
+                    f"พร้อม • Portrait Enhance {count}/{len(faces)}",
                 )
             else:
                 self._set_face_row_status(
                     idx,
-                    f"พร้อม • พบ {len(faces)} ใบหน้า • ข้าม Face Protect",
+                    f"พร้อม • พบ {len(faces)} ใบหน้า • ข้าม Portrait Enhance",
                 )
 
             try:
@@ -1064,6 +1187,7 @@ class App(tk.Tk):
             self._face_selector_window = None
             self._face_selector_photo = None
 
+            self._update_face_count_label()
             self._enqueue_face_ready_path(path)
             self._show_next_face_selector()
             self._maybe_resume_pending_start()
@@ -1075,12 +1199,12 @@ class App(tk.Tk):
         ).pack(side="left", padx=(0, 5))
         ttk.Button(
             buttons,
-            text="ข้าม Face Protection",
+            text="ข้าม Portrait Enhance",
             command=lambda: finish(True),
         ).pack(side="right", padx=(5, 0))
         ttk.Button(
             buttons,
-            text="ใช้ใบหน้าที่เลือก",
+            text="ใช้ใบหน้าที่เลือก + Portrait Enhance",
             command=lambda: finish(False),
             style="Red.TButton",
         ).pack(side="right", padx=5)
@@ -1249,8 +1373,8 @@ class App(tk.Tk):
             color_mode=self.color_mode_var.get(),
             icc_profile_path=(self.icc_profile_path_var.get() or None),
             face_protection=False,
-            face_mode="protect",
-            face_strength=35,
+            face_mode="portrait",
+            face_strength=45,
             face_targets=(),
         )
         if self.use_print_size.get():
@@ -1355,12 +1479,16 @@ class App(tk.Tk):
                 if state.get("status") in ("detecting", "needs_selection"):
                     continue
 
-                targets = self._selected_face_targets(idx)
+                targets = (
+                    self._selected_face_targets(idx)
+                    if self.face_enabled_var.get()
+                    else ()
+                )
                 job_settings = replace(
                     settings,
                     face_protection=bool(targets),
-                    face_mode="protect",
-                    face_strength=35,
+                    face_mode="portrait",
+                    face_strength=45,
                     face_targets=targets,
                 )
                 out = self._output_path(src, job_settings)
@@ -1606,6 +1734,7 @@ class App(tk.Tk):
                     state["faces"] = list(faces or [])
                     state["selected"] = set()
                     state["error"] = None
+                    self._update_face_count_label()
                     if state["faces"]:
                         state["status"] = "needs_selection"
                         self._set_face_row_status(
@@ -1631,7 +1760,16 @@ class App(tk.Tk):
                     state["faces"] = []
                     state["selected"] = set()
                     state["error"] = error
-                    self._set_face_row_status(idx, "พร้อม • Face scan ข้าม")
+                    self._set_face_row_status(idx, "พร้อม • Face Detection ใช้งานไม่ได้")
+                    self._update_face_count_label()
+                    if not self._face_detector_error_shown:
+                        self._face_detector_error_shown = True
+                        messagebox.showwarning(
+                            APP_NAME,
+                            "Face Detection ใช้งานไม่ได้ใน Build นี้\n\n"
+                            + error
+                            + "\n\nโปรแกรมจะใช้ ARM Core เดิมกับภาพนี้ โดยไม่เปลี่ยนคุณภาพงานป้าย",
+                        )
                     self._enqueue_face_ready_path(path_text)
                     self._maybe_resume_pending_start()
 
