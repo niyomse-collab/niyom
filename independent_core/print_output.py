@@ -1,0 +1,96 @@
+"""NiyomSilp-owned print finalizer; NOT connected to the existing desktop UI."""
+from __future__ import annotations
+from dataclasses import dataclass
+from pathlib import Path
+import numpy as np
+from PIL import Image, ImageCms, ImageOps
+
+_INCHES = {"mm": 1/25.4, "cm": 1/2.54, "m": 100/2.54,
+           "in": 1, "inch": 1, "inches": 1, "ft": 12, "feet": 12}
+_FORMATS = {".png", ".tif", ".tiff", ".jpg", ".jpeg", ".pdf"}
+
+
+@dataclass(frozen=True)
+class PrintSpec:
+    dpi: int = 150
+    width: float | None = None
+    height: float | None = None
+    unit: str = "cm"
+    color_mode: str = "RGB"
+    icc_profile: str | Path | None = None
+
+    def target_pixels(self) -> tuple[int, int] | None:
+        if not isinstance(self.dpi, int) or self.dpi <= 0:
+            raise ValueError("DPI must be positive integer")
+        if self.width is None and self.height is None:
+            return None
+        if self.width is None or self.height is None:
+            raise ValueError("Both print dimensions are required")
+        if not (0 < self.width < float("inf") and 0 < self.height < float("inf")):
+            raise ValueError("Print dimensions must be positive and finite")
+        factor = _INCHES.get(self.unit.lower())
+        if factor is None:
+            raise ValueError("Invalid print unit")
+        w = max(1, round(self.width * factor * self.dpi))
+        h = max(1, round(self.height * factor * self.dpi))
+        if max(w, h) > 30000:
+            raise ValueError("30,000 pixel dimension limit")
+        return w, h
+
+
+def fit_rgb_to_print(image: Image.Image, target: tuple[int, int] | None) -> Image.Image:
+    """Do not distort customer lettering: contain and white-letterbox."""
+    source = image.convert("RGB")
+    if target is None or source.size == target:
+        return source
+    if min(target) <= 0 or max(target) > 30000:
+        raise ValueError("Invalid target pixel size")
+    resized = ImageOps.contain(source, target, method=Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", target, "white")
+    canvas.paste(resized, ((target[0]-resized.width)//2, (target[1]-resized.height)//2))
+    return canvas
+
+
+def export_print_image(pixels: Image.Image | np.ndarray, destination: str | Path,
+                       spec: PrintSpec = PrintSpec()) -> dict:
+    """Export only after inference; use a user-supplied valid ICC for CMYK."""
+    path = Path(destination)
+    suffix = path.suffix.lower()
+    if suffix not in _FORMATS:
+        raise ValueError("Unsupported print format")
+    color = spec.color_mode.upper()
+    if color not in {"RGB", "CMYK"}:
+        raise ValueError("Unsupported color mode")
+    if color == "CMYK" and suffix == ".png":
+        raise ValueError("CMYK cannot be exported as PNG")
+    target = spec.target_pixels()
+    profile = None
+    if color == "CMYK":
+        if not spec.icc_profile or not Path(spec.icc_profile).is_file():
+            raise ValueError("Valid CMYK ICC profile is required")
+        profile = Path(spec.icc_profile)
+    source = pixels if isinstance(pixels, Image.Image) else Image.fromarray(np.asarray(pixels))
+    out = fit_rgb_to_print(source, target)
+    if profile is not None:
+        try:
+            out = ImageCms.profileToProfile(
+                out, ImageCms.createProfile("sRGB"), ImageCms.getOpenProfile(str(profile)),
+                renderingIntent=0, outputMode="CMYK"
+            )
+        except Exception as exc:
+            raise ValueError(f"ICC conversion failed: {exc}") from exc
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    options = {"dpi": (spec.dpi, spec.dpi)}
+    if profile is not None:
+        options["icc_profile"] = profile.read_bytes()
+    if suffix == ".png":
+        out.save(path, "PNG", compress_level=3, **options)
+    elif suffix in {".tif", ".tiff"}:
+        out.save(path, "TIFF", compression="tiff_lzw", **options)
+    elif suffix in {".jpg", ".jpeg"}:
+        out.save(path, "JPEG", quality=96, subsampling=0, **options)
+    else:
+        options.pop("dpi", None)
+        out.save(path, "PDF", resolution=float(spec.dpi), **options)
+    return {"path": str(path), "pixels": out.size, "mode": out.mode, "dpi": spec.dpi}

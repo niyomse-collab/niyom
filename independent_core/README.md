@@ -1,36 +1,27 @@
-# NiyomSilp Independent Core — isolated prototype
+# NiyomSilp Independent Core: acceptance gates
 
-This new NiyomSilp adapter uses published Real-ESRGAN and BasicSR library APIs; it does **not** import or copy the ARM application engine. Its code is experimental and NOT wired to the current app.
+Status: independent **experimental** adapter only. The installed Windows program and all original UI buttons still use the legacy engine. None of these files are imported by the current desktop app.
 
-## User-facing invariants
-- Main application, layout, original buttons, settings, previews and print/export pipeline are untouched.
-- Existing ARM pipeline is still production; adding these files changes no user-facing behavior.
-- A CI test locks the existing UI and engine files by their git blob hashes, and checks static button-to-handler wiring. This does **not** prove end-to-end button behavior.
-- Newly implemented inference parameters match the working ARM baseline: RealESRGAN_x4plus (RRDBNet), FP32, tile 256, pad 10, pre-pad 0, 2×/4×, and 8× in two passes (4× followed by 2×).
-- Preserve the legacy PIL RGB array passing convention for now even though upstream RealESRGAN uses BGR semantics. Changing this may change colors; it requires a separate controlled regression.
-- No denoise, sharpen or color transformations are added in this prototype.
+## Model-quality checks completed
+Official RealESRGAN_x4plus SHA-256 4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1, CPU FP32, 2x/4x/8x tiny synthetic fixtures: exactly identical to the unchanged ARM reference engine. Larger Thai lettering (crossing two Tile boundaries), gradient, and illustrated portrait fixtures also match ARM exactly. This does not prove physical print quality or an absence of inherited ARM seams.
 
-## Run isolated experiment (not the production app)
-Requires compatible `torch`, `basicsr`, `realesrgan`, `numpy` and `Pillow` and an available, permitted RealESRGAN_x4plus model checkpoint.
+## New, separate print-output module
+- independent_core/print_output.py: own print unit/DPI calculations and ratio-preserving white-letterbox final size. Exports RGB PNG/TIFF/JPEG/PDF and requires an explicit CMYK ICC profile for CMYK TIFF/JPEG/PDF.
+- tests/test_print_contract.py: confirms dimensional parity with existing print conversion for sizes including 200x100 cm at 300 DPI, RGB PNG/TIFF pixels and DPI, legacy PNG pixels, PDF/JPEG file generation, explicit invalid CMYK-profile error.
+- To avoid enormous CI allocations, 200x100 cm is calculation-only in this stage. No full-size 300-DPI job has been completed.
+- Real printer ICC and PDF output need color-managed output validation, not only syntax tests.
 
-```python
-from independent_core import CoreConfig, IndependentCore
-core = IndependentCore(CoreConfig(model_path="models/RealESRGAN_x4plus.pth"))
-core.enhance("sample.png", "candidate.png", scale=4)
-```
+## GPU parity remains a separate release gate
+GitHub-hosted CPU checks cannot certify NVIDIA CUDA behavior. With a CUDA-capable Windows machine, a compatible development environment, the same official checkpoint and a sample photo owned/approved by the user, run:
 
-To compare with a trusted baseline PNG from the old installed application:
+    python tools/run_gpu_parity.py --source "C:\your\photo.png" --scale 2
 
-```bash
-python -m independent_core.compare old-baseline.png candidate.png
-```
+The script fails if CUDA is missing and saves arm.png, niyomsil.png and gpu_report.json. It does not modify the installed application. Evaluate quality, seams and memory with real large image datasets before switching.
 
-The comparator reports same/different dimensions, exact pixel match, changed pixel count, max/mean differences, and PSNR. Pixel equality requires equivalent checkpoint bytes, library versions, inference device and output formatting. **Static tests and fake-model tests do not establish real image-quality parity.**
-
-## Next gates before switching backends
-1. Record legal status and SHA256 of model checkpoints, libraries, fonts/assets, and build-time dependencies.
-2. Run actual same-image baseline tests on Thai letters, portraits, food textures, gradients and tile seam stress inputs. Require user approval after visual review.
-3. Replicate currently exposed queueing/progress, stop, print sizing, RGB/CMYK ICC export, preview and GUI handlers without altering the screen layout.
-4. Build a separately installable Windows test package, never overwrite the stable release.
-
-**Rights:** The new adapter is independently authored, but its dependencies and downloaded weights are NOT owned by the shop merely because our glue code is original. Follow their license and notice requirements; consult qualified legal review before declaring unrestricted ownership or perpetual distribution rights.
+## Release blockers
+- Real CUDA/GPU parity and out-of-memory recovery on the target Windows PCs
+- CMYK output against a real print-shop ICC profile and physical RIP/print check
+- Full-sized print actual output, text correctness and visually inspected tile seams
+- End-to-end Windows GUI interaction tests for ALL existing buttons, previews, queue, stop/resume, export, and Photoshop integration where available
+- License and redistribution assessment for each official library, model checkpoint and external asset
+- No change to main / production until user explicitly approves a validated separate installer
