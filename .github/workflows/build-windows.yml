@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - v2.1.1-face-auto-select
+      - v2.1.2-face-popup-portrait
 
 jobs:
   build:
