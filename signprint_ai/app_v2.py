@@ -641,7 +641,7 @@ class App(tk.Tk):
         face_mode = ttk.Combobox(
             quality,
             textvariable=self.face_mode_var,
-            values=("Protect", "Recover"),
+            values=("Protect", "Recover", "Studio"),
             state="readonly",
             width=14,
             style="Dark.TCombobox",
