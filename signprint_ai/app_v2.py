@@ -679,6 +679,17 @@ class App(tk.Tk):
             wraplength=285,
         ).grid(row=9, column=0, columnspan=3, sticky="ew", pady=(3, 0))
 
+        # Experimental gentle face retouch, kept separate from the default
+        # selected-face GFPGAN path and from the proven image enlargement core.
+        self.portrait_gentle_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            quality,
+            text="NiyomSilp Portrait Gentle (ทดลอง • ปิดไว้ก่อน)",
+            variable=self.portrait_gentle_var,
+            command=lambda: self._settings_changed(schedule_preview=False),
+            style="Dark.TCheckbutton",
+        ).grid(row=10, column=0, columnspan=3, sticky="w", pady=(7, 2))
+
         # 4. Device selection. This changes execution hardware only; it does not
         # change the proven ARM image-processing recipe.
         device = self._section(parent, "4", "เลือกอุปกรณ์ประมวลผล")
@@ -1422,6 +1433,7 @@ class App(tk.Tk):
             face_mode="portrait",
             face_strength=45,
             face_targets=(),
+            portrait_gentle=self.portrait_gentle_var.get(),
         )
         if self.use_print_size.get():
             s.print_width = float(self.width_var.get())
