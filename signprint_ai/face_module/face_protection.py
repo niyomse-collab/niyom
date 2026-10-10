@@ -87,6 +87,10 @@ class FaceProtectionModule:
                 and importlib.util.find_spec("facexlib") is not None
                 and (self.model_dir / "GFPGANv1.4.pth").is_file()
                 and (self.model_dir / "detection_Resnet50_Final.pth").is_file()
+                # FaceRestoreHelper currently initializes ParseNet even when
+                # use_parse=False, so this model must also be packaged. Keeping
+                # it local prevents any runtime download attempt into Program Files.
+                and (self.model_dir / "parsing_parsenet.pth").is_file()
             )
         except Exception:
             return False
@@ -97,6 +101,7 @@ class FaceProtectionModule:
             return (
                 importlib.util.find_spec("facexlib") is not None
                 and (self.model_dir / "detection_Resnet50_Final.pth").is_file()
+                and (self.model_dir / "parsing_parsenet.pth").is_file()
             )
         except Exception:
             return False
@@ -139,8 +144,15 @@ class FaceProtectionModule:
             import torch
 
             detector_model = self.model_dir / "detection_Resnet50_Final.pth"
+            parser_model = self.model_dir / "parsing_parsenet.pth"
             if not detector_model.is_file():
                 raise FileNotFoundError(f"Missing face detector model: {detector_model}")
+            if not parser_model.is_file():
+                raise FileNotFoundError(
+                    "Missing packaged FaceXLib parser model: "
+                    f"{parser_model}. Reinstall this build; the app must not "
+                    "download models into Program Files at runtime."
+                )
 
             helper = self._make_helper(torch.device(effective))
             self._detector_helper = helper
@@ -159,10 +171,13 @@ class FaceProtectionModule:
             model_dir = self.model_dir
             gfpgan_model = model_dir / "GFPGANv1.4.pth"
             detector_model = model_dir / "detection_Resnet50_Final.pth"
+            parser_model = model_dir / "parsing_parsenet.pth"
             if not gfpgan_model.is_file():
                 raise FileNotFoundError(f"Missing face model: {gfpgan_model}")
             if not detector_model.is_file():
                 raise FileNotFoundError(f"Missing face detector model: {detector_model}")
+            if not parser_model.is_file():
+                raise FileNotFoundError(f"Missing FaceXLib parser model: {parser_model}")
 
             device = torch.device(effective)
             network = GFPGANv1Clean(
@@ -202,10 +217,18 @@ class FaceProtectionModule:
         required = (
             self.model_dir / "GFPGANv1.4.pth",
             self.model_dir / "detection_Resnet50_Final.pth",
+            self.model_dir / "parsing_parsenet.pth",
         )
         missing = [str(path) for path in required if not path.is_file()]
         if missing:
             raise FileNotFoundError("Missing packaged Face Protect model(s): " + ", ".join(missing))
+
+        # Instantiate the exact helper used at runtime. This catches the class
+        # of packaging bug where FaceXLib silently tries to download ParseNet
+        # into the installed Program Files directory on a normal user account.
+        import torch
+        helper = self._make_helper(torch.device(self._effective_device(device_name)))
+        helper.clean_all()
 
     @staticmethod
     def _box_from_landmarks(landmarks, width: int, height: int):
