@@ -405,6 +405,7 @@ class FaceProtectionModule:
         mode: str = "protect",
         strength: int = 35,
         selected_targets: tuple[tuple[float, float], ...] | None = None,
+        gentle_finish: bool = False,
         progress: ProgressFn = None,
         cancel: CancelFn = None,
     ) -> tuple[Image.Image, FaceProtectionResult]:
@@ -525,7 +526,12 @@ class FaceProtectionModule:
                 min_max=(-1, 1),
             ).astype(np.uint8)
 
-            if alpha < 1.0:
+            if gentle_finish:
+                # Independent opt-in module. Only a user-selected face crop
+                # is passed here; the default/disabled path remains identical.
+                from .portrait_gentle import gentle_blend_face
+                restored_face = gentle_blend_face(crop, restored_face, alpha=alpha)
+            elif alpha < 1.0:
                 restored_face = cv2.addWeighted(
                     crop,
                     1.0 - alpha,
