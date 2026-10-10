@@ -76,6 +76,18 @@ $actualRetinaHash = (Get-FileHash -Algorithm SHA256 $retinaPath).Hash.ToLower()
 if ($actualRetinaHash -ne $expectedRetinaHash) {
     throw "RetinaFace SHA256 mismatch: $actualRetinaHash"
 }
+
+# FaceXLib FaceRestoreHelper initializes ParseNet even with use_parse=False.
+# Package it up front so a normal installed app never tries to write a
+# .partial download under C:\Program Files at runtime.
+$parserUrl = "https://github.com/xinntao/facexlib/releases/download/v0.2.2/parsing_parsenet.pth"
+$parserPath = Join-Path $faceModelDir "parsing_parsenet.pth"
+Invoke-WebRequest -Uri $parserUrl -OutFile $parserPath
+$expectedParserHash = "3d558d8d0e42c20224f13cf5a29c79eba2d59913419f945545d8cf7b72920de2"
+$actualParserHash = (Get-FileHash -Algorithm SHA256 $parserPath).Hash.ToLower()
+if ($actualParserHash -ne $expectedParserHash) {
+    throw "ParseNet SHA256 mismatch: $actualParserHash"
+}
 Write-Host "FACE MODELS VERIFIED"
 
 Write-Host "Validating ARM core + optional face module imports..."
@@ -95,6 +107,7 @@ $exe = ".\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe"
 $packedModel = ".\dist\NiyomsilAIEnhancer\_internal\models\RealESRGAN_x4plus.pth"
 $packedGfpgan = ".\dist\NiyomsilAIEnhancer\_internal\models\face\GFPGANv1.4.pth"
 $packedRetina = ".\dist\NiyomsilAIEnhancer\_internal\models\face\detection_Resnet50_Final.pth"
+$packedParser = ".\dist\NiyomsilAIEnhancer\_internal\models\face\parsing_parsenet.pth"
 
 if (-not (Test-Path $exe)) {
     throw "V2 executable was not generated."
@@ -107,6 +120,9 @@ if (-not (Test-Path $packedGfpgan)) {
 }
 if (-not (Test-Path $packedRetina)) {
     throw "RetinaFace detector model was not packaged."
+}
+if (-not (Test-Path $packedParser)) {
+    throw "FaceXLib ParseNet model was not packaged."
 }
 
 $packedHash = (Get-FileHash -Algorithm SHA256 $packedModel).Hash.ToLower()
@@ -121,9 +137,13 @@ $packedRetinaHash = (Get-FileHash -Algorithm SHA256 $packedRetina).Hash.ToLower(
 if ($packedRetinaHash -ne $expectedRetinaHash) {
     throw "Packaged RetinaFace model hash mismatch: $packedRetinaHash"
 }
+$packedParserHash = (Get-FileHash -Algorithm SHA256 $packedParser).Hash.ToLower()
+if ($packedParserHash -ne $expectedParserHash) {
+    throw "Packaged ParseNet model hash mismatch: $packedParserHash"
+}
 
 @"
-NIYOMSIL DESIGN V2.1.1 - ARM CORE + AUTO FACE SELECT BUILD PROOF
+NIYOMSIL DESIGN V2.1.2 - ARM CORE + FACE POPUP PORTRAIT BUILD PROOF
 
 UI:
 - signprint_ai/app_v2.py
@@ -144,6 +164,8 @@ Optional Face Protect models:
 - SHA256: $expectedGfpganHash
 - detection_Resnet50_Final.pth
 - SHA256: $expectedRetinaHash
+- parsing_parsenet.pth
+- SHA256: $expectedParserHash
 
 Runtime:
 - PyTorch 2.11.0 + CUDA 12.8 wheels
@@ -159,6 +181,7 @@ Important:
 - GFPGAN is applied only to faces explicitly selected by the user.
 - Images with no face, or with no selected face, follow the proven V2.0.2 ARM path unchanged.
 - Auto face detection uses a separate CPU helper and does not compete with the ARM CUDA render worker.
+- FaceXLib ParseNet is bundled; no face model is downloaded into Program Files at runtime.
 - If Face Protect fails, the ARM result is preserved.
 - CMYK/ICC conversion is export-only.
 "@ | Set-Content ".\dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt" -Encoding utf8
@@ -167,8 +190,9 @@ Get-Item $exe | Format-List FullName,Length
 Get-Item $packedModel | Format-List FullName,Length
 Get-Item $packedGfpgan | Format-List FullName,Length
 Get-Item $packedRetina | Format-List FullName,Length
+Get-Item $packedParser | Format-List FullName,Length
 Write-Host "ARM CORE MODEL VERIFIED: $packedHash"
-Write-Host "FACE MODELS VERIFIED: $packedGfpganHash / $packedRetinaHash"
+Write-Host "FACE MODELS VERIFIED: $packedGfpganHash / $packedRetinaHash / $packedParserHash"
 
 if (-not $SkipInstaller) {
     $isccCandidates = @(
@@ -199,4 +223,4 @@ if (-not $SkipInstaller) {
     Write-Host "Installer SHA256: $installerHash"
 }
 
-Write-Host "V2.1.1 ARM CORE + AUTO FACE SELECT BUILD COMPLETE"
+Write-Host "V2.1.2 ARM CORE + FACE POPUP PORTRAIT BUILD COMPLETE"
