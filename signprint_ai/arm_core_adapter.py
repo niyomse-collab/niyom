@@ -280,6 +280,7 @@ class ARMCoreAdapter:
                     mode=face_info["mode"],
                     strength=face_info["strength"],
                     selected_targets=mapped_targets,
+                    gentle_finish=bool(getattr(settings, "portrait_gentle", False)),
                     progress=face_progress,
                     cancel=cancel,
                 )
