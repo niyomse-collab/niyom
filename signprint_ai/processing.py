@@ -42,6 +42,8 @@ class EnhanceSettings:
     # Normalized (x, y) centers of the faces explicitly selected by the user.
     # Empty when no face should receive the optional protection layer.
     face_targets: tuple[tuple[float, float], ...] = ()
+    # Separate experimental retouch pass; OFF keeps V2.1.2 pixels unchanged.
+    portrait_gentle: bool = False
 
 
 def _notify(cb: ProgressFn, value: int, label: str) -> None:
