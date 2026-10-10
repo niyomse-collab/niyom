@@ -82,7 +82,7 @@ class ARMCoreAdapter:
             raise InterruptedError("Processing stopped by user")
 
         with Image.open(src) as im:
-            source_size = im.size
+            source_size = ImageOps.exif_transpose(im).size
 
         if settings.print_width and settings.print_height:
             target_size = print_pixels(
@@ -109,7 +109,33 @@ class ARMCoreAdapter:
         if progress:
             progress(2, "Prepare / Analyze")
 
-        if not use_ai or model_scale <= 1:
+        if use_ai and settings.face_protection and settings.face_mode == "studio":
+            from .portrait import PortraitSettings, process_portrait
+            with Image.open(src) as im:
+                original = np.asarray(ImageOps.exif_transpose(im).convert("RGB"))
+            if model_scale not in (1, 2, 4):
+                raise ValueError("Studio รองรับสูงสุด 4x เพื่อรักษารายละเอียดภาพบุคคล")
+            portrait_scale = model_scale
+            engine = self.engine_manager.create_engine("AUTO") if portrait_scale > 1 else None
+
+            def portrait_upscale(rgb, scale, cancel_check):
+                with tempfile.TemporaryDirectory(prefix="niyom_portrait_") as td:
+                    inp, out = Path(td) / "input.png", Path(td) / "output.png"
+                    Image.fromarray(rgb).save(inp)
+                    engine.enhance(inp, out, scale=scale, cancel_check=cancel_check)
+                    with Image.open(out) as image:
+                        return np.asarray(image.convert("RGB")).copy()
+
+            pixels, portrait_info = process_portrait(
+                original,
+                PortraitSettings(scale=portrait_scale,
+                                 ai_blend=min(0.5, settings.face_strength / 100)),
+                upscale=portrait_upscale if engine else None,
+                progress=lambda v, m: progress(3 + round(v * 0.79), m) if progress else None,
+                cancel=cancel,
+            )
+            output = Image.fromarray(pixels)
+        elif not use_ai or model_scale <= 1:
             with Image.open(src) as im:
                 output = ImageOps.exif_transpose(im).convert("RGB")
         else:
@@ -198,7 +224,7 @@ class ARMCoreAdapter:
             "strength": int(getattr(settings, "face_strength", 35)),
             "skipped_reason": None,
         }
-        if use_ai and face_info["enabled"]:
+        if use_ai and face_info["enabled"] and settings.face_mode != "studio":
             try:
                 selected_device = self.engine_manager.device_manager.get_default_device()
                 device_id = getattr(selected_device, "device_id", "cpu")
@@ -225,6 +251,9 @@ class ARMCoreAdapter:
                 face_info["skipped_reason"] = f"Face Protect ข้ามการทำงาน: {exc}"
                 if progress:
                     progress(94, "Face Protect ข้าม — ใช้ผล ARM Core เดิม")
+
+        if use_ai and settings.face_protection and settings.face_mode == "studio":
+            face_info.update(applied=True, portrait=portrait_info)
 
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
