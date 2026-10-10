@@ -6,12 +6,19 @@ An obvious TEST title and independent output names prevent confusion/overwrites.
 from __future__ import annotations
 
 import tkinter as tk
+import sys
+import types
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from independent_core.desktop_adapter import DesktopTestAdapter
 from independent_core.icc_library import list_external_profiles
 
+# Prevent importing/packaging the ARM application engine. The unchanged GUI
+# only needs a class with the same constructor and processing contract.
+compat = types.ModuleType("signprint_ai.arm_core_adapter")
+compat.ARMCoreAdapter = DesktopTestAdapter
+sys.modules["signprint_ai.arm_core_adapter"] = compat
 import signprint_ai.app_v2 as original
 
 original.ARMCoreAdapter = DesktopTestAdapter
@@ -24,6 +31,11 @@ class TestApp(original.App):
         super().__init__()
         self.title("นิยมศิลป์ดีไซน์ — NiyomSilp Independent Core TEST")
         self._set_status("โหมดทดลองแยกจากโปรแกรมหลัก • ไม่เขียนทับไฟล์เดิม")
+
+    def _detect_hardware(self):
+        info = super()._detect_hardware()
+        info["engine"] = "NiyomSilp Core TEST"
+        return info
 
     def _build_ui(self):
         super()._build_ui()
