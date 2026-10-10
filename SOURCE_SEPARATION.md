@@ -41,3 +41,14 @@ User acceptance (2026-10-10): the shop reports that quality is equally good
 on its comparison images. This is user-reported acceptance, not an independent
 full-image or all-hardware equivalence claim. V2.1.3 packages the preview/device
 fixes while keeping inference parameters unchanged.
+
+V1.0.1 face preflight fix: V1.0.0 did not implement a pre-processing
+face-selection popup. Detection now runs separately on source previews using
+the bundled RetinaFace detector. Confirmation is stored per source fingerprint
+and normalized region; queued jobs cannot run before review. Only confirmed
+regions can enter optional restoration, matched spatially rather than by order.
+No-face jobs and explicit skip keep the main inference result unchanged.
+The existing GFPGAN layer remains optional and is not a newly trained portrait
+model. The 80-million-pixel restoration limit remains and is reported as a skip.
+An unused ParseNet initializer in facexlib is bypassed for use_parse=False;
+there is no runtime download of that unused model.

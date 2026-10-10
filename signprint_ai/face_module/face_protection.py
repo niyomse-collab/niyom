@@ -130,16 +130,21 @@ class FaceProtectionModule:
             # use_parse=False intentionally avoids the extra ParseNet model.  We
             # need only RetinaFace landmarks + the soft paste mask for this
             # conservative signage workflow.
-            helper = FaceRestoreHelper(
-                1,
-                face_size=512,
-                crop_ratio=(1, 1),
-                det_model="retinaface_resnet50",
-                save_ext="png",
-                use_parse=False,
-                device=device,
-                model_rootpath=str(model_dir),
-            )
+            # facexlib initializes ParseNet even with use_parse=False. Disable that
+            # unused initializer so offline builds need only the bundled detector.
+            from unittest.mock import patch
+            with patch("facexlib.utils.face_restoration_helper.init_parsing_model", return_value=None):
+                helper = FaceRestoreHelper(
+                    1,
+                    face_size=512,
+                    crop_ratio=(1, 1),
+                    det_model="retinaface_resnet50",
+                    save_ext="png",
+                    use_parse=False,
+                    device=device,
+                    model_rootpath=str(model_dir),
+                )
+
 
             self._backend = {
                 "network": network,
@@ -187,6 +192,7 @@ class FaceProtectionModule:
         device_name: str | None,
         mode: str = "protect",
         strength: int = 35,
+        regions: tuple | None = None,
         progress: ProgressFn = None,
         cancel: CancelFn = None,
     ) -> tuple[Image.Image, FaceProtectionResult]:
@@ -238,6 +244,11 @@ class FaceProtectionModule:
         helper.clean_all()
         helper.read_image(original_bgr.copy())
         helper.get_face_landmarks_5()
+        if regions is not None:
+            from .detection import selected_indices
+            keep = selected_indices(helper.det_faces, regions, rgb_image.size)
+            helper.det_faces = [helper.det_faces[i] for i in keep]
+            helper.all_landmarks_5 = [helper.all_landmarks_5[i] for i in keep]
         helper.align_warp_face()
 
         face_count = len(helper.cropped_faces)

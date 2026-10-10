@@ -204,11 +204,16 @@ class ARMCoreAdapter:
                     if progress:
                         progress(88 + round(6 * max(0, min(100, value)) / 100), message)
 
+                from .face_module.detection import map_regions
+                regions = settings.face_regions
+                if regions is not None:
+                    regions = map_regions(regions, source_size, output.size)
                 protected, face_result = self.face_module.apply(
                     output,
                     device_name=device_id,
                     mode=face_info["mode"],
                     strength=face_info["strength"],
+                    regions=regions,
                     progress=face_progress,
                     cancel=cancel,
                 )

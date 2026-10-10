@@ -49,6 +49,15 @@ jobs:
           }
           Write-Host "Packaged EXE import smoke test passed."
 
+      - name: Smoke-test packaged preview, device, face dialog and detector
+        shell: powershell
+        run: |
+          $env:NIYOMSIL_UI_SMOKE = "1"
+          $proc = Start-Process -FilePath ".\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe" -PassThru
+          if (-not $proc.WaitForExit(300000)) { $proc.Kill(); throw "UI/detector smoke test timed out" }
+          Remove-Item Env:NIYOMSIL_UI_SMOKE -ErrorAction SilentlyContinue
+          if ($proc.ExitCode -ne 0) { throw "UI/detector smoke test failed" }
+
       - name: Smoke-test packaged Face Protect backend
         shell: powershell
         run: |
@@ -99,8 +108,8 @@ jobs:
       - name: Verify installer and checksum
         shell: powershell
         run: |
-          $installer = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.0.exe"
-          $checksum = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.0.exe.sha256.txt"
+          $installer = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.1.exe"
+          $checksum = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.1.exe.sha256.txt"
           if (-not (Test-Path $installer)) { throw "Missing V2 ARM Core installer" }
           if (-not (Test-Path $checksum)) { throw "Missing installer checksum" }
           Get-Item $installer | Format-List FullName,Length
@@ -109,9 +118,9 @@ jobs:
       - name: Upload Independent Core 1.0 installer
         uses: actions/upload-artifact@v4
         with:
-          name: NiyomSilp-Independent-Core-v1.0.0-Windows
+          name: NiyomSilp-Independent-Core-v1.0.1-Windows
           compression-level: 0
           path: |
-            release\NiyomSilp-Independent-Core-Setup-v1.0.0.exe
-            release\NiyomSilp-Independent-Core-Setup-v1.0.0.exe.sha256.txt
+            release\NiyomSilp-Independent-Core-Setup-v1.0.1.exe
+            release\NiyomSilp-Independent-Core-Setup-v1.0.1.exe.sha256.txt
             dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt

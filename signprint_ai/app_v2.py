@@ -21,9 +21,11 @@ import numpy as np
 from .arm_core_adapter import ARMCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 from .preview_viewport import PreviewViewport
+from .face_module.detection import FaceDetector
+from .face_module.selection import choose_faces
 
 APP_NAME = "นิยมศิลป์ดีไซน์ — NiyomSilp Independent Core"
-APP_VERSION = "V1.0.0"
+APP_VERSION = "V1.0.1"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -46,6 +48,10 @@ class App(tk.Tk):
         self.minsize(1180, 720)
 
         self.pipeline = ARMCoreAdapter()
+        self._face_detector = FaceDetector()
+        self._face_reviews = {}
+        self._face_scanning = set()
+        self._resume_after_faces = False
         self.files: list[Path] = []
         self.current_index: int | None = None
         self.original_ratio = 1.0
@@ -661,6 +667,8 @@ class App(tk.Tk):
         face_mode.grid(row=8, column=1, sticky="ew", padx=6, pady=(5, 0))
         face_mode.bind("<<ComboboxSelected>>", lambda _e: self._settings_changed())
 
+        ttk.Button(quality, text="ตรวจจับใบหน้า / เลือกใหม่", command=self._rescan_current_faces).grid(
+            row=11, column=0, columnspan=3, sticky="ew", pady=(5, 0))
         self.face_strength_var = tk.IntVar(value=35)
         self._slider(quality, "Face Strength", self.face_strength_var, 9, 10, 80)
         tk.Label(
@@ -761,6 +769,57 @@ class App(tk.Tk):
         except Exception:
             return
 
+    @staticmethod
+    def _face_key(path):
+        stat = Path(path).stat()
+        return (str(path), stat.st_size, stat.st_mtime_ns)
+
+    def _scan_faces(self, path):
+        key = self._face_key(path)
+        if key in self._face_reviews or key in self._face_scanning:
+            return
+        self._face_scanning.add(key)
+        def worker():
+            try:
+                regions = self._face_detector.detect(path)
+                self._events.put(("face_scan_done", key, regions, None))
+            except Exception as exc:
+                self._events.put(("face_scan_done", key, (), str(exc)))
+        threading.Thread(target=worker, daemon=True, name="NiyomSilpFaceDetect").start()
+
+    def _rescan_current_faces(self):
+        if self.current_index is None:
+            return
+        path = self.files[self.current_index]
+        self._face_reviews.pop(self._face_key(path), None)
+        self._scan_faces(path)
+        self._set_status("กำลังตรวจจับใบหน้าใหม่…")
+
+    def _face_scan_done(self, key, regions, error):
+        self._face_scanning.discard(key)
+        path = Path(key[0])
+        if path not in self.files or not path.exists() or self._face_key(path) != key:
+            return  # A removed/replaced file cannot grant consent to another job.
+        if error:
+            self._resume_after_faces = False
+            messagebox.showerror(APP_NAME, "ตรวจจับใบหน้าไม่สำเร็จ\n" + error +
+                                 "\nกด ‘ตรวจจับใบหน้า / เลือกใหม่’ เพื่อลองอีกครั้ง")
+            self._set_status("ตรวจจับใบหน้าผิดพลาด • ยังไม่เริ่มงานที่รอยืนยัน")
+            return
+        selection = choose_faces(self, path, regions) if regions else ()
+        if selection is None:
+            self._resume_after_faces = False
+            self._set_status("ยกเลิกการเลือกใบหน้า • กดเริ่มเพื่อเลือกใหม่")
+            return
+        self._face_reviews[key] = selection
+        if selection:
+            self.face_enabled_var.set(True)
+        self._set_status(f"{path.name} • พบ {len(regions)} ใบหน้า • ยืนยัน {len(selection)} ใบหน้า")
+        if self._resume_after_faces and all(self._face_key(p) in self._face_reviews for i,p in enumerate(self.files)
+                                            if i not in self._completed_indices):
+            self._resume_after_faces = False
+            self.after(0, self.start_processing)
+
     def choose_files(self):
         paths = filedialog.askopenfilenames(title="เลือกภาพ", filetypes=IMAGE_TYPES)
         if paths:
@@ -783,6 +842,8 @@ class App(tk.Tk):
                 iid = str(idx)
                 self.tree.insert("", "end", iid=iid, values=(p.name, f"{size[0]:,} × {size[1]:,}", "—", "พร้อม", "0%", "-"))
                 added += 1
+        for idx in added_indices:
+            self._scan_faces(self.files[idx])
         if added and self.current_index is None:
             self.tree.selection_set("0")
             self.tree.focus("0")
@@ -1090,7 +1151,15 @@ class App(tk.Tk):
                 if idx == self._active_index or idx in self._queued_indices or idx in self._completed_indices:
                     continue
                 src = self.files[idx]
-                job_settings = replace(settings)
+                key = self._face_key(src)
+                if key not in self._face_reviews:
+                    self._scan_faces(src)
+                    self._resume_after_faces = True
+                    self._events.put(("row_status", idx, "รอตรวจจับ / ยืนยันใบหน้า"))
+                    continue
+                regions = self._face_reviews[key]
+                job_settings = replace(settings, face_regions=regions,
+                                       face_protection=bool(regions) and settings.face_protection)
                 out = self._output_path(src, job_settings)
                 self._job_queue.put((idx, src, out, job_settings))
                 self._queued_indices.add(idx)
@@ -1249,6 +1318,14 @@ class App(tk.Tk):
         except Exception as exc:
             messagebox.showerror(APP_NAME, f"ค่าการตั้งค่าไม่ถูกต้อง: {exc}")
             return
+        if any(self._face_key(path) not in self._face_reviews for i,path in enumerate(self.files)
+               if i not in self._completed_indices):
+            self._resume_after_faces = True
+            for i,path in enumerate(self.files):
+                if i not in self._completed_indices:
+                    self._scan_faces(path)
+            self._set_status("กำลังตรวจจับใบหน้า • รอเลือกและยืนยันก่อนเริ่มงาน")
+            return
         self._active_settings = replace(settings)
         self.progress["value"] = 0
 
@@ -1274,6 +1351,7 @@ class App(tk.Tk):
             self._set_status("ไม่มีไฟล์ใหม่ที่รอประมวลผล")
 
     def stop_processing(self):
+        self._resume_after_faces = False
         self._stop.set()
         self._set_status("กำลังหยุด…")
 
@@ -1324,6 +1402,8 @@ class App(tk.Tk):
                         if st == "เสร็จแล้ว":
                             vals[4] = "100%"
                         self.tree.item(str(i), values=vals)
+                elif kind == "face_scan_done":
+                    self._face_scan_done(*ev[1:])
                 elif kind == "preview_done":
                     _, generation, preview_index, path = ev
                     if generation == self._preview_generation and preview_index == self.current_index:

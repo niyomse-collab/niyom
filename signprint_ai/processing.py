@@ -35,6 +35,7 @@ class EnhanceSettings:
 
     # Optional face layer. These fields are metadata only; the legacy image
     # enhancement functions in this module do not read them.
+    face_regions: tuple | None = None  # None = legacy all faces; () = explicitly none
     face_protection: bool = False
     face_mode: str = "protect"  # protect | recover
     face_strength: int = 35
