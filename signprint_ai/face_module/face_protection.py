@@ -252,7 +252,9 @@ class FaceProtectionModule:
         after ARM upscaling, even if the output dimensions differ.
         """
         if not self.detector_available:
-            return []
+            raise RuntimeError(
+                "ไม่พบ FaceXLib/RetinaFace detector หรือไฟล์ detection_Resnet50_Final.pth"
+            )
 
         import cv2
         import numpy as np
@@ -324,8 +326,14 @@ class FaceProtectionModule:
     @staticmethod
     def _blend_alpha(mode: str, strength: int) -> float:
         normalized = max(0.0, min(1.0, float(strength) / 100.0))
-        if str(mode).lower() == "recover":
+        mode_name = str(mode).lower()
+        if mode_name == "recover":
             return min(0.75, normalized)
+        if mode_name == "portrait":
+            # Portrait Enhance remains conservative: enough restoration to clean
+            # a selected face, but preserves identity and leaves all non-face
+            # pixels on the proven ARM Core path.
+            return min(0.55, normalized)
         return min(0.45, normalized)
 
     @staticmethod
