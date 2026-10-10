@@ -1,0 +1,50 @@
+name: NiyomSilp Independent Core - Windows TEST Installer
+
+on:
+  push:
+    branches:
+      - dev-niyomsil-independent-core-20261010
+    paths:
+      - ".github/workflows/independent-test-installer.yml"
+      - "run_independent_test.py"
+      - "independent_core/desktop_adapter.py"
+      - "independent_core/gui_test.py"
+      - "NiyomSilpIndependentTest.spec"
+      - "installer_independent_test.iss"
+      - "build_independent_windows.ps1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  independent-windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Confirm the original UI source is frozen
+        shell: pwsh
+        run: |
+          $expected = "be6a759f5f3d4ee9aa7a0daf0d838a7f2916e8d4"
+          $actual = git hash-object signprint_ai/app_v2.py
+          if ($actual -ne $expected) { throw "Original UI changed. Halt TEST build." }
+      - name: Build isolated TEST installer and validate packaged neural inference
+        shell: pwsh
+        run: .\build_independent_windows.ps1
+      - name: Upload standalone TEST Windows installer
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NiyomSilp-Independent-Core-TEST-Windows-Setup
+          compression-level: 0
+          retention-days: 14
+          path: |
+            release-independent/NiyomSilp-Independent-Core-TEST-Setup-v0.1.0.exe
+            release-independent/NiyomSilp-Independent-Core-TEST-Setup-v0.1.0.exe.sha256.txt
+            dist/NiyomSilpCoreTEST/NIYOMSIL_TEST_BUILD_PROOF.txt
