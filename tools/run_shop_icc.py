@@ -99,8 +99,8 @@ def compare_real_icc(source: Path, icc: Path, destination: Path, dpi: int = 150)
         "pixels_identical": pixels_match,
         "changed_pixel_count": int(np.count_nonzero(np.any(delta != 0, axis=2))),
         "max_cmyk_channel_difference": int(delta.max()),
-        "reference_dpi": dpi_reference,
-        "candidate_dpi": dpi_candidate,
+        "reference_dpi": [float(value) for value in dpi_reference] if dpi_reference else None,
+        "candidate_dpi": [float(value) for value in dpi_candidate] if dpi_candidate else None,
         "limitations": (
             "Identical exported CMYK TIFFs do not establish printer calibration. "
             "RIP soft-proof, physical print, PDF/X OutputIntent and ink limits still require shop verification."
