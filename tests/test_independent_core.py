@@ -140,3 +140,33 @@ def test_constructor_preserves_model_contract(monkeypatch, tmp_path, backend, ti
                                        num_block=23, num_grow_ch=32, scale=4)
     assert captured['inference'] == dict(scale=4, model_path=str(checkpoint), model='network',
                                          tile=tile, tile_pad=10, pre_pad=0, half=False, device=identifier)
+
+@pytest.mark.parametrize('target', [(120, 40), (60, 100)])
+@pytest.mark.parametrize('mode', ['fit', 'stretch'])
+def test_print_size_export_respects_resize_mode(monkeypatch, tmp_path, target, mode):
+    from signprint_ai import independent_core
+    from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
+    from signprint_ai.processing import EnhanceSettings
+    monkeypatch.setattr(independent_core, 'DeviceManager', lambda: SimpleNamespace(
+        get_default_device=lambda: DeviceInfo('cpu', 'CPU', 'CPU')))
+    src, dst = tmp_path/'source.png', tmp_path/'printed.png'
+    color = (201, 31, 8)
+    Image.new('RGB', (60, 40), color).save(src)
+    settings = EnhanceSettings(print_width=target[0], print_height=target[1],
+                               print_unit='inch', dpi=1, resize_mode=mode)
+    NiyomSilpCoreAdapter().process(src, dst, settings, use_ai=False)
+    with Image.open(dst) as output:
+        assert output.size == target
+        assert output.getpixel((target[0]//2, target[1]//2)) == color
+        assert output.getpixel((0, 0)) == (color if mode == 'stretch' else (255, 255, 255))
+
+
+def test_ui_transmits_lock_state_without_changing_ratio_sync():
+    tree = ast.parse((ROOT/'signprint_ai/app_v2.py').read_text(encoding='utf-8'))
+    settings = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == '_settings')
+    init = next(n for n in ast.walk(settings) if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Name) and n.func.id == 'EnhanceSettings')
+    mode = next(k.value for k in init.keywords if k.arg == 'resize_mode')
+    for locked, expected in [(True, 'fit'), (False, 'stretch')]:
+        obj = SimpleNamespace(lock_ratio=SimpleNamespace(get=lambda: locked))
+        assert eval(compile(ast.Expression(mode), '<resize-mode>', 'eval'), {'self': obj}) == expected

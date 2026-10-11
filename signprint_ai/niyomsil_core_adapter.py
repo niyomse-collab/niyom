@@ -161,24 +161,27 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
-        # Preserve the previously tested final-size behavior.
+        # Keep the existing fit behavior when locked; free sizing stretches the image.
         if output.size != target_size:
             if progress:
                 progress(86, f"Final Resize · {target_size[0]:,} × {target_size[1]:,}")
-            contained = ImageOps.contain(
-                output,
-                target_size,
-                method=Image.Resampling.LANCZOS,
-            )
-            canvas = Image.new("RGB", target_size, "white")
-            canvas.paste(
-                contained,
-                (
-                    (target_size[0] - contained.width) // 2,
-                    (target_size[1] - contained.height) // 2,
-                ),
-            )
-            output = canvas
+            if settings.resize_mode == "stretch":
+                output = output.resize(target_size, Image.Resampling.LANCZOS)
+            else:
+                contained = ImageOps.contain(
+                    output,
+                    target_size,
+                    method=Image.Resampling.LANCZOS,
+                )
+                canvas = Image.new("RGB", target_size, "white")
+                canvas.paste(
+                    contained,
+                    (
+                        (target_size[0] - contained.width) // 2,
+                        (target_size[1] - contained.height) // 2,
+                    ),
+                )
+                output = canvas
 
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")

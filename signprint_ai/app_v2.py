@@ -1013,6 +1013,7 @@ class App(tk.Tk):
             device=self._device_choices[self.device_var.get()],
             dpi=max(1, int(float(self.dpi_var.get() or 150))),
             print_unit=self.unit_var.get(),
+            resize_mode="fit" if self.lock_ratio.get() else "stretch",
             export_format=self.format_var.get(),
             v1_baseline=self.v1_mode.get(),
             color_mode=self.color_mode_var.get(),
