@@ -1,5 +1,7 @@
 """Exercise packaged Tk controls and the real selection dialog on Windows CI."""
 import tempfile
+from contextlib import nullcontext
+from unittest.mock import patch
 from pathlib import Path
 from PIL import Image
 from tkinter import ttk
@@ -8,7 +10,11 @@ from .face_module.selection import choose_faces
 
 
 def run(layout_only=False):
-    app = App()
+    # The early layout check needs real Tk widgets, but no inference runtime.
+    # Packaged smoke tests keep the real adapter and hardware detection.
+    adapter = patch('signprint_ai.app_v2.ARMCoreAdapter') if layout_only else nullcontext()
+    with adapter:
+        app = App()
     app.auto_preview.set(False)
     # The queue must not take most of the workspace before any image is loaded.
     for geometry in ('1180x720', '1366x768', '1600x920'):
