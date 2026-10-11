@@ -23,15 +23,16 @@ def run(layout_only=False):
         print('Preview layout:', geometry, 'workspace', app.workspace_split.winfo_height(),
               'preview', app.preview_shell.winfo_height(), 'queue', app.queue_shell.winfo_height(),
               'image', app.left_image.winfo_height(), flush=True)
-        assert app.preview_shell.winfo_height() > app.queue_shell.winfo_height() * 2
-        assert app.left_image.winfo_height() >= 180
+        total = app.preview_shell.winfo_height() + app.queue_shell.winfo_height()
+        assert abs(app.preview_shell.winfo_height() / total - .60) < .02
+        assert app.left_image.winfo_height() >= 140
         assert abs(app.left_image.winfo_width()-app.right_image.winfo_width()) <= 1
     split = app.workspace_split
-    split.sash_place(0, 0, round(split.winfo_height() * .6))
+    split.sash_place(0, 0, round(split.winfo_height() * .75))
     app._remember_workspace_split()
     app.geometry('1366x768')
     app.update()
-    assert abs(split.sash_coord(0)[1] / (split.winfo_height()-8) - .6) < .03
+    assert abs(split.sash_coord(0)[1] / (split.winfo_height()-8) - .75) < .03
     with tempfile.TemporaryDirectory() as folder:
         source = Path(folder)/'smoke.png'
         Image.new('RGB', (200, 100), 'white').save(source)

@@ -25,7 +25,7 @@ from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
 
 APP_NAME = "นิยมศิลป์ดีไซน์ — NiyomSilp Independent Core"
-APP_VERSION = "V1.0.3"
+APP_VERSION = "V1.0.4"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
