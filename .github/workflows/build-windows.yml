@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - codex/niyomsil-independent-core
+      - release/niyomsil-design-v1
 
 jobs:
   build:
@@ -35,7 +36,7 @@ jobs:
         run: |
           python -m py_compile run.py signprint_ai\app_v2.py signprint_ai\niyomsil_core_adapter.py signprint_ai\arm_core_adapter.py signprint_ai\face_module\__init__.py signprint_ai\face_module\face_protection.py signprint_ai\independent_core.py tools\generate_brand_assets.py
 
-      - name: Build NiyomSilp Independent Core installer
+      - name: Build NiyomSilp Design v1 installer
         shell: powershell
         run: .\build_windows.ps1
 
@@ -111,19 +112,19 @@ jobs:
       - name: Verify installer and checksum
         shell: powershell
         run: |
-          $installer = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.7.exe"
-          $checksum = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.7.exe.sha256.txt"
-          if (-not (Test-Path $installer)) { throw "Missing V2 ARM Core installer" }
+          $installer = ".\release\NiyomSilp-Design-v1-Setup.exe"
+          $checksum = ".\release\NiyomSilp-Design-v1-Setup.exe.sha256.txt"
+          if (-not (Test-Path $installer)) { throw "Missing NiyomSilp v1 installer" }
           if (-not (Test-Path $checksum)) { throw "Missing installer checksum" }
           Get-Item $installer | Format-List FullName,Length
           Get-Content $checksum
 
-      - name: Upload NiyomSilp Independent Core installer
+      - name: Upload NiyomSilp Design v1 installer
         uses: actions/upload-artifact@v4
         with:
-          name: NiyomSilp-Independent-Core-v1.0.7-Windows
+          name: NiyomSilp-Design-v1-Windows
           compression-level: 0
           path: |
-            release\NiyomSilp-Independent-Core-Setup-v1.0.7.exe
-            release\NiyomSilp-Independent-Core-Setup-v1.0.7.exe.sha256.txt
+            release\NiyomSilp-Design-v1-Setup.exe
+            release\NiyomSilp-Design-v1-Setup.exe.sha256.txt
             dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt
