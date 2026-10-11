@@ -16,6 +16,12 @@ def run(layout_only=False):
     with adapter:
         app = App()
     app.auto_preview.set(False)
+    def check_branding(widget):
+        if 'text' in widget.keys():
+            assert 'ARM' not in str(widget.cget('text')), 'Old engine branding is visible'
+        for child in widget.winfo_children():
+            check_branding(child)
+    check_branding(app)
     # The queue must not take most of the workspace before any image is loaded.
     for geometry in ('1180x720', '1366x768', '1600x920'):
         app.geometry(geometry)

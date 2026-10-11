@@ -87,19 +87,24 @@ def test_adapter_passes_and_unfiltered_export(monkeypatch, tmp_path):
     assert ARMCoreAdapter is NiyomSilpCoreAdapter
     from signprint_ai.processing import EnhanceSettings
     adapter = ARMCoreAdapter()
+    def unexpected_face_layer(*args, **kwargs):
+        raise AssertionError('Disabled face processing must never touch output pixels')
+    adapter.face_module.apply = unexpected_face_layer
     calls = []
     devices = []
     def enhance(src, dst, scale, **kwargs):
         calls.append(scale)
         with Image.open(src) as image:
-            image.resize((image.width*scale, image.height*scale)).save(dst)
+            image.resize((image.width*scale, image.height*scale), Image.Resampling.NEAREST).save(dst)
     adapter.engine_manager.engine = SimpleNamespace(enhance=enhance, device_name=lambda: 'CPU')
     def select(device):
         devices.append(device)
         return adapter.engine_manager.engine
     adapter.engine_manager.create_engine = select
     src = tmp_path/'in.png'
-    Image.new('RGB', (3, 2), (201, 31, 8)).save(src)
+    pixels = np.array([[[201,31,8], [0,255,0], [255,255,255]],
+                       [[0,0,0], [33,74,198], [255,0,255]]], dtype=np.uint8)
+    Image.fromarray(pixels).save(src)
     for scale, passes in [(2, [2]), (4, [4]), (8, [4, 2])]:
         calls.clear()
         dst = tmp_path/f'out{scale}.png'
@@ -107,7 +112,8 @@ def test_adapter_passes_and_unfiltered_export(monkeypatch, tmp_path):
         assert calls == passes
         assert devices[-1] == 'cuda:1'
         assert result['output_size'] == (3*scale, 2*scale)
-        assert Image.open(dst).getpixel((0, 0)) == (201, 31, 8)
+        expected = np.repeat(np.repeat(pixels, scale, axis=0), scale, axis=1)
+        np.testing.assert_array_equal(np.array(Image.open(dst)), expected)
 
 @pytest.mark.parametrize('backend,tile', [('CPU', 128), ('CUDA', 256), ('DIRECTML', 128)])
 def test_constructor_preserves_model_contract(monkeypatch, tmp_path, backend, tile):
