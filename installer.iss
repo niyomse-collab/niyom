@@ -1,18 +1,18 @@
-#define MyAppName "NiyomSilp Independent Core"
-#define MyAppVersion "1.0.7"
-#define MyAppPublisher "Niyomsil Design"
+#define MyAppName "นิยมศิลป์ดีไซน์ v1"
+#define MyAppVersion "1.0.0"
+#define MyAppPublisher "นิยมศิลป์ดีไซน์"
 #define MyAppExeName "NiyomsilAIEnhancer.exe"
 
 [Setup]
-AppId={{B0DD9E45-BD74-48A0-8C7B-B87227371EB1}
+AppId={{D657F42C-17C9-43C9-88EA-41FCD2788931}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\NiyomsilDesignAIEnhancer
+DefaultDirName={autopf}\NiyomSilpDesignV1
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=release
-OutputBaseFilename=NiyomSilp-Independent-Core-Setup-v1.0.7
+OutputBaseFilename=NiyomSilp-Design-v1-Setup
 Compression=lzma2/normal
 SolidCompression=yes
 WizardStyle=modern
