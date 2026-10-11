@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -207,6 +207,26 @@ class FaceProtectionModule:
             raise InterruptedError("Processing stopped by user")
 
         rgb_image = image.convert("RGB")
+        if str(mode).lower() == "studio ai":
+            from .studio import apply_studio
+            if not regions or strength <= 0:
+                return rgb_image, FaceProtectionResult(enabled=True, applied=False,
+                    mode=mode, strength=strength,
+                    skipped_reason="Studio AI ต้องเลือกใบหน้าและตั้งความแรงมากกว่า 0")
+            restored, info = self.apply(rgb_image, device_name=device_name, mode="recover",
+                strength=strength, regions=regions, source_path=source_path,
+                source_regions=source_regions, resize_mode=resize_mode,
+                progress=(lambda v, msg: progress(round(v*.8), msg)) if progress else None,
+                cancel=cancel)
+            if not info.applied:
+                return rgb_image, replace(info, mode=mode)
+            # Composite recovered detail only inside the confirmed rectangles.
+            # Retouch must use recovered pixels, not replace them with the source.
+            result, count = apply_studio(rgb_image, None, regions, min(strength, 35),
+                "stretch", cancel,
+                (lambda v, msg: progress(80+round(v*.2), msg)) if progress else None,
+                source_image=restored)
+            return result, replace(info, mode=mode, applied=bool(count))
         if str(mode).lower() == "studio":
             from .studio import apply_studio
             if source_path is None or source_regions is None:

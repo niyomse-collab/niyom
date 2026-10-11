@@ -6,6 +6,7 @@ Only confirmed face rectangles are composited; the core image stays untouched
 elsewhere. Colour-based skin selection is a heuristic, not semantic parsing.
 """
 import math
+from contextlib import nullcontext
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
@@ -47,14 +48,14 @@ def retouch_crop(image, strength):
 
 
 def apply_studio(output, source_path, regions, strength=35, resize_mode='fit',
-                 cancel=None, progress=None):
+                 cancel=None, progress=None, source_image=None):
     if not regions or strength <= 0:
         return output, 0
     if output.width * output.height > 80_000_000:
         raise ValueError("Studio รองรับภาพไม่เกิน 80 ล้านพิกเซลต่อรอบ")
     result = output.copy()
     count = 0
-    with Image.open(source_path) as raw:
+    with (Image.open(source_path) if source_image is None else nullcontext(source_image)) as raw:
         source = ImageOps.exif_transpose(raw).convert('RGB')
         for region in regions:
             if cancel and cancel():

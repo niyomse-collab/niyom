@@ -664,11 +664,11 @@ class App(tk.Tk):
         tk.Label(
             quality, text="โหมด", bg="#111820", fg="#E8EDF2", anchor="w"
         ).grid(row=8, column=0, sticky="w", pady=(5, 0))
-        self.face_mode_var = tk.StringVar(value="Studio")
+        self.face_mode_var = tk.StringVar(value="Studio AI")
         face_mode = ttk.Combobox(
             quality,
             textvariable=self.face_mode_var,
-            values=("Studio", "Protect", "Recover"),
+            values=("Studio AI", "Studio", "Protect", "Recover"),
             state="readonly",
             width=14,
             style="Dark.TCombobox",
@@ -682,7 +682,7 @@ class App(tk.Tk):
         self._slider(quality, "Face Strength", self.face_strength_var, 9, 10, 80)
         tk.Label(
             quality,
-            text="Studio: ปรับผิว/มิติ/ความคม • Protect: รักษาต้นฉบับ • Recover: ฟื้นฟูด้วย AI",
+            text="Studio AI: ฟื้นฟู+แต่งผิว • Studio: แต่งเบา • Protect: รักษาต้นฉบับ • Recover: ฟื้นฟู",
             bg="#111820",
             fg="#84D8FF",
             anchor="w",

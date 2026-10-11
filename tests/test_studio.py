@@ -85,3 +85,39 @@ def test_face_processing_precedes_whole_image_stretch(tmp_path, monkeypatch):
     adapter.process(source, dest, settings)
     assert seen == [(80,40)]
     assert Image.open(dest).size == (30,60)
+
+
+def test_studio_ai_retains_recovery_and_bounds_skin_strength(monkeypatch):
+    import signprint_ai.face_module.studio as studio
+    from signprint_ai.face_module.face_protection import FaceProtectionResult
+    core = Image.new('RGB',(100,100),(20,30,40))
+    restored = Image.new('RGB',(100,100),(180,130,110))
+    module = FaceProtectionModule()
+    original_apply = module.apply
+    calls = []
+    def fake_recover(image, **kwargs):
+        calls.append(kwargs)
+        return restored, FaceProtectionResult(enabled=True,applied=True,face_count=1,mode='recover')
+    module.apply = fake_recover
+    skin_strengths = []
+    retouch = studio.retouch_crop
+    def record(crop, strength):
+        skin_strengths.append(strength)
+        return retouch(crop, strength)
+    monkeypatch.setattr(studio,'retouch_crop',record)
+    out, info = original_apply(core, device_name='cpu', mode='studio ai', strength=80,
+                              regions=((.2,.2,.8,.8),))
+    assert calls[0]['strength'] == 80 and calls[0]['mode'] == 'recover'
+    assert skin_strengths == [35]
+    assert out.getpixel((50,50))[0] > 150
+    assert out.getpixel((0,0)) == core.getpixel((0,0))
+    assert info.mode == 'studio ai' and info.applied
+
+
+def test_studio_ai_reports_missing_model_without_fake_success(monkeypatch):
+    module = FaceProtectionModule()
+    monkeypatch.setattr(FaceProtectionModule,'available',property(lambda self: False))
+    image = Image.new('RGB',(40,40),(30,40,50))
+    out, info = module.apply(image,device_name='cpu',mode='studio ai',regions=((.1,.1,.9,.9),))
+    assert out.tobytes() == image.tobytes()
+    assert not info.applied and info.skipped_reason and info.mode == 'studio ai'
