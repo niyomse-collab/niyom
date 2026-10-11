@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageOps, ImageTk, ImageChops, ImageCms
 import numpy as np
 
-from .arm_core_adapter import NiyomSilpCoreAdapter
+from .niyomsil_core_adapter import NiyomSilpCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
