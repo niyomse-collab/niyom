@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw, ImageTk
 
 def choose_faces(parent, path, regions):
     dialog = tk.Toplevel(parent)
-    dialog.title('นิยมศิลป์ดีไซน์ — เลือกใบหน้าที่ต้องการปรับปรุง')
+    dialog.title('NiyomSilp Design — เลือกใบหน้าที่ต้องการปรับปรุง')
     dialog.configure(bg='#111820')
     dialog.transient(parent)
     result = [None]

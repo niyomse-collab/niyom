@@ -10,8 +10,11 @@ def read(relative):
 
 def test_v1_has_shop_brand_and_original_portrait_choices():
     app = read("signprint_ai/app_v2.py")
-    assert 'APP_NAME = "นิยมศิลป์ดีไซน์"' in app
+    assert 'APP_NAME = "NiyomSilp Design"' in app
     assert 'APP_VERSION = "v1"' in app
+    assert 'text="NiyomSilp"' in app
+    assert 'text="Design"' in app
+    assert 'self.title(f"{APP_NAME} {APP_VERSION}")' in app
     assert 'values=("Protect", "Recover", "Studio AI")' in app
     assert 'resize_mode="fit" if self.lock_ratio.get() else "stretch"' in app
 
@@ -20,9 +23,11 @@ def test_installer_is_shop_v1_and_keeps_existing_ai_files():
     script = read("installer.iss")
     workflow = read(".github/workflows/build-windows.yml")
     build = read("build_windows.ps1")
-    assert '#define MyAppName "นิยมศิลป์ดีไซน์ v1"' in script
-    assert '#define MyAppVersion "1.0.0"' in script
+    assert '#define MyAppName "NiyomSilp Design v1"' in script
+    assert '#define MyAppVersion "1.0.1"' in script
     assert "OutputBaseFilename=NiyomSilp-Design-v1-Setup" in script
+    assert '#define MyAppPublisher "NiyomSilp Design"' in script
+    assert 'Type: files; Name: "{autoprograms}\\นิยมศิลป์ดีไซน์ v1.lnk"' in script
     assert "NiyomSilp-Design-v1-Setup.exe" in workflow
     assert "NiyomSilp-Design-v1-Windows" in workflow
     assert "release/niyomsil-design-v1" in workflow

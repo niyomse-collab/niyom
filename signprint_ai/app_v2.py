@@ -24,7 +24,7 @@ from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
 
-APP_NAME = "นิยมศิลป์ดีไซน์"
+APP_NAME = "NiyomSilp Design"
 APP_VERSION = "v1"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
@@ -43,7 +43,7 @@ def resource_root() -> Path:
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"{APP_NAME} — {APP_VERSION}")
+        self.title(f"{APP_NAME} {APP_VERSION}")
         self.geometry("1600x920")
         self.minsize(1180, 720)
 
@@ -334,9 +334,9 @@ class App(tk.Tk):
         title.place(x=145, y=17)
         line1 = tk.Frame(title, bg="#111820")
         line1.pack(anchor="w")
-        tk.Label(line1, text="นิยมศิลป์", bg="#111820", fg="#FFFFFF",
+        tk.Label(line1, text="NiyomSilp", bg="#111820", fg="#FFFFFF",
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
-        tk.Label(line1, text="ดีไซน์", bg="#111820", fg="#FF2028",
+        tk.Label(line1, text="Design", bg="#111820", fg="#FF2028",
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
         tk.Label(line1, text=" v1", bg="#111820", fg="#FFFFFF",
                  font=(self.ui_font_family, 16, "bold")).pack(side="left", padx=(6, 0), pady=(8, 0))
@@ -438,7 +438,7 @@ class App(tk.Tk):
         self.right_image.grid(row=1, column=0, sticky="nsew")
 
         self.left_caption = tk.Label(left_pane, text="ยังไม่ได้เลือกภาพ", bg="#20262B", fg="#D7DDE2", pady=6)
-        self.right_caption = tk.Label(right_pane, text="นิยมศิลป์ดีไซน์ • โหมดคุณภาพเดิม • รักษาแกนประมวลผลเดิม", bg="#4B0D10", fg="#FFFFFF", pady=6)
+        self.right_caption = tk.Label(right_pane, text="NiyomSilp Design • โหมดคุณภาพเดิม • รักษาแกนประมวลผลเดิม", bg="#4B0D10", fg="#FFFFFF", pady=6)
         self.left_caption.grid(row=2, column=0, sticky="ew")
         self.right_caption.grid(row=2, column=0, sticky="ew")
         self.left_image.bind("<Configure>", lambda e: self._refresh_preview_images())
@@ -626,7 +626,7 @@ class App(tk.Tk):
         self.v1_mode = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             ai,
-            text="นิยมศิลป์ดีไซน์ • โหมดคุณภาพเดิม (แนะนำ) — รักษารายละเอียดเดิม",
+            text="NiyomSilp Design • โหมดคุณภาพเดิม (แนะนำ) — รักษารายละเอียดเดิม",
             variable=self.v1_mode,
             command=self._settings_changed,
             style="Dark.TCheckbutton",
@@ -659,7 +659,7 @@ class App(tk.Tk):
         self.face_enabled_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             quality,
-            text="นิยมศิลป์ดีไซน์ • ปรับภาพบุคคล",
+            text="NiyomSilp Design • ปรับภาพบุคคล",
             variable=self.face_enabled_var,
             command=self._settings_changed,
             style="Dark.TCheckbutton",
@@ -742,7 +742,7 @@ class App(tk.Tk):
         self.left_image.configure(image="")
         self.right_image.configure(image="")
         self.left_caption.configure(text="ยังไม่ได้เลือกภาพ")
-        self.right_caption.configure(text="นิยมศิลป์ดีไซน์ • โหมดคุณภาพเดิม • รักษาแกนประมวลผลเดิม")
+        self.right_caption.configure(text="NiyomSilp Design • โหมดคุณภาพเดิม • รักษาแกนประมวลผลเดิม")
         if hasattr(self, "input_path_label"):
             self.input_path_label.configure(text="ยังไม่ได้เลือกไฟล์")
         self.progress["value"] = 0

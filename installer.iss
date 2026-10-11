@@ -1,6 +1,6 @@
-#define MyAppName "นิยมศิลป์ดีไซน์ v1"
-#define MyAppVersion "1.0.0"
-#define MyAppPublisher "นิยมศิลป์ดีไซน์"
+#define MyAppName "NiyomSilp Design v1"
+#define MyAppVersion "1.0.1"
+#define MyAppPublisher "NiyomSilp Design"
 #define MyAppExeName "NiyomsilAIEnhancer.exe"
 
 [Setup]
@@ -21,6 +21,11 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupIconFile=assets\app_icon.ico
+
+[InstallDelete]
+; Clean up Thai-named shortcuts from the earlier v1 installer on upgrade.
+Type: files; Name: "{autoprograms}\นิยมศิลป์ดีไซน์ v1.lnk"
+Type: files; Name: "{autodesktop}\นิยมศิลป์ดีไซน์ v1.lnk"
 
 [Files]
 Source: "dist\NiyomsilAIEnhancer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

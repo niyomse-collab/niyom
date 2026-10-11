@@ -22,7 +22,7 @@ def run(layout_only=False):
         for child in widget.winfo_children():
             check_branding(child)
     check_branding(app)
-    assert app.title() == "นิยมศิลป์ดีไซน์ — v1", "Wrong release window title"
+    assert app.title() == "NiyomSilp Design v1", "Wrong release window title"
     assert app.face_mode_var.get() == "Protect", "Face default must be Protect"
     # The queue must not take most of the workspace before any image is loaded.
     for geometry in ('1180x720', '1366x768', '1600x920'):
