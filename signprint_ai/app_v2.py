@@ -386,7 +386,7 @@ class App(tk.Tk):
                               bd=0, sashwidth=8, sashrelief="raised",
                               opaqueresize=True, width=1, height=1)
         self.workspace_split = work
-        self._preview_fraction = .72
+        self._preview_fraction = .60
         work.grid(row=1, column=1, sticky="nsew")
 
         # 5. Preview
