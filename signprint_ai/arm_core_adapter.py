@@ -16,7 +16,7 @@ ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
 
 
-class ARMCoreAdapter:
+class NiyomSilpCoreAdapter:
     """Compatibility adapter for the NiyomSilp independently orchestrated PyTorch/CUDA core.
 
     The AI processing parameters preserve the previously validated image output:
@@ -280,3 +280,7 @@ class ARMCoreAdapter:
             "engine": "NiyomSilp Core / RealESRGAN_x4plus (PyTorch)",
             "face_protection": face_info,
         }
+
+
+# Legacy import compatibility; scheduled for removal after consumer audit.
+ARMCoreAdapter = NiyomSilpCoreAdapter
