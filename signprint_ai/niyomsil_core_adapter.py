@@ -98,7 +98,7 @@ class NiyomSilpCoreAdapter:
 
         if max(target_size) > 30000:
             raise ValueError(
-                "ขนาดด้านใดด้านหนึ่งเกิน 30,000 px ตามข้อจำกัดของ NiyomSilp Independent Core"
+                "ขนาดด้านใดด้านหนึ่งเกิน 30,000 px ตามข้อจำกัดของ NiyomSilp Design Engine"
             )
 
         if progress:
@@ -117,40 +117,40 @@ class NiyomSilpCoreAdapter:
                 if model_scale == 8:
                     stage4 = td / "core_4x.png"
                     if progress:
-                        progress(10, "NiyomSilp Independent Core · pass 1/2 · 4x")
+                        progress(10, "NiyomSilp Design Engine · pass 1/2 · 4x")
                     engine.enhance(
                         src,
                         stage4,
                         scale=4,
                         progress_callback=self._mapped_progress(
-                            progress, 12, 48, "NiyomSilp Independent Core · pass 1/2 · 4x"
+                            progress, 12, 48, "NiyomSilp Design Engine · pass 1/2 · 4x"
                         ),
                         cancel_check=cancel,
                     )
                     if cancel and cancel():
                         raise InterruptedError("Processing stopped by user")
                     if progress:
-                        progress(48, "NiyomSilp Independent Core · pass 2/2 · 2x")
+                        progress(48, "NiyomSilp Design Engine · pass 2/2 · 2x")
                     engine.enhance(
                         stage4,
                         final_ai,
                         scale=2,
                         progress_callback=self._mapped_progress(
-                            progress, 48, 82, "NiyomSilp Independent Core · pass 2/2 · 2x"
+                            progress, 48, 82, "NiyomSilp Design Engine · pass 2/2 · 2x"
                         ),
                         cancel_check=cancel,
                     )
                 else:
                     if model_scale not in (2, 4):
-                        raise ValueError("NiyomSilp Independent Core รองรับ AI Scale 2x / 4x / 8x")
+                        raise ValueError("NiyomSilp Design Engine รองรับ AI Scale 2x / 4x / 8x")
                     if progress:
-                        progress(10, f"NiyomSilp Independent Core · {model_scale}x")
+                        progress(10, f"NiyomSilp Design Engine · {model_scale}x")
                     engine.enhance(
                         src,
                         final_ai,
                         scale=model_scale,
                         progress_callback=self._mapped_progress(
-                            progress, 12, 82, f"NiyomSilp Independent Core · {model_scale}x"
+                            progress, 12, 82, f"NiyomSilp Design Engine · {model_scale}x"
                         ),
                         cancel_check=cancel,
                     )
@@ -207,7 +207,7 @@ class NiyomSilpCoreAdapter:
                 # unmodified core result instead of failing or altering the job.
                 face_info["skipped_reason"] = f"Face Protect ข้ามการทำงาน: {exc}"
                 if progress:
-                    progress(94, "Face Protect ข้าม — ใช้ผลจาก NiyomSilp Independent Core เดิม")
+                    progress(94, "Face Protect ข้าม — ใช้ผลจาก NiyomSilp Design Engine เดิม")
 
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
@@ -281,7 +281,7 @@ class NiyomSilpCoreAdapter:
             "ai_scale": model_scale,
             "dpi": settings.dpi,
             "device": device_name,
-            "engine": "NiyomSilp Independent Core",
+            "engine": "NiyomSilp Design Engine",
             "model": "RealESRGAN_x4plus",
             "runtime": "PyTorch",
             "face_protection": face_info,
