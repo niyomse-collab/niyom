@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageOps, ImageTk, ImageChops, ImageCms
 import numpy as np
 
-from .arm_core_adapter import ARMCoreAdapter
+from .arm_core_adapter import NiyomSilpCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
@@ -47,7 +47,7 @@ class App(tk.Tk):
         self.geometry("1600x920")
         self.minsize(1180, 720)
 
-        self.pipeline = ARMCoreAdapter()
+        self.pipeline = NiyomSilpCoreAdapter()
         self._face_detector = FaceDetector()
         self._face_reviews = {}
         self._face_scanning = set()
