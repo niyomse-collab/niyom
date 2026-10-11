@@ -599,9 +599,13 @@ class App(tk.Tk):
         unit.grid(row=4, column=3, sticky="ew", padx=(5, 0))
 
         ttk.Checkbutton(size, text="ล็อกอัตราส่วน Width / Height", variable=self.lock_ratio,
+                        command=self._ratio_lock_changed,
                         style="Dark.TCheckbutton").grid(row=5, column=0, columnspan=4, sticky="w", pady=(5, 0))
+        tk.Label(size, text="ปลดล็อก: กำหนดกว้าง/สูงเอง • ยืดหรือหดภาพเต็มพื้นที่ ไม่มีขอบขาว",
+                 bg="#111820", fg="#84D8FF", anchor="w", justify="left", wraplength=285
+                 ).grid(row=6, column=0, columnspan=4, sticky="ew", pady=(3, 0))
         self.pixel_info = tk.Label(size, text="ขนาดพิกเซลปลายทาง: ตาม AI Upscale", bg="#111820", fg="#B8C2CB", anchor="w")
-        self.pixel_info.grid(row=6, column=0, columnspan=4, sticky="ew", pady=(5, 0))
+        self.pixel_info.grid(row=7, column=0, columnspan=4, sticky="ew", pady=(5, 0))
         size.columnconfigure(1, weight=1)
         size.columnconfigure(3, weight=1)
         w.bind("<KeyRelease>", lambda e: self._size_edited("w"))
@@ -938,6 +942,14 @@ class App(tk.Tk):
 
     def _fmt(self, value: float) -> str:
         return f"{value:.4f}".rstrip("0").rstrip(".")
+
+    def _ratio_lock_changed(self):
+        # Locking the checkbox itself must restore the source proportions at once.
+        # With the lock off, width and height stay fully independent.
+        if self.lock_ratio.get():
+            self._size_edited("w")
+        else:
+            self._settings_changed()
 
     def _size_edited(self, side: str):
         if self._syncing_size:
