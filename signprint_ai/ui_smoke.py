@@ -12,7 +12,7 @@ from .face_module.selection import choose_faces
 def run(layout_only=False):
     # The early layout check needs real Tk widgets, but no inference runtime.
     # Packaged smoke tests keep the real adapter and hardware detection.
-    adapter = patch('signprint_ai.app_v2.ARMCoreAdapter') if layout_only else nullcontext()
+    adapter = patch('signprint_ai.app_v2.NiyomSilpCoreAdapter') if layout_only else nullcontext()
     with adapter:
         app = App()
     app.auto_preview.set(False)
