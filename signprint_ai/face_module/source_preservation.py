@@ -4,7 +4,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from .detection import map_regions
 
 
-def preserve_source_faces(output, source_path, regions, cancel=None):
+def preserve_source_faces(output, source_path, regions, cancel=None, resize_mode="fit"):
     if not regions:
         return output, 0
     result = output.copy()
@@ -18,7 +18,7 @@ def preserve_source_faces(output, source_path, regions, cancel=None):
             # Include the face boundary; feather only the surrounding margin.
             padx, pady = (x2-x1)*.18, (y2-y1)*.18
             expanded = (max(0,x1-padx),max(0,y1-pady),min(1,x2+padx),min(1,y2+pady))
-            mapped = map_regions((expanded,), source.size, result.size)[0]
+            mapped = map_regions((expanded,), source.size, result.size, resize_mode)[0]
             srcbox = (math.floor(expanded[0]*source.width),math.floor(expanded[1]*source.height),
                       math.ceil(expanded[2]*source.width),math.ceil(expanded[3]*source.height))
             dstbox = (max(0,round(mapped[0]*result.width)),max(0,round(mapped[1]*result.height)),

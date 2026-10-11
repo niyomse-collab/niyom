@@ -123,7 +123,7 @@ if ($packedRetinaHash -ne $expectedRetinaHash) {
 }
 
 @"
-NIYOMSIL DESIGN V1.0.6 - INDEPENDENT ORCHESTRATION CORE BUILD PROOF
+NIYOMSIL DESIGN V1.0.7 - INDEPENDENT ORCHESTRATION CORE BUILD PROOF
 
 UI:
 - signprint_ai/app_v2.py
@@ -186,17 +186,17 @@ if (-not $SkipInstaller) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
 
-    $installer = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.6.exe"
+    $installer = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.7.exe"
     if (-not (Test-Path $installer)) {
         throw "Installer compile reported success but the expected EXE is missing."
     }
 
     $installerHash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
-    "$installerHash  NiyomSilp-Independent-Core-Setup-v1.0.6.exe" |
-        Set-Content ".\release\NiyomSilp-Independent-Core-Setup-v1.0.6.exe.sha256.txt" -Encoding ascii
+    "$installerHash  NiyomSilp-Independent-Core-Setup-v1.0.7.exe" |
+        Set-Content ".\release\NiyomSilp-Independent-Core-Setup-v1.0.7.exe.sha256.txt" -Encoding ascii
 
     Get-Item $installer | Format-List FullName,Length
     Write-Host "Installer SHA256: $installerHash"
 }
 
-Write-Host "V1.0.6 INDEPENDENT CORE BUILD COMPLETE"
+Write-Host "V1.0.7 INDEPENDENT CORE BUILD COMPLETE"

@@ -161,10 +161,61 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
+        # Retouch before free resizing: detector and facial geometry see the
+        # original aspect ratio. Final resizing transforms the whole image once.
+        face_info = {
+            "enabled": bool(getattr(settings, "face_protection", False)),
+            "applied": False,
+            "face_count": 0,
+            "mode": getattr(settings, "face_mode", "protect"),
+            "strength": int(getattr(settings, "face_strength", 35)),
+            "skipped_reason": None,
+        }
+        if use_ai and face_info["enabled"]:
+            try:
+                selected_device = (self.engine_manager.device_manager.get_default_device()
+                                   if settings.device == "AUTO" else
+                                   self.engine_manager.device_manager.get_device(settings.device))
+                device_id = getattr(selected_device, "device_id", "cpu")
+
+                def face_progress(value, message):
+                    if progress:
+                        progress(84 + round(10 * max(0, min(100, value)) / 100), message)
+
+                from .face_module.detection import map_regions
+                regions = settings.face_regions
+                if regions is not None:
+                    regions = map_regions(regions, source_size, output.size, settings.resize_mode)
+                protected, face_result = self.face_module.apply(
+                    output,
+                    device_name=device_id,
+                    mode=face_info["mode"],
+                    strength=face_info["strength"],
+                    regions=regions,
+                    source_path=src,
+                    source_regions=settings.face_regions,
+                    resize_mode=settings.resize_mode,
+                    progress=face_progress,
+                    cancel=cancel,
+                )
+                output = protected
+                face_info = face_result.as_dict()
+            except InterruptedError:
+                raise
+            except Exception as exc:
+                # Face Protection is optional by design. If it fails, keep the
+                # unmodified core result instead of failing or altering the job.
+                face_info["skipped_reason"] = f"Face Protect ข้ามการทำงาน: {exc}"
+                if progress:
+                    progress(94, "Face Protect ข้าม — ใช้ผลจาก NiyomSilp Independent Core เดิม")
+
+        if cancel and cancel():
+            raise InterruptedError("Processing stopped by user")
+
         # Keep the existing fit behavior when locked; free sizing stretches the image.
         if output.size != target_size:
             if progress:
-                progress(86, f"Final Resize · {target_size[0]:,} × {target_size[1]:,}")
+                progress(95, f"Final Resize · {target_size[0]:,} × {target_size[1]:,}")
             if settings.resize_mode == "stretch":
                 output = output.resize(target_size, Image.Resampling.LANCZOS)
             else:
@@ -186,58 +237,8 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
-        # Optional face layer: disabled means the unmodified core output above
-        # flows directly to Save Output unchanged.
-        face_info = {
-            "enabled": bool(getattr(settings, "face_protection", False)),
-            "applied": False,
-            "face_count": 0,
-            "mode": getattr(settings, "face_mode", "protect"),
-            "strength": int(getattr(settings, "face_strength", 35)),
-            "skipped_reason": None,
-        }
-        if use_ai and face_info["enabled"]:
-            try:
-                selected_device = (self.engine_manager.device_manager.get_default_device()
-                                   if settings.device == "AUTO" else
-                                   self.engine_manager.device_manager.get_device(settings.device))
-                device_id = getattr(selected_device, "device_id", "cpu")
-
-                def face_progress(value, message):
-                    if progress:
-                        progress(88 + round(6 * max(0, min(100, value)) / 100), message)
-
-                from .face_module.detection import map_regions
-                regions = settings.face_regions
-                if regions is not None:
-                    regions = map_regions(regions, source_size, output.size)
-                protected, face_result = self.face_module.apply(
-                    output,
-                    device_name=device_id,
-                    mode=face_info["mode"],
-                    strength=face_info["strength"],
-                    regions=regions,
-                    source_path=src,
-                    source_regions=settings.face_regions,
-                    progress=face_progress,
-                    cancel=cancel,
-                )
-                output = protected
-                face_info = face_result.as_dict()
-            except InterruptedError:
-                raise
-            except Exception as exc:
-                # Face Protection is optional by design. If it fails, keep the
-                # unmodified core result instead of failing or altering the job.
-                face_info["skipped_reason"] = f"Face Protect ข้ามการทำงาน: {exc}"
-                if progress:
-                    progress(94, "Face Protect ข้าม — ใช้ผลจาก NiyomSilp Independent Core เดิม")
-
-        if cancel and cancel():
-            raise InterruptedError("Processing stopped by user")
-
         if progress:
-            progress(96 if face_info["enabled"] else 94, "Save Output")
+            progress(96, "Save Output")
 
         dst.parent.mkdir(parents=True, exist_ok=True)
 

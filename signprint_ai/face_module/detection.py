@@ -40,8 +40,10 @@ class FaceDetector:
             return tuple(regions)
 
 
-def map_regions(regions, source_size, target_size):
+def map_regions(regions, source_size, target_size, resize_mode="fit"):
     """Map source normalized regions through the existing fit/white-padding stage."""
+    if resize_mode == "stretch":
+        return tuple(regions)
     # Match ImageOps.contain without allocating a print-sized temporary image.
     ratio = source_size[0]/source_size[1]
     if ratio > target_size[0]/target_size[1]:

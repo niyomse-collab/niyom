@@ -164,6 +164,10 @@ class FaceProtectionModule:
         enabled.  CI validates the packaged imports and exact model files here;
         SHA256 checks are performed separately by the workflow.
         """
+        # Exercise the packaged native retouch path, including OpenCV filters.
+        from .studio import retouch_crop
+        sample = Image.new("RGB", (32, 32), (180, 130, 110))
+        assert retouch_crop(sample, 35).size == sample.size
         from facexlib.utils.face_restoration_helper import FaceRestoreHelper  # noqa: F401
         from gfpgan.archs.gfpganv1_clean_arch import GFPGANv1Clean  # noqa: F401
 
@@ -195,6 +199,7 @@ class FaceProtectionModule:
         regions: tuple | None = None,
         source_path: str | Path | None = None,
         source_regions: tuple | None = None,
+        resize_mode: str = "fit",
         progress: ProgressFn = None,
         cancel: CancelFn = None,
     ) -> tuple[Image.Image, FaceProtectionResult]:
@@ -202,11 +207,20 @@ class FaceProtectionModule:
             raise InterruptedError("Processing stopped by user")
 
         rgb_image = image.convert("RGB")
+        if str(mode).lower() == "studio":
+            from .studio import apply_studio
+            if source_path is None or source_regions is None:
+                return rgb_image, FaceProtectionResult(enabled=True, mode=mode, strength=strength,
+                    skipped_reason="Studio ต้องเลือกและยืนยันใบหน้าก่อน", applied=False)
+            result, count = apply_studio(rgb_image, source_path, source_regions, strength,
+                                         resize_mode, cancel, progress)
+            return result, FaceProtectionResult(enabled=True, applied=bool(count),
+                                                face_count=count, mode=mode, strength=strength)
         if str(mode).lower() == "protect" and source_path is not None and source_regions is not None:
             from .source_preservation import preserve_source_faces
             if progress:
                 progress(0, "Protect • รักษารายละเอียดใบหน้าต้นฉบับ")
-            protected, count = preserve_source_faces(rgb_image, source_path, source_regions, cancel)
+            protected, count = preserve_source_faces(rgb_image, source_path, source_regions, cancel, resize_mode)
             if progress:
                 progress(100, "Protect • ไม่สร้างใบหน้าใหม่")
             return protected, FaceProtectionResult(enabled=True, applied=bool(count),
