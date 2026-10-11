@@ -68,7 +68,7 @@ def generate(image_dir: Path, rights_holder: str, license_name: str, evidence: P
             im = ImageOps.exif_transpose(handle)
             if min(im.size) < min_side:
                 raise ValueError(f"Image below minimum {min_side}px: {relative}")
-            im.verify() if hasattr(im, "verify") else None
+            im.load()  # Fully decode while the source file is still open.
         digest = _hash_file(image)
         if digest in seen_hashes:
             raise ValueError(f"Duplicate image content detected: {relative}")
