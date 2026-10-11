@@ -128,3 +128,53 @@ jobs:
             release\NiyomSilp-Design-v1-Setup.exe
             release\NiyomSilp-Design-v1-Setup.exe.sha256.txt
             dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt
+
+  publish-stable-v1:
+    name: Publish accepted NiyomSilp Design v1 release
+    needs: build
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified Windows installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: NiyomSilp-Design-v1-Windows
+          path: downloaded
+      - name: Publish v1.0.1 release with checksummed installer parts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='v1.0.1'
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $tag already exists; nothing to overwrite."
+            exit 0
+          fi
+          installer='NiyomSilp-Design-v1-Setup.exe'
+          source_dir='downloaded/release'
+          test -f "$source_dir/$installer"
+          test -f "$source_dir/$installer.sha256.txt"
+          test -f 'tools/Restore-NiyomSilp-Installer.ps1'
+          (cd "$source_dir" && sha256sum -c "$installer.sha256.txt")
+          mkdir -p release-assets
+          # Each release asset must remain under GitHub's 2 GiB per-file limit.
+          split --bytes=1800M --numeric-suffixes=1 --suffix-length=2 \
+            "$source_dir/$installer" "release-assets/$installer.part"
+          cp "$source_dir/$installer.sha256.txt" release-assets/
+          cp tools/Restore-NiyomSilp-Installer.ps1 release-assets/
+          cp THIRD_PARTY_NOTICES.md release-assets/
+          (cd release-assets && sha256sum "$installer".part* > PARTS_SHA256.txt)
+          gh release create "$tag" release-assets/* \
+            --repo "$REPO" \
+            --title 'NiyomSilp Design v1 (1.0.1) — Stable Windows' \
+            --notes-file RELEASE_NOTES_V1_0_1.md \
+            --target "$GITHUB_SHA" \
+            --latest
+          echo "Release published: https://github.com/$REPO/releases/tag/$tag"
