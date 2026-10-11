@@ -123,11 +123,11 @@ if ($packedRetinaHash -ne $expectedRetinaHash) {
 }
 
 @"
-NIYOMSIL DESIGN V1.0.7 - INDEPENDENT ORCHESTRATION CORE BUILD PROOF
+NIYOMSIL DESIGN v1 - VERIFIED INSTALLER BUILD PROOF
 
 UI:
 - signprint_ai/app_v2.py
-- Black/Red Niyomsil Design V2 interface
+- Black/Red NiyomSilp Design v1 interface
 
 AI processing core:
 - signprint_ai/independent_core.py
@@ -155,7 +155,8 @@ Important:
 - No extra denoise / contrast / sharpen filter is applied after ARM AI processing.
 - Face Protection is OPTIONAL and defaults OFF.
 - Model settings and pass order preserve the legacy compatibility contract.
-- Shop user reports matching quality on their tested images; GPU pixel parity is not independently certified.
+- Shop-approved V1.0.7 quality is the baseline; GPU pixel parity is not independently certified.
+- Third-party model names and credits are preserved in the bundled notices.
 - AUTO / CPU / detected GPU selection is stored in each queued job.
 - Preview zoom, 1:1, Fit and synchronized mouse pan are enabled.
 - When enabled, GFPGAN/RetinaFace runs only as a post-ARM face layer.
@@ -186,17 +187,17 @@ if (-not $SkipInstaller) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
 
-    $installer = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.7.exe"
+    $installer = ".\release\NiyomSilp-Design-v1-Setup.exe"
     if (-not (Test-Path $installer)) {
         throw "Installer compile reported success but the expected EXE is missing."
     }
 
     $installerHash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
-    "$installerHash  NiyomSilp-Independent-Core-Setup-v1.0.7.exe" |
-        Set-Content ".\release\NiyomSilp-Independent-Core-Setup-v1.0.7.exe.sha256.txt" -Encoding ascii
+    "$installerHash  NiyomSilp-Design-v1-Setup.exe" |
+        Set-Content ".\release\NiyomSilp-Design-v1-Setup.exe.sha256.txt" -Encoding ascii
 
     Get-Item $installer | Format-List FullName,Length
     Write-Host "Installer SHA256: $installerHash"
 }
 
-Write-Host "V1.0.7 INDEPENDENT CORE BUILD COMPLETE"
+Write-Host "NIYOMSIL DESIGN v1 BUILD COMPLETE"
