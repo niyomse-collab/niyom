@@ -183,7 +183,7 @@ class App(tk.Tk):
         info = {
             "gpu": "CPU",
             "vram": "—",
-            "engine": "ARM V2.2.8 / RealESRGAN_x4plus (PyTorch)",
+            "engine": "NiyomSilp Core / RealESRGAN_x4plus (PyTorch)",
             "device": "AUTO",
         }
         try:
@@ -627,13 +627,13 @@ class App(tk.Tk):
             command=self._settings_changed,
             style="Dark.TCheckbutton",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(7, 2))
-        tk.Label(ai, text="ARM V2.2.8 • RealESRGAN_x4plus PyTorch/CUDA • V1 Quality Core",
+        tk.Label(ai, text="NiyomSilp Core • RealESRGAN_x4plus PyTorch/CUDA • Quality Preserved",
                  bg="#111820", fg="#84D8FF", anchor="w").grid(row=2, column=0, columnspan=2, sticky="ew")
         ai.columnconfigure(1, weight=1)
 
         # 3. Keep the V2 controls visually intact. ARM Core intentionally bypasses
         # extra denoise/contrast/sharpen filters to preserve the proven V1 quality.
-        quality = self._section(parent, "3", "การตั้งค่าขั้นสูง (ARM Core รักษาคุณภาพเดิม)")
+        quality = self._section(parent, "3", "การตั้งค่าขั้นสูง (NiyomSilp Core รักษาคุณภาพเดิม)")
         self.denoise_var = tk.IntVar(value=18)
         self.flat_var = tk.IntVar(value=18)
         self.text_var = tk.IntVar(value=28)
@@ -703,7 +703,7 @@ class App(tk.Tk):
                  bg="#111820", fg="#9BFF70", anchor="w").pack(fill="x", pady=(6, 0))
         tk.Label(device, text=f"Device  {self.hardware_info['device']}",
                  bg="#111820", fg="#BFC8D0", anchor="w").pack(fill="x", pady=(2, 0))
-        tk.Label(device, text="Engine  ARM V2.2.8 PyTorch Core",
+        tk.Label(device, text="Engine  NiyomSilp PyTorch Core",
                  bg="#111820", fg="#84D8FF", anchor="w").pack(fill="x", pady=(2, 0))
 
         actions = tk.Frame(parent, bg="#080B0F")
@@ -1201,7 +1201,7 @@ class App(tk.Tk):
                 target=self._queue_worker,
                 args=(generation,),
                 daemon=True,
-                name=f"NiyomsilARMQueueWorker-{generation}",
+                name=f"NiyomSilpQueueWorker-{generation}",
             )
             self._processing_thread = worker
             worker.start()
@@ -1315,9 +1315,9 @@ class App(tk.Tk):
         if requested_scale > 1 and not self.pipeline.ai.available:
             messagebox.showerror(
                 APP_NAME,
-                "Build นี้ไม่พบ ARM RealESRGAN_x4plus model/backend\n\n"
+                "Build นี้ไม่พบ RealESRGAN_x4plus model/backend\n\n"
                 "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน "
-                "กรุณาใช้ V2 ARM Core Build ที่แพ็กโมเดลครบ"
+                "กรุณาใช้ NiyomSilp Build ที่แพ็กโมเดลครบ"
             )
             return
         if self.color_mode_var.get() == "CMYK":
@@ -1364,9 +1364,9 @@ class App(tk.Tk):
 
         if self._processing_active():
             if queued:
-                self._set_status(f"เพิ่มเข้าคิว {queued} ไฟล์ • ARM Core กำลังทำงาน")
+                self._set_status(f"เพิ่มเข้าคิว {queued} ไฟล์ • NiyomSilp Core กำลังทำงาน")
             else:
-                self._set_status("ARM Core กำลังทำงาน • ไม่มีไฟล์ซ้ำถูกเพิ่มเข้าคิว")
+                self._set_status("NiyomSilp Core กำลังทำงาน • ไม่มีไฟล์ซ้ำถูกเพิ่มเข้าคิว")
         elif not queued:
             # All files are already complete; do not spin up an empty worker.
             self._active_settings = None
@@ -1430,7 +1430,7 @@ class App(tk.Tk):
                     _, generation, preview_index, path = ev
                     if generation == self._preview_generation and preview_index == self.current_index:
                         self._last_result = Path(path)
-                        self.right_caption.configure(text="Preview: ARM V2.2.8 Core • AI เต็มทำงานเมื่อเริ่มประมวลผล")
+                        self.right_caption.configure(text="Preview: NiyomSilp Core • AI เต็มทำงานเมื่อเริ่มประมวลผล")
                         self._refresh_preview_images()
                 elif kind == "preview_error":
                     _, generation, preview_index, error = ev
