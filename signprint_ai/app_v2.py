@@ -24,8 +24,8 @@ from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
 
-APP_NAME = "นิยมศิลป์ดีไซน์ — NiyomSilp Independent Core"
-APP_VERSION = "V1.0.7"
+APP_NAME = "นิยมศิลป์ดีไซน์"
+APP_VERSION = "v1"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -183,7 +183,7 @@ class App(tk.Tk):
         info = {
             "gpu": "CPU",
             "vram": "—",
-            "engine": "NiyomSilp Independent Core",
+            "engine": "NiyomSilp Design Engine",
             "device": "AUTO",
         }
         try:
@@ -338,7 +338,7 @@ class App(tk.Tk):
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
         tk.Label(line1, text="ดีไซน์", bg="#111820", fg="#FF2028",
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
-        tk.Label(line1, text=" V1.0", bg="#111820", fg="#FFFFFF",
+        tk.Label(line1, text=" v1", bg="#111820", fg="#FFFFFF",
                  font=(self.ui_font_family, 16, "bold")).pack(side="left", padx=(6, 0), pady=(8, 0))
         tk.Label(
             title,
@@ -438,7 +438,7 @@ class App(tk.Tk):
         self.right_image.grid(row=1, column=0, sticky="nsew")
 
         self.left_caption = tk.Label(left_pane, text="ยังไม่ได้เลือกภาพ", bg="#20262B", fg="#D7DDE2", pady=6)
-        self.right_caption = tk.Label(right_pane, text="NiyomSilp Baseline • รักษาแกนประมวลผลเดิม", bg="#4B0D10", fg="#FFFFFF", pady=6)
+        self.right_caption = tk.Label(right_pane, text="นิยมศิลป์ดีไซน์ • โหมดคุณภาพเดิม • รักษาแกนประมวลผลเดิม", bg="#4B0D10", fg="#FFFFFF", pady=6)
         self.left_caption.grid(row=2, column=0, sticky="ew")
         self.right_caption.grid(row=2, column=0, sticky="ew")
         self.left_image.bind("<Configure>", lambda e: self._refresh_preview_images())
@@ -626,18 +626,18 @@ class App(tk.Tk):
         self.v1_mode = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             ai,
-            text="NiyomSilp Baseline (แนะนำ) — รักษารายละเอียดเดิม",
+            text="นิยมศิลป์ดีไซน์ • โหมดคุณภาพเดิม (แนะนำ) — รักษารายละเอียดเดิม",
             variable=self.v1_mode,
             command=self._settings_changed,
             style="Dark.TCheckbutton",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(7, 2))
-        tk.Label(ai, text="NiyomSilp Independent Core",
+        tk.Label(ai, text="NiyomSilp Design Engine",
                  bg="#111820", fg="#84D8FF", anchor="w").grid(row=2, column=0, columnspan=2, sticky="ew")
         ai.columnconfigure(1, weight=1)
 
         # 3. Keep the V2 controls visually intact. ARM Core intentionally bypasses
         # extra denoise/contrast/sharpen filters to preserve the proven V1 quality.
-        quality = self._section(parent, "3", "การตั้งค่าขั้นสูง (NiyomSilp Independent Core)")
+        quality = self._section(parent, "3", "การตั้งค่าขั้นสูง (NiyomSilp Design Engine)")
         self.denoise_var = tk.IntVar(value=18)
         self.flat_var = tk.IntVar(value=18)
         self.text_var = tk.IntVar(value=28)
@@ -707,7 +707,7 @@ class App(tk.Tk):
                  bg="#111820", fg="#9BFF70", anchor="w").pack(fill="x", pady=(6, 0))
         tk.Label(device, text=f"Device  {self.hardware_info['device']}",
                  bg="#111820", fg="#BFC8D0", anchor="w").pack(fill="x", pady=(2, 0))
-        tk.Label(device, text="Engine  NiyomSilp Independent Core",
+        tk.Label(device, text="Engine  NiyomSilp Design Engine",
                  bg="#111820", fg="#84D8FF", anchor="w").pack(fill="x", pady=(2, 0))
 
         actions = tk.Frame(parent, bg="#080B0F")
@@ -742,7 +742,7 @@ class App(tk.Tk):
         self.left_image.configure(image="")
         self.right_image.configure(image="")
         self.left_caption.configure(text="ยังไม่ได้เลือกภาพ")
-        self.right_caption.configure(text="NiyomSilp Baseline • รักษาแกนประมวลผลเดิม")
+        self.right_caption.configure(text="นิยมศิลป์ดีไซน์ • โหมดคุณภาพเดิม • รักษาแกนประมวลผลเดิม")
         if hasattr(self, "input_path_label"):
             self.input_path_label.configure(text="ยังไม่ได้เลือกไฟล์")
         self.progress["value"] = 0
@@ -1328,7 +1328,7 @@ class App(tk.Tk):
         if requested_scale > 1 and not self.pipeline.ai.available:
             messagebox.showerror(
                 APP_NAME,
-                "ไม่พบโมเดลหรือส่วนประมวลผลของ NiyomSilp Independent Core\n\n"
+                "ไม่พบโมเดลหรือส่วนประมวลผลของ NiyomSilp Design Engine\n\n"
                 "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน "
                 "กรุณาใช้ NiyomSilp Build ที่แพ็กโมเดลครบ"
             )
@@ -1377,9 +1377,9 @@ class App(tk.Tk):
 
         if self._processing_active():
             if queued:
-                self._set_status(f"เพิ่มเข้าคิว {queued} ไฟล์ • NiyomSilp Independent Core กำลังทำงาน")
+                self._set_status(f"เพิ่มเข้าคิว {queued} ไฟล์ • NiyomSilp Design Engine กำลังทำงาน")
             else:
-                self._set_status("NiyomSilp Independent Core กำลังทำงาน • ไม่มีไฟล์ซ้ำถูกเพิ่มเข้าคิว")
+                self._set_status("NiyomSilp Design Engine กำลังทำงาน • ไม่มีไฟล์ซ้ำถูกเพิ่มเข้าคิว")
         elif not queued:
             # All files are already complete; do not spin up an empty worker.
             self._active_settings = None
