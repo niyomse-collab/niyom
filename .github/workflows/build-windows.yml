@@ -24,6 +24,9 @@ jobs:
           python -m pip install pytest numpy Pillow "opencv-python-headless<5"
           python -m pytest -q
 
+      - name: Check preview space at desktop window sizes
+        run: python -c "from signprint_ai.ui_smoke import run; run(layout_only=True)"
+
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
@@ -108,8 +111,8 @@ jobs:
       - name: Verify installer and checksum
         shell: powershell
         run: |
-          $installer = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.2.exe"
-          $checksum = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.2.exe.sha256.txt"
+          $installer = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.3.exe"
+          $checksum = ".\release\NiyomSilp-Independent-Core-Setup-v1.0.3.exe.sha256.txt"
           if (-not (Test-Path $installer)) { throw "Missing V2 ARM Core installer" }
           if (-not (Test-Path $checksum)) { throw "Missing installer checksum" }
           Get-Item $installer | Format-List FullName,Length
@@ -118,9 +121,9 @@ jobs:
       - name: Upload Independent Core 1.0 installer
         uses: actions/upload-artifact@v4
         with:
-          name: NiyomSilp-Independent-Core-v1.0.2-Windows
+          name: NiyomSilp-Independent-Core-v1.0.3-Windows
           compression-level: 0
           path: |
-            release\NiyomSilp-Independent-Core-Setup-v1.0.2.exe
-            release\NiyomSilp-Independent-Core-Setup-v1.0.2.exe.sha256.txt
+            release\NiyomSilp-Independent-Core-Setup-v1.0.3.exe
+            release\NiyomSilp-Independent-Core-Setup-v1.0.3.exe.sha256.txt
             dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt

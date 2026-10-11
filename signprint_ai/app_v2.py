@@ -25,7 +25,7 @@ from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
 
 APP_NAME = "นิยมศิลป์ดีไซน์ — NiyomSilp Independent Core"
-APP_VERSION = "V1.0.2"
+APP_VERSION = "V1.0.3"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -382,15 +382,18 @@ class App(tk.Tk):
         self._build_controls(self.left_inner)
 
         # ===== RIGHT WORKSPACE =====
-        work = tk.Frame(root, bg="#080B0F")
+        work = tk.PanedWindow(root, orient="vertical", bg="#58636E",
+                              bd=0, sashwidth=8, sashrelief="raised",
+                              opaqueresize=True, width=1, height=1)
+        self.workspace_split = work
+        self._preview_fraction = .72
         work.grid(row=1, column=1, sticky="nsew")
-        work.rowconfigure(0, weight=3)
-        work.rowconfigure(1, weight=2)
-        work.columnconfigure(0, weight=1)
 
         # 5. Preview
         preview_shell = tk.Frame(work, bg="#111820", bd=1, relief="solid")
-        preview_shell.grid(row=0, column=0, sticky="nsew")
+        self.preview_shell = preview_shell
+        preview_shell.grid_propagate(False)
+        work.add(preview_shell, minsize=180, stretch="always")
         preview_shell.rowconfigure(1, weight=1)
         preview_shell.columnconfigure(0, weight=1)
 
@@ -448,7 +451,11 @@ class App(tk.Tk):
 
         # 6. Queue / progress
         queue_shell = tk.Frame(work, bg="#111820", bd=1, relief="solid")
-        queue_shell.grid(row=1, column=0, sticky="nsew", pady=(7, 0))
+        self.queue_shell = queue_shell
+        queue_shell.grid_propagate(False)
+        work.add(queue_shell, minsize=100, stretch="always")
+        work.bind("<Configure>", self._resize_workspace)
+        work.bind("<ButtonRelease-1>", self._remember_workspace_split)
         queue_shell.rowconfigure(1, weight=1)
         queue_shell.columnconfigure(0, weight=1)
 
@@ -553,6 +560,19 @@ class App(tk.Tk):
         self.elapsed_var = tk.StringVar(value="00:00:00")
         tk.Label(status, textvariable=self.elapsed_var, bg="#071016", fg="#DDE6EC", width=9).grid(row=0, column=3, padx=(0, 8))
         ttk.Button(status, text="หยุด", command=self.stop_processing).grid(row=0, column=4, padx=(0, 8), pady=3)
+
+    def _resize_workspace(self, event):
+        # Grid weights distribute spare space after widget requests; the queue's
+        # large requested height used to leave the preview as a narrow strip.
+        height = event.height - int(self.workspace_split.cget("sashwidth"))
+        if height >= 280:
+            position = max(180, min(height - 100, round(height * self._preview_fraction)))
+            self.workspace_split.sash_place(0, 0, position)
+
+    def _remember_workspace_split(self, _event=None):
+        height = self.workspace_split.winfo_height() - int(self.workspace_split.cget("sashwidth"))
+        if height > 0:
+            self._preview_fraction = self.workspace_split.sash_coord(0)[1] / height
 
     def _build_controls(self, parent):
         # 1. Input and print size
