@@ -82,7 +82,9 @@ def test_adapter_passes_and_unfiltered_export(monkeypatch, tmp_path):
     from signprint_ai import independent_core
     monkeypatch.setattr(independent_core, 'DeviceManager', lambda: SimpleNamespace(
         get_default_device=lambda: DeviceInfo('cpu', 'CPU', 'CPU')))
+    from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
     from signprint_ai.arm_core_adapter import ARMCoreAdapter
+    assert ARMCoreAdapter is NiyomSilpCoreAdapter
     from signprint_ai.processing import EnhanceSettings
     adapter = ARMCoreAdapter()
     calls = []
