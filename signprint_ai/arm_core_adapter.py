@@ -17,12 +17,12 @@ CancelFn = Optional[Callable[[], bool]]
 
 
 class ARMCoreAdapter:
-    """Compatibility adapter for the tested ARM V2.2.8 PyTorch/CUDA core.
+    """Compatibility adapter for the NiyomSilp independently orchestrated PyTorch/CUDA core.
 
-    The AI path is intentionally the same as the proven v1-arm-core build:
-      - ARM DeviceManager
-      - ARM EngineManager
-      - ARM RealESRGANEngine
+    The AI processing parameters preserve the previously validated image output:
+      - NiyomSilp DeviceManager
+      - NiyomSilp EngineManager
+      - NiyomSilp RealESRGANEngine
       - RealESRGAN_x4plus.pth
       - CUDA tile=256 / FP32 when NVIDIA CUDA is available
       - 8x = 4x pass + 2x pass
@@ -98,7 +98,7 @@ class ARMCoreAdapter:
 
         if max(target_size) > 30000:
             raise ValueError(
-                "ขนาดด้านใดด้านหนึ่งเกิน 30,000 px ตามข้อจำกัดของ ARM V2.2.8 Core"
+                "ขนาดด้านใดด้านหนึ่งเกิน 30,000 px ตามข้อจำกัดของ NiyomSilp Core"
             )
 
         if progress:
@@ -110,47 +110,47 @@ class ARMCoreAdapter:
         else:
             engine = self.engine_manager.create_engine(settings.device)
 
-            with tempfile.TemporaryDirectory(prefix="niyomsil_arm_core_") as td:
+            with tempfile.TemporaryDirectory(prefix="niyomsil_core_") as td:
                 td = Path(td)
-                final_ai = td / "arm_final.png"
+                final_ai = td / "core_final.png"
 
                 if model_scale == 8:
-                    stage4 = td / "arm_4x.png"
+                    stage4 = td / "core_4x.png"
                     if progress:
-                        progress(10, "ARM Real-ESRGAN · pass 1/2 · 4x")
+                        progress(10, "NiyomSilp Real-ESRGAN · pass 1/2 · 4x")
                     engine.enhance(
                         src,
                         stage4,
                         scale=4,
                         progress_callback=self._mapped_progress(
-                            progress, 12, 48, "ARM Real-ESRGAN · pass 1/2 · 4x"
+                            progress, 12, 48, "NiyomSilp Real-ESRGAN · pass 1/2 · 4x"
                         ),
                         cancel_check=cancel,
                     )
                     if cancel and cancel():
                         raise InterruptedError("Processing stopped by user")
                     if progress:
-                        progress(48, "ARM Real-ESRGAN · pass 2/2 · 2x")
+                        progress(48, "NiyomSilp Real-ESRGAN · pass 2/2 · 2x")
                     engine.enhance(
                         stage4,
                         final_ai,
                         scale=2,
                         progress_callback=self._mapped_progress(
-                            progress, 48, 82, "ARM Real-ESRGAN · pass 2/2 · 2x"
+                            progress, 48, 82, "NiyomSilp Real-ESRGAN · pass 2/2 · 2x"
                         ),
                         cancel_check=cancel,
                     )
                 else:
                     if model_scale not in (2, 4):
-                        raise ValueError("ARM Core รองรับ AI Scale 2x / 4x / 8x")
+                        raise ValueError("NiyomSilp Core รองรับ AI Scale 2x / 4x / 8x")
                     if progress:
-                        progress(10, f"ARM Real-ESRGAN · {model_scale}x")
+                        progress(10, f"NiyomSilp Real-ESRGAN · {model_scale}x")
                     engine.enhance(
                         src,
                         final_ai,
                         scale=model_scale,
                         progress_callback=self._mapped_progress(
-                            progress, 12, 82, f"ARM Real-ESRGAN · {model_scale}x"
+                            progress, 12, 82, f"NiyomSilp Real-ESRGAN · {model_scale}x"
                         ),
                         cancel_check=cancel,
                     )
@@ -161,7 +161,7 @@ class ARMCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
-        # Exact final-size behavior from the tested ARM V1 flow.
+        # Preserve the previously tested final-size behavior.
         if output.size != target_size:
             if progress:
                 progress(86, f"Final Resize · {target_size[0]:,} × {target_size[1]:,}")
@@ -183,7 +183,7 @@ class ARMCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
-        # Optional face layer: disabled means the exact proven ARM output above
+        # Optional face layer: disabled means the unmodified core output above
         # flows directly to Save Output unchanged.
         face_info = {
             "enabled": bool(getattr(settings, "face_protection", False)),
@@ -225,10 +225,10 @@ class ARMCoreAdapter:
                 raise
             except Exception as exc:
                 # Face Protection is optional by design. If it fails, keep the
-                # exact ARM result instead of failing or altering the job.
+                # unmodified core result instead of failing or altering the job.
                 face_info["skipped_reason"] = f"Face Protect ข้ามการทำงาน: {exc}"
                 if progress:
-                    progress(94, "Face Protect ข้าม — ใช้ผล ARM Core เดิม")
+                    progress(94, "Face Protect ข้าม — ใช้ผลจาก NiyomSilp Core เดิม")
 
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
@@ -238,7 +238,7 @@ class ARMCoreAdapter:
 
         dst.parent.mkdir(parents=True, exist_ok=True)
 
-        # RGB PNG stays pixel-identical to the final ARM result. CMYK/ICC and
+        # RGB PNG stays pixel-identical to the final core result. CMYK/ICC and
         # alternate file formats are export-only operations after AI processing.
         if settings.color_mode.upper() == "RGB" and dst.suffix.lower() == ".png":
             output.save(
@@ -277,6 +277,6 @@ class ARMCoreAdapter:
             "ai_scale": model_scale,
             "dpi": settings.dpi,
             "device": device_name,
-            "engine": "ARM V2.2.8 / RealESRGAN_x4plus (PyTorch)",
+            "engine": "NiyomSilp Core / RealESRGAN_x4plus (PyTorch)",
             "face_protection": face_info,
         }
