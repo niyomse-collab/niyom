@@ -655,7 +655,7 @@ class App(tk.Tk):
         self.face_enabled_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             quality,
-            text="Face Protection (โมดูลเสริมสำหรับภาพบุคคล)",
+            text="นิยมศิลป์ดีไซน์ • ปรับภาพบุคคล",
             variable=self.face_enabled_var,
             command=self._settings_changed,
             style="Dark.TCheckbutton",
@@ -664,11 +664,11 @@ class App(tk.Tk):
         tk.Label(
             quality, text="โหมด", bg="#111820", fg="#E8EDF2", anchor="w"
         ).grid(row=8, column=0, sticky="w", pady=(5, 0))
-        self.face_mode_var = tk.StringVar(value="Studio AI")
+        self.face_mode_var = tk.StringVar(value="Protect")
         face_mode = ttk.Combobox(
             quality,
             textvariable=self.face_mode_var,
-            values=("Studio AI", "Studio", "Protect", "Recover"),
+            values=("Protect", "Recover", "Studio AI"),
             state="readonly",
             width=14,
             style="Dark.TCombobox",
@@ -682,7 +682,7 @@ class App(tk.Tk):
         self._slider(quality, "Face Strength", self.face_strength_var, 9, 10, 80)
         tk.Label(
             quality,
-            text="Studio AI: ฟื้นฟู+แต่งผิว • Studio: แต่งเบา • Protect: รักษาต้นฉบับ • Recover: ฟื้นฟู",
+            text="Protect: รักษาใบหน้าต้นฉบับ • Recover: ฟื้นฟูใบหน้า • Studio AI: ฟื้นฟูและแต่งผิว",
             bg="#111820",
             fg="#84D8FF",
             anchor="w",
