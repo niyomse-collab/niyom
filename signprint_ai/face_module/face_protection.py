@@ -252,7 +252,7 @@ class FaceProtectionModule:
                 face_count=0,
                 mode=mode,
                 strength=strength,
-                skipped_reason="ภาพมีขนาดใหญ่เกินขีดจำกัดหน่วยความจำของ Face Protect",
+                skipped_reason="ภาพใหญ่เกินขีดจำกัดหน่วยความจำในการปรับภาพบุคคล",
             )
 
         if not self.available:
@@ -262,7 +262,7 @@ class FaceProtectionModule:
                 face_count=0,
                 mode=mode,
                 strength=strength,
-                skipped_reason="ไม่พบ GFPGAN / FaceXLib หรือโมเดลใบหน้าที่แพ็กไว้",
+                skipped_reason="ไม่พบโมเดลปรับปรุงใบหน้าที่ติดตั้งมากับนิยมศิลป์ดีไซน์",
             )
 
         if progress:
