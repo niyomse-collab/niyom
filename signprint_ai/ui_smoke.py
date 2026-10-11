@@ -20,19 +20,21 @@ def run(layout_only=False):
     for geometry in ('1180x720', '1366x768', '1600x920'):
         app.geometry(geometry)
         app.update()
-        print('Preview layout:', geometry, 'workspace', app.workspace_split.winfo_height(),
+        print('Preview layout:', geometry, 'workspace', app.workspace_frame.winfo_height(),
               'preview', app.preview_shell.winfo_height(), 'queue', app.queue_shell.winfo_height(),
               'image', app.left_image.winfo_height(), flush=True)
         total = app.preview_shell.winfo_height() + app.queue_shell.winfo_height()
         assert abs(app.preview_shell.winfo_height() / total - .60) < .02
         assert app.left_image.winfo_height() >= 140
         assert abs(app.left_image.winfo_width()-app.right_image.winfo_width()) <= 1
-    split = app.workspace_split
-    split.sash_place(0, 0, round(split.winfo_height() * .75))
-    app._remember_workspace_split()
-    app.geometry('1366x768')
+    # Dragging over the fixed separator must not change the 60/40 split.
+    workspace = app.workspace_frame
+    initial_height = app.preview_shell.winfo_height()
+    workspace.event_generate('<ButtonPress-1>', x=20, y=initial_height+4)
+    workspace.event_generate('<B1-Motion>', x=20, y=initial_height-80)
+    workspace.event_generate('<ButtonRelease-1>', x=20, y=initial_height-80)
     app.update()
-    assert abs(split.sash_coord(0)[1] / (split.winfo_height()-8) - .75) < .03
+    assert app.preview_shell.winfo_height() == initial_height
     with tempfile.TemporaryDirectory() as folder:
         source = Path(folder)/'smoke.png'
         Image.new('RGB', (200, 100), 'white').save(source)
