@@ -18,11 +18,14 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageOps, ImageTk, ImageChops, ImageCms
 import numpy as np
 
-from .arm_core_adapter import ARMCoreAdapter
+from .niyomsil_core_adapter import NiyomSilpCoreAdapter
 from .processing import EnhanceSettings, print_pixels
+from .preview_viewport import PreviewViewport
+from .face_module.detection import FaceDetector
+from .face_module.selection import choose_faces
 
-APP_NAME = "Niyomsil Design AI Enhancer"
-APP_VERSION = "V2.1 Face Protect Build"
+APP_NAME = "NiyomSilp Design"
+APP_VERSION = "v1"
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -40,11 +43,15 @@ def resource_root() -> Path:
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title(f"{APP_NAME} — {APP_VERSION}")
+        self.title(f"{APP_NAME} {APP_VERSION}")
         self.geometry("1600x920")
         self.minsize(1180, 720)
 
-        self.pipeline = ARMCoreAdapter()
+        self.pipeline = NiyomSilpCoreAdapter()
+        self._face_detector = FaceDetector()
+        self._face_reviews = {}
+        self._face_scanning = set()
+        self._resume_after_faces = False
         self.files: list[Path] = []
         self.current_index: int | None = None
         self.original_ratio = 1.0
@@ -65,6 +72,9 @@ class App(tk.Tk):
         self._active_index: int | None = None
         self._active_settings: EnhanceSettings | None = None
 
+        self.viewport = PreviewViewport()
+        self._preview_cache = {}
+        self._drag_start = None
         self._preview_job = None
         self._preview_generation = 0
         self._photo_left = None
@@ -173,7 +183,7 @@ class App(tk.Tk):
         info = {
             "gpu": "CPU",
             "vram": "—",
-            "engine": "ARM V2.2.8 / RealESRGAN_x4plus (PyTorch)",
+            "engine": "NiyomSilp Design Engine",
             "device": "AUTO",
         }
         try:
@@ -324,11 +334,11 @@ class App(tk.Tk):
         title.place(x=145, y=17)
         line1 = tk.Frame(title, bg="#111820")
         line1.pack(anchor="w")
-        tk.Label(line1, text="นิยมศิลป์", bg="#111820", fg="#FFFFFF",
+        tk.Label(line1, text="NiyomSilp", bg="#111820", fg="#FFFFFF",
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
-        tk.Label(line1, text="ดีไซน์", bg="#111820", fg="#FF2028",
+        tk.Label(line1, text="Design", bg="#111820", fg="#FF2028",
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
-        tk.Label(line1, text=" V2.1", bg="#111820", fg="#FFFFFF",
+        tk.Label(line1, text=" v1", bg="#111820", fg="#FFFFFF",
                  font=(self.ui_font_family, 16, "bold")).pack(side="left", padx=(6, 0), pady=(8, 0))
         tk.Label(
             title,
@@ -373,13 +383,19 @@ class App(tk.Tk):
 
         # ===== RIGHT WORKSPACE =====
         work = tk.Frame(root, bg="#080B0F")
+        self.workspace_frame = work
         work.grid(row=1, column=1, sticky="nsew")
-        work.rowconfigure(0, weight=3)
-        work.rowconfigure(1, weight=2)
+        # Uniform rows lock the total available space to 3:2 regardless of
+        # the queue's requested height. The middle row is a fixed visual gap.
         work.columnconfigure(0, weight=1)
+        work.rowconfigure(0, weight=3, uniform="workspace")
+        work.rowconfigure(1, minsize=8)
+        work.rowconfigure(2, weight=2, uniform="workspace")
 
         # 5. Preview
         preview_shell = tk.Frame(work, bg="#111820", bd=1, relief="solid")
+        self.preview_shell = preview_shell
+        preview_shell.grid_propagate(False)
         preview_shell.grid(row=0, column=0, sticky="nsew")
         preview_shell.rowconfigure(1, weight=1)
         preview_shell.columnconfigure(0, weight=1)
@@ -389,24 +405,25 @@ class App(tk.Tk):
         phead.grid_propagate(False)
         tk.Label(phead, text="5. ตัวอย่างภาพ", bg="#D71920", fg="white",
                  font=(self.ui_font_family, 10, "bold"), padx=12).pack(side="left", fill="y")
-        ttk.Button(phead, text="−", command=self._refresh_preview_images, width=4).pack(side="left", padx=(8, 3), pady=4)
-        ttk.Button(phead, text="+", command=self._refresh_preview_images, width=4).pack(side="left", padx=3, pady=4)
-        ttk.Button(phead, text="พอดีหน้าจอ", command=self._refresh_preview_images).pack(side="left", padx=3, pady=4)
-        ttk.Button(phead, text="1:1", command=self._refresh_preview_images, width=6).pack(side="left", padx=3, pady=4)
+        ttk.Button(phead, text="−", command=lambda: self._zoom_preview(1/1.25), width=4).pack(side="left", padx=(8, 3), pady=4)
+        ttk.Button(phead, text="+", command=lambda: self._zoom_preview(1.25), width=4).pack(side="left", padx=3, pady=4)
+        ttk.Button(phead, text="พอดีหน้าจอ", command=self._fit_preview).pack(side="left", padx=3, pady=4)
+        ttk.Button(phead, text="1:1", command=self._actual_preview, width=6).pack(side="left", padx=3, pady=4)
         self.auto_preview = tk.BooleanVar(value=True)
         ttk.Checkbutton(phead, text="Auto Preview", variable=self.auto_preview, style="Dark.TCheckbutton").pack(side="right", padx=10)
 
         compare = tk.Frame(preview_shell, bg="#0B1015")
         compare.grid(row=1, column=0, sticky="nsew", padx=7, pady=(0, 7))
         compare.rowconfigure(0, weight=1)
-        compare.columnconfigure(0, weight=1)
-        compare.columnconfigure(1, weight=1)
+        compare.columnconfigure(0, weight=1, uniform="preview")
+        compare.columnconfigure(1, weight=1, uniform="preview")
 
         left_pane = tk.Frame(compare, bg="#0B1015", bd=1, relief="solid")
         right_pane = tk.Frame(compare, bg="#0B1015", bd=1, relief="solid")
         left_pane.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         right_pane.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
         for pane in (left_pane, right_pane):
+            pane.grid_propagate(False)
             pane.rowconfigure(1, weight=1)
             pane.columnconfigure(0, weight=1)
 
@@ -421,15 +438,25 @@ class App(tk.Tk):
         self.right_image.grid(row=1, column=0, sticky="nsew")
 
         self.left_caption = tk.Label(left_pane, text="ยังไม่ได้เลือกภาพ", bg="#20262B", fg="#D7DDE2", pady=6)
-        self.right_caption = tk.Label(right_pane, text="V1 Baseline • รักษาแกนประมวลผลเดิม", bg="#4B0D10", fg="#FFFFFF", pady=6)
+        self.right_caption = tk.Label(right_pane, text="NiyomSilp Design • โหมดคุณภาพเดิม • รักษาแกนประมวลผลเดิม", bg="#4B0D10", fg="#FFFFFF", pady=6)
         self.left_caption.grid(row=2, column=0, sticky="ew")
         self.right_caption.grid(row=2, column=0, sticky="ew")
         self.left_image.bind("<Configure>", lambda e: self._refresh_preview_images())
         self.right_image.bind("<Configure>", lambda e: self._refresh_preview_images())
+        for panel in (self.left_image, self.right_image):
+            panel.configure(cursor="fleur")
+            panel.bind("<ButtonPress-1>", self._preview_drag_start)
+            panel.bind("<B1-Motion>", self._preview_drag)
+            panel.bind("<ButtonRelease-1>", lambda e: setattr(self, "_drag_start", None))
+            panel.bind("<MouseWheel>", self._preview_wheel)
+            panel.bind("<Button-4>", lambda e: self._zoom_preview(1.25))
+            panel.bind("<Button-5>", lambda e: self._zoom_preview(1/1.25))
 
         # 6. Queue / progress
         queue_shell = tk.Frame(work, bg="#111820", bd=1, relief="solid")
-        queue_shell.grid(row=1, column=0, sticky="nsew", pady=(7, 0))
+        self.queue_shell = queue_shell
+        queue_shell.grid_propagate(False)
+        queue_shell.grid(row=2, column=0, sticky="nsew")
         queue_shell.rowconfigure(1, weight=1)
         queue_shell.columnconfigure(0, weight=1)
 
@@ -572,9 +599,13 @@ class App(tk.Tk):
         unit.grid(row=4, column=3, sticky="ew", padx=(5, 0))
 
         ttk.Checkbutton(size, text="ล็อกอัตราส่วน Width / Height", variable=self.lock_ratio,
+                        command=self._ratio_lock_changed,
                         style="Dark.TCheckbutton").grid(row=5, column=0, columnspan=4, sticky="w", pady=(5, 0))
+        tk.Label(size, text="ปลดล็อก: กำหนดกว้าง/สูงเอง • ยืดหรือหดภาพเต็มพื้นที่ ไม่มีขอบขาว",
+                 bg="#111820", fg="#84D8FF", anchor="w", justify="left", wraplength=285
+                 ).grid(row=6, column=0, columnspan=4, sticky="ew", pady=(3, 0))
         self.pixel_info = tk.Label(size, text="ขนาดพิกเซลปลายทาง: ตาม AI Upscale", bg="#111820", fg="#B8C2CB", anchor="w")
-        self.pixel_info.grid(row=6, column=0, columnspan=4, sticky="ew", pady=(5, 0))
+        self.pixel_info.grid(row=7, column=0, columnspan=4, sticky="ew", pady=(5, 0))
         size.columnconfigure(1, weight=1)
         size.columnconfigure(3, weight=1)
         w.bind("<KeyRelease>", lambda e: self._size_edited("w"))
@@ -595,18 +626,18 @@ class App(tk.Tk):
         self.v1_mode = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             ai,
-            text="V1 Baseline (แนะนำ) — รักษารายละเอียดเดิม",
+            text="NiyomSilp Design • โหมดคุณภาพเดิม (แนะนำ) — รักษารายละเอียดเดิม",
             variable=self.v1_mode,
             command=self._settings_changed,
             style="Dark.TCheckbutton",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(7, 2))
-        tk.Label(ai, text="ARM V2.2.8 • RealESRGAN_x4plus PyTorch/CUDA • V1 Quality Core",
+        tk.Label(ai, text="NiyomSilp Design Engine",
                  bg="#111820", fg="#84D8FF", anchor="w").grid(row=2, column=0, columnspan=2, sticky="ew")
         ai.columnconfigure(1, weight=1)
 
         # 3. Keep the V2 controls visually intact. ARM Core intentionally bypasses
         # extra denoise/contrast/sharpen filters to preserve the proven V1 quality.
-        quality = self._section(parent, "3", "การตั้งค่าขั้นสูง (ARM Core รักษาคุณภาพเดิม)")
+        quality = self._section(parent, "3", "การตั้งค่าขั้นสูง (NiyomSilp Design Engine)")
         self.denoise_var = tk.IntVar(value=18)
         self.flat_var = tk.IntVar(value=18)
         self.text_var = tk.IntVar(value=28)
@@ -628,7 +659,7 @@ class App(tk.Tk):
         self.face_enabled_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             quality,
-            text="Face Protection (โมดูลเสริมสำหรับภาพบุคคล)",
+            text="NiyomSilp Design • ปรับภาพบุคคล",
             variable=self.face_enabled_var,
             command=self._settings_changed,
             style="Dark.TCheckbutton",
@@ -641,7 +672,7 @@ class App(tk.Tk):
         face_mode = ttk.Combobox(
             quality,
             textvariable=self.face_mode_var,
-            values=("Protect", "Recover"),
+            values=("Protect", "Recover", "Studio AI"),
             state="readonly",
             width=14,
             style="Dark.TCombobox",
@@ -649,11 +680,13 @@ class App(tk.Tk):
         face_mode.grid(row=8, column=1, sticky="ew", padx=6, pady=(5, 0))
         face_mode.bind("<<ComboboxSelected>>", lambda _e: self._settings_changed())
 
+        ttk.Button(quality, text="ตรวจจับใบหน้า / เลือกใหม่", command=self._rescan_current_faces).grid(
+            row=11, column=0, columnspan=3, sticky="ew", pady=(5, 0))
         self.face_strength_var = tk.IntVar(value=35)
         self._slider(quality, "Face Strength", self.face_strength_var, 9, 10, 80)
         tk.Label(
             quality,
-            text="ปิด Face Protection = ผลลัพธ์ ARM Core เดิม • Protect แนะนำสำหรับงานป้าย",
+            text="Protect: รักษาใบหน้าต้นฉบับ • Recover: ฟื้นฟูใบหน้า • Studio AI: ฟื้นฟูและแต่งผิว",
             bg="#111820",
             fg="#84D8FF",
             anchor="w",
@@ -661,15 +694,20 @@ class App(tk.Tk):
             wraplength=285,
         ).grid(row=10, column=0, columnspan=3, sticky="ew", pady=(5, 0))
 
-        # 4. Device status — display only; processing backend is untouched.
+        # Persist a device ID in each queued job, independent of subsequent UI changes.
         device = self._section(parent, "4", "เลือกอุปกรณ์ประมวลผล")
-        tk.Label(device, text="AUTO (แนะนำ)", bg="#0B1015", fg="#FFFFFF", anchor="w",
-                 padx=8, pady=7, bd=1, relief="solid").pack(fill="x")
+        self._device_choices = {"AUTO (แนะนำ)": "AUTO"}
+        for item in self.pipeline.engine_manager.device_manager.get_devices():
+            if item.available:
+                self._device_choices[f"{item.backend} • {item.name} [{item.device_id}]"] = item.device_id
+        self.device_var = tk.StringVar(value="AUTO (แนะนำ)")
+        ttk.Combobox(device, textvariable=self.device_var, state="readonly",
+                     values=list(self._device_choices)).pack(fill="x")
         tk.Label(device, text=f"GPU  {self.hardware_info['gpu']}  ({self.hardware_info['vram']})",
                  bg="#111820", fg="#9BFF70", anchor="w").pack(fill="x", pady=(6, 0))
         tk.Label(device, text=f"Device  {self.hardware_info['device']}",
                  bg="#111820", fg="#BFC8D0", anchor="w").pack(fill="x", pady=(2, 0))
-        tk.Label(device, text="Engine  ARM V2.2.8 PyTorch Core",
+        tk.Label(device, text="Engine  NiyomSilp Design Engine",
                  bg="#111820", fg="#84D8FF", anchor="w").pack(fill="x", pady=(2, 0))
 
         actions = tk.Frame(parent, bg="#080B0F")
@@ -704,7 +742,7 @@ class App(tk.Tk):
         self.left_image.configure(image="")
         self.right_image.configure(image="")
         self.left_caption.configure(text="ยังไม่ได้เลือกภาพ")
-        self.right_caption.configure(text="V1 Baseline • รักษาแกนประมวลผลเดิม")
+        self.right_caption.configure(text="NiyomSilp Design • โหมดคุณภาพเดิม • รักษาแกนประมวลผลเดิม")
         if hasattr(self, "input_path_label"):
             self.input_path_label.configure(text="ยังไม่ได้เลือกไฟล์")
         self.progress["value"] = 0
@@ -744,6 +782,57 @@ class App(tk.Tk):
         except Exception:
             return
 
+    @staticmethod
+    def _face_key(path):
+        stat = Path(path).stat()
+        return (str(path), stat.st_size, stat.st_mtime_ns)
+
+    def _scan_faces(self, path):
+        key = self._face_key(path)
+        if key in self._face_reviews or key in self._face_scanning:
+            return
+        self._face_scanning.add(key)
+        def worker():
+            try:
+                regions = self._face_detector.detect(path)
+                self._events.put(("face_scan_done", key, regions, None))
+            except Exception as exc:
+                self._events.put(("face_scan_done", key, (), str(exc)))
+        threading.Thread(target=worker, daemon=True, name="NiyomSilpFaceDetect").start()
+
+    def _rescan_current_faces(self):
+        if self.current_index is None:
+            return
+        path = self.files[self.current_index]
+        self._face_reviews.pop(self._face_key(path), None)
+        self._scan_faces(path)
+        self._set_status("กำลังตรวจจับใบหน้าใหม่…")
+
+    def _face_scan_done(self, key, regions, error):
+        self._face_scanning.discard(key)
+        path = Path(key[0])
+        if path not in self.files or not path.exists() or self._face_key(path) != key:
+            return  # A removed/replaced file cannot grant consent to another job.
+        if error:
+            self._resume_after_faces = False
+            messagebox.showerror(APP_NAME, "ตรวจจับใบหน้าไม่สำเร็จ\n" + error +
+                                 "\nกด ‘ตรวจจับใบหน้า / เลือกใหม่’ เพื่อลองอีกครั้ง")
+            self._set_status("ตรวจจับใบหน้าผิดพลาด • ยังไม่เริ่มงานที่รอยืนยัน")
+            return
+        selection = choose_faces(self, path, regions) if regions else ()
+        if selection is None:
+            self._resume_after_faces = False
+            self._set_status("ยกเลิกการเลือกใบหน้า • กดเริ่มเพื่อเลือกใหม่")
+            return
+        self._face_reviews[key] = selection
+        if selection:
+            self.face_enabled_var.set(True)
+        self._set_status(f"{path.name} • พบ {len(regions)} ใบหน้า • ยืนยัน {len(selection)} ใบหน้า")
+        if self._resume_after_faces and all(self._face_key(p) in self._face_reviews for i,p in enumerate(self.files)
+                                            if i not in self._completed_indices):
+            self._resume_after_faces = False
+            self.after(0, self.start_processing)
+
     def choose_files(self):
         paths = filedialog.askopenfilenames(title="เลือกภาพ", filetypes=IMAGE_TYPES)
         if paths:
@@ -766,6 +855,8 @@ class App(tk.Tk):
                 iid = str(idx)
                 self.tree.insert("", "end", iid=iid, values=(p.name, f"{size[0]:,} × {size[1]:,}", "—", "พร้อม", "0%", "-"))
                 added += 1
+        for idx in added_indices:
+            self._scan_faces(self.files[idx])
         if added and self.current_index is None:
             self.tree.selection_set("0")
             self.tree.focus("0")
@@ -824,6 +915,11 @@ class App(tk.Tk):
     def _select_index(self, idx: int):
         if idx < 0 or idx >= len(self.files):
             return
+        if self.current_index != idx:
+            self.viewport.fit()
+            self._preview_cache.clear()
+            self._last_result = None
+            self.right_image.configure(image="")
         self.current_index = idx
         p = self.files[idx]
         try:
@@ -846,6 +942,14 @@ class App(tk.Tk):
 
     def _fmt(self, value: float) -> str:
         return f"{value:.4f}".rstrip("0").rstrip(".")
+
+    def _ratio_lock_changed(self):
+        # Locking the checkbox itself must restore the source proportions at once.
+        # With the lock off, width and height stay fully independent.
+        if self.lock_ratio.get():
+            self._size_edited("w")
+        else:
+            self._settings_changed()
 
     def _size_edited(self, side: str):
         if self._syncing_size:
@@ -879,7 +983,12 @@ class App(tk.Tk):
             return
         try:
             px = print_pixels(float(self.width_var.get()), float(self.height_var.get()), self.unit_var.get(), int(float(self.dpi_var.get())))
-            self.pixel_info.configure(text=f"ขนาดพิกเซลปลายทาง: {px[0]:,} × {px[1]:,} px")
+            note = ""
+            if self.current_index is not None:
+                with Image.open(self.files[self.current_index]) as source:
+                    if px[0] < source.width or px[1] < source.height:
+                        note = " • ลดพิกเซลต้นฉบับ"
+            self.pixel_info.configure(text=f"ขนาดพิกเซลปลายทาง: {px[0]:,} × {px[1]:,} px{note}")
         except Exception:
             self.pixel_info.configure(text="ขนาดพิกเซลปลายทาง: —")
 
@@ -913,8 +1022,10 @@ class App(tk.Tk):
             sharpness=round(self.sharp_var.get()),
             saturation=round(self.sat_var.get()),
             ai_scale=int(self.scale_var.get().rstrip("x")),
+            device=self._device_choices[self.device_var.get()],
             dpi=max(1, int(float(self.dpi_var.get() or 150))),
             print_unit=self.unit_var.get(),
+            resize_mode="fit" if self.lock_ratio.get() else "stretch",
             export_format=self.format_var.get(),
             v1_baseline=self.v1_mode.get(),
             color_mode=self.color_mode_var.get(),
@@ -987,13 +1098,68 @@ class App(tk.Tk):
             except Exception:
                 pass
 
-    def _photo_for_label(self, path: Path, label: ttk.Label):
-        with Image.open(path) as im:
-            im = ImageOps.exif_transpose(im).convert("RGB")
-            w = max(250, label.winfo_width() - 12)
-            h = max(180, label.winfo_height() - 12)
-            im.thumbnail((w, h), Image.Resampling.LANCZOS)
-            return ImageTk.PhotoImage(im.copy())
+    def _preview_source(self, path):
+        path = Path(path)
+        stat = path.stat()
+        key = (str(path), stat.st_mtime_ns, stat.st_size)
+        if key not in self._preview_cache:
+            # Retain only the current Before and After sources.
+            for old in list(self._preview_cache):
+                if old[0] == str(path):
+                    del self._preview_cache[old]
+            if len(self._preview_cache) >= 2:
+                self._preview_cache.pop(next(iter(self._preview_cache)))
+            with Image.open(path) as image:
+                self._preview_cache[key] = ImageOps.exif_transpose(image).convert("RGB")
+        return self._preview_cache[key]
+
+    def _preview_box(self, panel):
+        return max(1, panel.winfo_width()), max(1, panel.winfo_height())
+
+    def _preview_reference_size(self):
+        if self._last_result and self._last_result.exists():
+            return self._preview_source(self._last_result).size
+        if self.current_index is not None:
+            return self._preview_source(self.files[self.current_index]).size
+        return None
+
+    def _photo_for_label(self, path, label):
+        return ImageTk.PhotoImage(self.viewport.render(self._preview_source(path), self._preview_box(label),
+                                                       self._preview_reference_size()))
+
+    def _zoom_preview(self, factor):
+        self.viewport.magnify(factor)
+        self._refresh_preview_images()
+        return "break"
+
+    def _fit_preview(self):
+        self.viewport.fit()
+        self._refresh_preview_images()
+
+    def _actual_preview(self):
+        self.viewport.one_to_one()
+        self._refresh_preview_images()
+
+    def _preview_wheel(self, event):
+        if event.delta:
+            self._zoom_preview(1.25 if event.delta > 0 else 1/1.25)
+        return "break"
+
+    def _preview_drag_start(self, event):
+        self._drag_start = (event.widget, event.x, event.y)
+        return "break"
+
+    def _preview_drag(self, event):
+        if self._drag_start is None or self.current_index is None:
+            return "break"
+        panel, x, y = self._drag_start
+        path = self.files[self.current_index] if panel is self.left_image else self._last_result
+        if path and Path(path).exists():
+            image = self._preview_source(path)
+            self.viewport.pan(event.x-x, event.y-y, image.size, self._preview_box(panel), self._preview_reference_size())
+            self._drag_start = (panel, event.x, event.y)
+            self._refresh_preview_images()
+        return "break"
 
     def choose_output_dir(self):
         d = filedialog.askdirectory(title="เลือกโฟลเดอร์ผลลัพธ์")
@@ -1020,7 +1186,15 @@ class App(tk.Tk):
                 if idx == self._active_index or idx in self._queued_indices or idx in self._completed_indices:
                     continue
                 src = self.files[idx]
-                job_settings = replace(settings)
+                key = self._face_key(src)
+                if key not in self._face_reviews:
+                    self._scan_faces(src)
+                    self._resume_after_faces = True
+                    self._events.put(("row_status", idx, "รอตรวจจับ / ยืนยันใบหน้า"))
+                    continue
+                regions = self._face_reviews[key]
+                job_settings = replace(settings, face_regions=regions,
+                                       face_protection=bool(regions) and settings.face_protection)
                 out = self._output_path(src, job_settings)
                 self._job_queue.put((idx, src, out, job_settings))
                 self._queued_indices.add(idx)
@@ -1040,7 +1214,7 @@ class App(tk.Tk):
                 target=self._queue_worker,
                 args=(generation,),
                 daemon=True,
-                name=f"NiyomsilARMQueueWorker-{generation}",
+                name=f"NiyomSilpQueueWorker-{generation}",
             )
             self._processing_thread = worker
             worker.start()
@@ -1154,9 +1328,9 @@ class App(tk.Tk):
         if requested_scale > 1 and not self.pipeline.ai.available:
             messagebox.showerror(
                 APP_NAME,
-                "Build นี้ไม่พบ ARM RealESRGAN_x4plus model/backend\n\n"
+                "ไม่พบโมเดลหรือส่วนประมวลผลของ NiyomSilp Design Engine\n\n"
                 "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน "
-                "กรุณาใช้ V2 ARM Core Build ที่แพ็กโมเดลครบ"
+                "กรุณาใช้ NiyomSilp Build ที่แพ็กโมเดลครบ"
             )
             return
         if self.color_mode_var.get() == "CMYK":
@@ -1179,6 +1353,14 @@ class App(tk.Tk):
         except Exception as exc:
             messagebox.showerror(APP_NAME, f"ค่าการตั้งค่าไม่ถูกต้อง: {exc}")
             return
+        if any(self._face_key(path) not in self._face_reviews for i,path in enumerate(self.files)
+               if i not in self._completed_indices):
+            self._resume_after_faces = True
+            for i,path in enumerate(self.files):
+                if i not in self._completed_indices:
+                    self._scan_faces(path)
+            self._set_status("กำลังตรวจจับใบหน้า • รอเลือกและยืนยันก่อนเริ่มงาน")
+            return
         self._active_settings = replace(settings)
         self.progress["value"] = 0
 
@@ -1195,15 +1377,16 @@ class App(tk.Tk):
 
         if self._processing_active():
             if queued:
-                self._set_status(f"เพิ่มเข้าคิว {queued} ไฟล์ • ARM Core กำลังทำงาน")
+                self._set_status(f"เพิ่มเข้าคิว {queued} ไฟล์ • NiyomSilp Design Engine กำลังทำงาน")
             else:
-                self._set_status("ARM Core กำลังทำงาน • ไม่มีไฟล์ซ้ำถูกเพิ่มเข้าคิว")
+                self._set_status("NiyomSilp Design Engine กำลังทำงาน • ไม่มีไฟล์ซ้ำถูกเพิ่มเข้าคิว")
         elif not queued:
             # All files are already complete; do not spin up an empty worker.
             self._active_settings = None
             self._set_status("ไม่มีไฟล์ใหม่ที่รอประมวลผล")
 
     def stop_processing(self):
+        self._resume_after_faces = False
         self._stop.set()
         self._set_status("กำลังหยุด…")
 
@@ -1254,11 +1437,13 @@ class App(tk.Tk):
                         if st == "เสร็จแล้ว":
                             vals[4] = "100%"
                         self.tree.item(str(i), values=vals)
+                elif kind == "face_scan_done":
+                    self._face_scan_done(*ev[1:])
                 elif kind == "preview_done":
                     _, generation, preview_index, path = ev
                     if generation == self._preview_generation and preview_index == self.current_index:
                         self._last_result = Path(path)
-                        self.right_caption.configure(text="Preview: ARM V2.2.8 Core • AI เต็มทำงานเมื่อเริ่มประมวลผล")
+                        self.right_caption.configure(text="ภาพตัวอย่างย่อ • ยังไม่ใช่ผล AI เต็ม")
                         self._refresh_preview_images()
                 elif kind == "preview_error":
                     _, generation, preview_index, error = ev
@@ -1286,6 +1471,8 @@ class App(tk.Tk):
                     if idx == self.current_index:
                         self._last_result = Path(path)
                         caption = f"ผลลัพธ์จริง: {result['output_size'][0]:,} × {result['output_size'][1]:,} px"
+                        if result["output_size"][0] < result["original_size"][0] or result["output_size"][1] < result["original_size"][1]:
+                            caption += " • ลดพิกเซลตามขนาด/DPI ที่ตั้ง"
                         if face.get("enabled"):
                             if face.get("applied"):
                                 caption += f" • Face Protect {face.get('face_count', 0)} ใบหน้า"

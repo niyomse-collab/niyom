@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+      - codex/niyomsil-independent-core
+      - release/niyomsil-design-v1
 
 jobs:
   build:
@@ -18,15 +20,23 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Run Independent Core regression checks
+        run: |
+          python -m pip install pytest numpy Pillow "opencv-python-headless<5"
+          python -m pytest -q
+
+      - name: Check preview space at desktop window sizes
+        run: python -c "from signprint_ai.ui_smoke import run; run(layout_only=True)"
+
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
-      - name: Validate V2 UI and ARM core source
+      - name: Validate NiyomSilp UI and independent core source
         shell: powershell
         run: |
-          python -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py signprint_ai\face_module\__init__.py signprint_ai\face_module\face_protection.py app\device\device_manager.py app\engine\engine_manager.py app\engine\realesrgan_engine.py tools\generate_brand_assets.py
+          python -m py_compile run.py signprint_ai\app_v2.py signprint_ai\niyomsil_core_adapter.py signprint_ai\arm_core_adapter.py signprint_ai\face_module\__init__.py signprint_ai\face_module\face_protection.py signprint_ai\independent_core.py tools\generate_brand_assets.py
 
-      - name: Build V2 ARM Core installer
+      - name: Build NiyomSilp Design v1 installer
         shell: powershell
         run: .\build_windows.ps1
 
@@ -43,6 +53,15 @@ jobs:
           }
           Write-Host "Packaged EXE import smoke test passed."
 
+      - name: Smoke-test packaged preview, device, face dialog and detector
+        shell: powershell
+        run: |
+          $env:NIYOMSIL_UI_SMOKE = "1"
+          $proc = Start-Process -FilePath ".\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe" -PassThru
+          if (-not $proc.WaitForExit(300000)) { $proc.Kill(); throw "UI/detector smoke test timed out" }
+          Remove-Item Env:NIYOMSIL_UI_SMOKE -ErrorAction SilentlyContinue
+          if ($proc.ExitCode -ne 0) { throw "UI/detector smoke test failed" }
+
       - name: Smoke-test packaged Face Protect backend
         shell: powershell
         run: |
@@ -56,7 +75,7 @@ jobs:
           }
           Write-Host "Packaged Face Protect backend smoke test passed."
 
-      - name: Verify ARM PyTorch core package
+      - name: Verify NiyomSilp core package and model checksums
         shell: powershell
         run: |
           $exe = ".\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe"
@@ -93,19 +112,69 @@ jobs:
       - name: Verify installer and checksum
         shell: powershell
         run: |
-          $installer = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe"
-          $checksum = ".\release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe.sha256.txt"
-          if (-not (Test-Path $installer)) { throw "Missing V2 ARM Core installer" }
+          $installer = ".\release\NiyomSilp-Design-v1-Setup.exe"
+          $checksum = ".\release\NiyomSilp-Design-v1-Setup.exe.sha256.txt"
+          if (-not (Test-Path $installer)) { throw "Missing NiyomSilp v1 installer" }
           if (-not (Test-Path $checksum)) { throw "Missing installer checksum" }
           Get-Item $installer | Format-List FullName,Length
           Get-Content $checksum
 
-      - name: Upload V2.1 Face Protect installer
+      - name: Upload NiyomSilp Design v1 installer
         uses: actions/upload-artifact@v4
         with:
-          name: Niyomsil-Design-AI-Enhancer-V2.1-Face-Protect-Windows
+          name: NiyomSilp-Design-v1-Windows
           compression-level: 0
           path: |
-            release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe
-            release\Niyomsil-Design-AI-Enhancer-Setup-v2.1.0.exe.sha256.txt
+            release\NiyomSilp-Design-v1-Setup.exe
+            release\NiyomSilp-Design-v1-Setup.exe.sha256.txt
             dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt
+
+  publish-stable-v1:
+    name: Publish accepted NiyomSilp Design v1 release
+    needs: build
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified Windows installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: NiyomSilp-Design-v1-Windows
+          path: downloaded
+      - name: Publish v1.0.1 release with checksummed installer parts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='v1.0.1'
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $tag already exists; nothing to overwrite."
+            exit 0
+          fi
+          installer='NiyomSilp-Design-v1-Setup.exe'
+          source_dir='downloaded/release'
+          test -f "$source_dir/$installer"
+          test -f "$source_dir/$installer.sha256.txt"
+          test -f 'tools/Restore-NiyomSilp-Installer.ps1'
+          (cd "$source_dir" && sha256sum -c "$installer.sha256.txt")
+          mkdir -p release-assets
+          # Each release asset must remain under GitHub's 2 GiB per-file limit.
+          split --bytes=1800M --numeric-suffixes=1 --suffix-length=2 \
+            "$source_dir/$installer" "release-assets/$installer.part"
+          cp "$source_dir/$installer.sha256.txt" release-assets/
+          cp tools/Restore-NiyomSilp-Installer.ps1 release-assets/
+          cp THIRD_PARTY_NOTICES.md release-assets/
+          (cd release-assets && sha256sum "$installer".part* > PARTS_SHA256.txt)
+          gh release create "$tag" release-assets/* \
+            --repo "$REPO" \
+            --title 'NiyomSilp Design v1 (1.0.1) — Stable Windows' \
+            --notes-file RELEASE_NOTES_V1_0_1.md \
+            --target "$GITHUB_SHA" \
+            --latest
+          echo "Release published: https://github.com/$REPO/releases/tag/$tag"

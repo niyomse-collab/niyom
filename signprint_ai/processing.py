@@ -21,6 +21,7 @@ class EnhanceSettings:
     contrast: int = 20
     sharpness: int = 46
     saturation: int = 6
+    device: str = "AUTO"
     ai_scale: int = 4
     print_width: float | None = None
     print_height: float | None = None
@@ -34,6 +35,7 @@ class EnhanceSettings:
 
     # Optional face layer. These fields are metadata only; the legacy image
     # enhancement functions in this module do not read them.
+    face_regions: tuple | None = None  # None = legacy all faces; () = explicitly none
     face_protection: bool = False
     face_mode: str = "protect"  # protect | recover
     face_strength: int = 35

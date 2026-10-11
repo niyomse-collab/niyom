@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -130,16 +130,21 @@ class FaceProtectionModule:
             # use_parse=False intentionally avoids the extra ParseNet model.  We
             # need only RetinaFace landmarks + the soft paste mask for this
             # conservative signage workflow.
-            helper = FaceRestoreHelper(
-                1,
-                face_size=512,
-                crop_ratio=(1, 1),
-                det_model="retinaface_resnet50",
-                save_ext="png",
-                use_parse=False,
-                device=device,
-                model_rootpath=str(model_dir),
-            )
+            # facexlib initializes ParseNet even with use_parse=False. Disable that
+            # unused initializer so offline builds need only the bundled detector.
+            from unittest.mock import patch
+            with patch("facexlib.utils.face_restoration_helper.init_parsing_model", return_value=None):
+                helper = FaceRestoreHelper(
+                    1,
+                    face_size=512,
+                    crop_ratio=(1, 1),
+                    det_model="retinaface_resnet50",
+                    save_ext="png",
+                    use_parse=False,
+                    device=device,
+                    model_rootpath=str(model_dir),
+                )
+
 
             self._backend = {
                 "network": network,
@@ -159,6 +164,10 @@ class FaceProtectionModule:
         enabled.  CI validates the packaged imports and exact model files here;
         SHA256 checks are performed separately by the workflow.
         """
+        # Exercise the packaged native retouch path, including OpenCV filters.
+        from .studio import retouch_crop
+        sample = Image.new("RGB", (32, 32), (180, 130, 110))
+        assert retouch_crop(sample, 35).size == sample.size
         from facexlib.utils.face_restoration_helper import FaceRestoreHelper  # noqa: F401
         from gfpgan.archs.gfpganv1_clean_arch import GFPGANv1Clean  # noqa: F401
 
@@ -187,6 +196,10 @@ class FaceProtectionModule:
         device_name: str | None,
         mode: str = "protect",
         strength: int = 35,
+        regions: tuple | None = None,
+        source_path: str | Path | None = None,
+        source_regions: tuple | None = None,
+        resize_mode: str = "fit",
         progress: ProgressFn = None,
         cancel: CancelFn = None,
     ) -> tuple[Image.Image, FaceProtectionResult]:
@@ -194,6 +207,44 @@ class FaceProtectionModule:
             raise InterruptedError("Processing stopped by user")
 
         rgb_image = image.convert("RGB")
+        if str(mode).lower() == "studio ai":
+            from .studio import apply_studio
+            if not regions or strength <= 0:
+                return rgb_image, FaceProtectionResult(enabled=True, applied=False,
+                    mode=mode, strength=strength,
+                    skipped_reason="Studio AI ต้องเลือกใบหน้าและตั้งความแรงมากกว่า 0")
+            restored, info = self.apply(rgb_image, device_name=device_name, mode="recover",
+                strength=strength, regions=regions, source_path=source_path,
+                source_regions=source_regions, resize_mode=resize_mode,
+                progress=(lambda v, msg: progress(round(v*.8), msg)) if progress else None,
+                cancel=cancel)
+            if not info.applied:
+                return rgb_image, replace(info, mode=mode)
+            # Composite recovered detail only inside the confirmed rectangles.
+            # Retouch must use recovered pixels, not replace them with the source.
+            result, count = apply_studio(rgb_image, None, regions, min(strength, 35),
+                "stretch", cancel,
+                (lambda v, msg: progress(80+round(v*.2), msg)) if progress else None,
+                source_image=restored)
+            return result, replace(info, mode=mode, applied=bool(count))
+        if str(mode).lower() == "studio":
+            from .studio import apply_studio
+            if source_path is None or source_regions is None:
+                return rgb_image, FaceProtectionResult(enabled=True, mode=mode, strength=strength,
+                    skipped_reason="Studio ต้องเลือกและยืนยันใบหน้าก่อน", applied=False)
+            result, count = apply_studio(rgb_image, source_path, source_regions, strength,
+                                         resize_mode, cancel, progress)
+            return result, FaceProtectionResult(enabled=True, applied=bool(count),
+                                                face_count=count, mode=mode, strength=strength)
+        if str(mode).lower() == "protect" and source_path is not None and source_regions is not None:
+            from .source_preservation import preserve_source_faces
+            if progress:
+                progress(0, "Protect • รักษารายละเอียดใบหน้าต้นฉบับ")
+            protected, count = preserve_source_faces(rgb_image, source_path, source_regions, cancel, resize_mode)
+            if progress:
+                progress(100, "Protect • ไม่สร้างใบหน้าใหม่")
+            return protected, FaceProtectionResult(enabled=True, applied=bool(count),
+                                                   face_count=count, mode=mode, strength=strength)
         if rgb_image.width * rgb_image.height > MAX_FACE_PIXELS:
             return rgb_image, FaceProtectionResult(
                 enabled=True,
@@ -201,7 +252,7 @@ class FaceProtectionModule:
                 face_count=0,
                 mode=mode,
                 strength=strength,
-                skipped_reason="ภาพมีขนาดใหญ่เกินขีดจำกัดหน่วยความจำของ Face Protect",
+                skipped_reason="ภาพใหญ่เกินขีดจำกัดหน่วยความจำในการปรับภาพบุคคล",
             )
 
         if not self.available:
@@ -211,7 +262,7 @@ class FaceProtectionModule:
                 face_count=0,
                 mode=mode,
                 strength=strength,
-                skipped_reason="ไม่พบ GFPGAN / FaceXLib หรือโมเดลใบหน้าที่แพ็กไว้",
+                skipped_reason="ไม่พบโมเดลปรับปรุงใบหน้าที่ติดตั้งมากับนิยมศิลป์ดีไซน์",
             )
 
         if progress:
@@ -238,6 +289,11 @@ class FaceProtectionModule:
         helper.clean_all()
         helper.read_image(original_bgr.copy())
         helper.get_face_landmarks_5()
+        if regions is not None:
+            from .detection import selected_indices
+            keep = selected_indices(helper.det_faces, regions, rgb_image.size)
+            helper.det_faces = [helper.det_faces[i] for i in keep]
+            helper.all_landmarks_5 = [helper.all_landmarks_5[i] for i in keep]
         helper.align_warp_face()
 
         face_count = len(helper.cropped_faces)
