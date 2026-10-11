@@ -20,6 +20,9 @@ def run(layout_only=False):
     for geometry in ('1180x720', '1366x768', '1600x920'):
         app.geometry(geometry)
         app.update()
+        print('Preview layout:', geometry, 'workspace', app.workspace_split.winfo_height(),
+              'preview', app.preview_shell.winfo_height(), 'queue', app.queue_shell.winfo_height(),
+              'image', app.left_image.winfo_height(), flush=True)
         assert app.preview_shell.winfo_height() > app.queue_shell.winfo_height() * 2
         assert app.left_image.winfo_height() >= 180
         assert abs(app.left_image.winfo_width()-app.right_image.winfo_width()) <= 1

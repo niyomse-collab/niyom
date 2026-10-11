@@ -562,9 +562,13 @@ class App(tk.Tk):
         ttk.Button(status, text="หยุด", command=self.stop_processing).grid(row=0, column=4, padx=(0, 8), pady=3)
 
     def _resize_workspace(self, event):
+        # PanedWindow finishes its own geometry pass after Configure.
+        self.after_idle(self._place_workspace_split)
+
+    def _place_workspace_split(self):
         # Grid weights distribute spare space after widget requests; the queue's
         # large requested height used to leave the preview as a narrow strip.
-        height = event.height - int(self.workspace_split.cget("sashwidth"))
+        height = self.workspace_split.winfo_height() - int(self.workspace_split.cget("sashwidth"))
         if height >= 280:
             position = max(180, min(height - 100, round(height * self._preview_fraction)))
             self.workspace_split.sash_place(0, 0, position)
