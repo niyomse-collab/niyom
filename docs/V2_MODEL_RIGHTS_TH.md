@@ -5,6 +5,8 @@
 
 เป้าหมายแรก: ฝึกต่อ `RealESRGAN_x4plus.pth` ให้เหมาะกับภาพสำหรับป้ายไวนิลและตัวอักษรไทย งานภาพบุคคล GFPGAN/RetinaFace เป็นแผนระยะถัดไป หลังจากตรวจสิทธิ์แต่ละ checkpoint
 
+หากต้องการเรียกว่า **โมเดลของนิยมศิลป์เอง** ต้องใช้เส้นทางฝึกจากศูนย์หรือมีเอกสารสิทธิ์ของ base weights ชัดเจน ดู roadmap การแทนโมเดลทั้งหมดที่ `docs/NIYOMSIL_NATIVE_MODEL_ROADMAP_TH.md`
+
 ## กรอบสิทธิ์ที่ต้องเข้าใจ
 
 | ทรัพย์สิน | สิ่งที่นิยมศิลป์อาจเป็นเจ้าของ / ต้องตรวจ |
@@ -92,6 +94,7 @@ python -m native_models.finetune_realesrgan `
 - `native_models/train_sr.py` ฝึกโมเดล `niyomsil-sr-v1` จากศูนย์โดยไม่โหลด checkpoint ภายนอก เหมาะสำหรับเส้นทาง “โมเดลของนิยมศิลป์เอง” ระยะทดลอง
 - `native_models/run_sr.py` โหลดเฉพาะ checkpoint ที่บันทึกว่าเป็น `random_initialization_no_upstream_checkpoint` และสร้างภาพ v2 สำหรับนำไปเทียบกับ v1 โดยยังไม่แทน runtime หลัก
 - `native_models/evaluate_sign_v2.py` เปรียบเทียบ **ภาพอ้างอิงความละเอียดสูง / v1 / v2** ที่มีชื่อและขนาดพิกเซลตรงกัน โดยแยกงานภาษาไทย โลโก้ พื้นสี ภาพถ่าย และภาพบุคคล
+- `docs/NIYOMSIL_NATIVE_MODEL_ROADMAP_TH.md` แยกแผนแทน Real-ESRGAN, GFPGAN และ RetinaFace ทีละตัว เพื่อไม่สับสนระหว่างโมเดลที่ฝึกเองกับโมเดล derivative
 - วัด PSNR, RGB MAE, edge error, mean-color bias และ flat-color error; ตัดสิทธิ์ผล v2 ที่แย่ลงเกินเกณฑ์กับภาพใด ๆ ไม่ใช่แค่ดูคะแนนเฉลี่ย
 - ผลผ่านการวัดหมายถึง `eligible_for_human_print_review` **ไม่ใช่** คุณภาพผ่านแล้วหรือโมเดลได้รับอนุญาตนำไปผลิตจริง การตรวจตัวหนังสือไทย การรักษาอัตลักษณ์หน้า และสีพิมพ์ต้องตรวจด้วยคน/งานพิมพ์จริง
 

@@ -58,3 +58,18 @@ def test_provenance_metadata_fields_documented():
                for node in tree.body)
     assert any(isinstance(node, ast.FunctionDef) and node.name == "run"
                for node in tree.body)
+
+
+def test_native_model_roadmap_names_all_v1_external_models():
+    roadmap = (ROOT / "docs" / "NIYOMSIL_NATIVE_MODEL_ROADMAP_TH.md").read_text("utf-8")
+    for name in (
+        "RealESRGAN_x4plus.pth",
+        "GFPGANv1.4.pth",
+        "detection_Resnet50_Final.pth",
+        "niyomsil-sr-v1",
+        "niyomsil-face-v1",
+        "provenance JSON",
+    ):
+        assert name in roadmap
+    assert "ไม่ทำให้เป็นเจ้าของลิขสิทธิ์โมเดล" in roadmap
+    assert "ยังไม่มีน้ำหนักโมเดลนิยมศิลป์ที่ฝึกเสร็จ" in roadmap
