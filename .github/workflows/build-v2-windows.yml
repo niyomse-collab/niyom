@@ -15,9 +15,13 @@ on:
       - 'tools/generate_v2_download_installer.py'
       - 'requirements*.txt'
 
+# The Windows installer bundles a multi-GB CUDA runtime. Finishing an active
+# validation run is safer than cancelling it on every small V2-only commit.
+# GitHub keeps at most one running and one pending run in this group; new pending
+# runs replace older pending ones, so the newest source is built next.
 concurrency:
   group: niyomsil-v2-installer
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
