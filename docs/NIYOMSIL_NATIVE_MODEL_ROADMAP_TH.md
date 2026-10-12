@@ -42,6 +42,7 @@
 ### ระยะ 3: Native Detector / Selector
 
 - แทน RetinaFace/facexlib ด้วย detector ที่มีสิทธิ์ถูกต้อง
+- เป้าหมาย native คือ `niyomsil-detector-v1`
 - ใช้ manifest เดียวกับ Native Face ได้ โดยจัดข้อมูลไว้ใต้ `face_detection/<subject_id>/...` และใส่ sidecar `image.png.json` ที่ระบุ `face_bbox` เมื่อมี annotation
 - ระหว่างยังไม่พร้อม สามารถใช้ detector ภายนอกได้เฉพาะเมื่อระบุเครดิตและไม่อ้างว่าเป็นโมเดลของร้าน
 
