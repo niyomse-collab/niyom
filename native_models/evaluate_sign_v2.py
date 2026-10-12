@@ -74,10 +74,16 @@ def _load_manifest(manifest: Path, references: Path) -> list[tuple[str, str]]:
     return data
 
 
-def _rgb(path: Path) -> np.ndarray:
+def _rgba(path: Path) -> np.ndarray:
+    """Preserve transparency in print logos; RGB conversion loses alpha."""
     with Image.open(path) as file:
-        image = ImageOps.exif_transpose(file).convert("RGB")
+        image = ImageOps.exif_transpose(file).convert("RGBA")
         return np.asarray(image, dtype=np.float32) / 255.0
+
+
+def _matte(rgba: np.ndarray, background: float) -> np.ndarray:
+    alpha = rgba[..., 3:4]
+    return rgba[..., :3] * alpha + background * (1 - alpha)
 
 
 def _luma(image: np.ndarray) -> np.ndarray:
@@ -107,9 +113,7 @@ def _flat_error(reference: np.ndarray, output: np.ndarray) -> float | None:
     return float(np.abs(reference - output)[mask].mean())
 
 
-def _metrics(reference: np.ndarray, output: np.ndarray) -> dict:
-    if reference.shape != output.shape:
-        raise ValueError(f"Image dimensions differ: reference={reference.shape}, output={output.shape}")
+def _metrics_rgb(reference: np.ndarray, output: np.ndarray) -> dict:
     mae = float(np.abs(reference - output).mean())
     mse = float(np.square(reference - output).mean())
     return {
@@ -120,6 +124,26 @@ def _metrics(reference: np.ndarray, output: np.ndarray) -> dict:
             np.abs(reference.mean(axis=(0, 1)) - output.mean(axis=(0, 1))).mean()), 7),
         "flat_region_mae": None if (flat := _flat_error(reference, output)) is None else round(flat, 7),
     }
+
+
+def _metrics(reference: np.ndarray, output: np.ndarray) -> dict:
+    if reference.shape != output.shape:
+        raise ValueError(f"Image dimensions differ: reference={reference.shape}, output={output.shape}")
+    if reference.shape[-1] != 4:
+        raise ValueError("RGBA input expected")
+    white = _metrics_rgb(_matte(reference, 1.0), _matte(output, 1.0))
+    black = _metrics_rgb(_matte(reference, 0.0), _matte(output, 0.0))
+    result = {
+        "psnr_db": min(white["psnr_db"], black["psnr_db"]),
+        "rgb_mae": max(white["rgb_mae"], black["rgb_mae"]),
+        "edge_mae": max(white["edge_mae"], black["edge_mae"]),
+        "mean_color_bias": max(white["mean_color_bias"], black["mean_color_bias"]),
+        "alpha_mae": round(float(np.abs(reference[..., 3] - output[..., 3]).mean()), 7),
+    }
+    values = [x["flat_region_mae"] for x in (white, black)
+              if x["flat_region_mae"] is not None]
+    result["flat_region_mae"] = max(values) if values else None
+    return result
 
 
 def evaluate(manifest: Path, reference_dir: Path, v1_dir: Path, v2_dir: Path,
@@ -133,14 +157,15 @@ def evaluate(manifest: Path, reference_dir: Path, v1_dir: Path, v2_dir: Path,
     samples = _load_manifest(manifest, reference_dir)
     records = []
     for name, category in samples:
-        ref = _rgb(_safe_file(reference_dir, name))
-        v1 = _rgb(_safe_file(v1_dir, name))
-        v2 = _rgb(_safe_file(v2_dir, name))
+        ref = _rgba(_safe_file(reference_dir, name))
+        v1 = _rgba(_safe_file(v1_dir, name))
+        v2 = _rgba(_safe_file(v2_dir, name))
         m1, m2 = _metrics(ref, v1), _metrics(ref, v2)
         regression = (
             m2["psnr_db"] < m1["psnr_db"] - psnr_tolerance_db
             or m2["edge_mae"] > m1["edge_mae"] + edge_tolerance
             or m2["mean_color_bias"] > m1["mean_color_bias"] + edge_tolerance
+            or m2["alpha_mae"] > m1["alpha_mae"] + edge_tolerance
             or (m1["flat_region_mae"] is not None
                 and m2["flat_region_mae"] is not None
                 and m2["flat_region_mae"] > m1["flat_region_mae"] + edge_tolerance)
@@ -175,10 +200,11 @@ def evaluate(manifest: Path, reference_dir: Path, v1_dir: Path, v2_dir: Path,
             "min_mean_psnr_gain_db": min_psnr_gain_db,
             "max_per_image_psnr_regression_db": psnr_tolerance_db,
             "max_per_image_edge_color_regression": edge_tolerance,
+            "max_per_image_alpha_regression": edge_tolerance,
         },
         "by_category": summary,
         "images": records,
-        "limitations": "PSNR and pixel edges cannot prove Thai spelling, face identity, "
+        "limitations": "PSNR, alpha and pixel edges cannot prove Thai spelling, face identity, "
                        "print color accuracy or perceived quality. Human tests required.",
     }
 
