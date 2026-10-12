@@ -114,6 +114,7 @@ def test_generator_rejects_transparency_without_explicit_flattening(tmp_path):
 
 def test_generator_accepts_fully_opaque_rgba(tmp_path):
     root, evidence = _dataset(tmp_path)
+    (root / "logo").mkdir()
     Image.new("RGBA", (64, 64), (255, 80, 90, 255)).save(
         root / "logo" / "opaque.png"
     )
