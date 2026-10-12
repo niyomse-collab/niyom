@@ -8,6 +8,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 import math
+import gc
 import os
 import shutil
 import tempfile
@@ -40,6 +41,19 @@ def vips():
 def check_cancel(cancel):
     if cancel and cancel():
         raise InterruptedError("Processing stopped by user")
+
+
+def failure_info(exc):
+    # Native-library tracebacks can retain an operation and its open files.
+    # Store only error data, then release the traceback before Windows cleanup.
+    cls = type(exc) if isinstance(exc, (InterruptedError, OSError, ValueError, RuntimeError)) else RuntimeError
+    return cls, str(exc)
+
+
+def raise_failure(failure, cancel):
+    check_cancel(cancel)
+    cls, message = failure
+    raise cls(message) from None
 
 
 def parse_scale(value) -> int:
@@ -174,14 +188,17 @@ def make_source_raster(src, raw_path, progress, cancel):
     ensure_disk(raw_path.parent, storage)
     check_cancel(cancel)
     watch(image, progress, cancel, 2, 10, "อ่านภาพใหญ่ลงดิสก์")
+    failure = None
     try:
         image.tiffsave(str(raw_path), compression="none", tile=True,
                        tile_width=tile_width, tile_height=tile_height, bigtiff=True)
-    except Exception:
-        check_cancel(cancel)
-        raise
+    except Exception as exc:
+        failure = failure_info(exc)
     finally:
         image = None
+    if failure:
+        gc.collect()
+        raise_failure(failure, cancel)
     check_cancel(cancel)
     return size
 
@@ -276,6 +293,7 @@ def export_image(image, dst, settings, progress, cancel):
     fd, temporary = tempfile.mkstemp(prefix=".niyomsil_output_", suffix=suffix, dir=dst.parent)
     os.close(fd)
     temporary = Path(temporary)
+    failure = None
     try:
         if suffix == ".png":
             image.pngsave(str(temporary), compression=3)
@@ -292,12 +310,14 @@ def export_image(image, dst, settings, progress, cancel):
             save_pdf(image, temporary, settings.dpi, profile, progress, cancel)
         check_cancel(cancel)
         os.replace(temporary, dst)
-    except Exception:
-        check_cancel(cancel)
-        raise
-    finally:
-        image = None
-        temporary.unlink(missing_ok=True)
+    except Exception as exc:
+        failure = failure_info(exc)
+    image = None
+    if failure:
+        gc.collect()
+    temporary.unlink(missing_ok=True)
+    if failure:
+        raise_failure(failure, cancel)
 
 
 class LazyPreviewSource:
@@ -349,10 +369,18 @@ def process_large(adapter, src, dst, settings, source_size, target_size,
     dst.parent.mkdir(parents=True, exist_ok=True)
     check_cancel(cancel)
     engine = adapter.engine_manager.create_engine(settings.device) if use_ai and model_scale > 1 else None
-    # A function boundary releases libvips file handles before Windows cleanup.
+    failure = None
     with tempfile.TemporaryDirectory(prefix=".niyomsil_large_", dir=dst.parent) as folder:
-        face_info = _large_job(adapter, engine, src, dst, settings, target_size,
-                               model_scale, Path(folder), progress, cancel, use_ai)
+        try:
+            face_info = _large_job(adapter, engine, src, dst, settings, target_size,
+                                   model_scale, Path(folder), progress, cancel, use_ai)
+        except Exception as exc:
+            failure = failure_info(exc)
+        # End the except block first: its native tracebacks retain locked files.
+        if failure:
+            gc.collect()
+    if failure:
+        raise_failure(failure, cancel)
     if progress:
         progress(100, "เสร็จแล้ว")
     return {
