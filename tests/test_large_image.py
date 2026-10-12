@@ -97,7 +97,12 @@ def test_streamed_output_dimensions_dpi_and_border_color(adapter, monkeypatch, t
     assert not list(tmp_path.glob(".niyomsil*"))
 
 
-def test_wide_png_exceeds_old_side_ceiling(adapter, tmp_path):
+def test_wide_png_exceeds_old_side_ceiling(adapter, monkeypatch, tmp_path):
+    # This must exercise NiyomSilp V2, not the legacy V1 in-memory guard.
+    from signprint_ai import processing as legacy
+    def forbidden_v1_pixel_limit(*_args, **_kwargs):
+        raise AssertionError("V2 must not call the V1 pixel-count guard")
+    monkeypatch.setattr(legacy, "validate_print_target", forbidden_v1_pixel_limit)
     src = tmp_path/"in.png"
     Image.new("RGB", (20,20), (18,91,203)).save(src)
     target = (130_001, 2)
