@@ -40,3 +40,36 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function IsInFolder(const Candidate, RootFolder: String): Boolean;
+var
+  C, R: String;
+begin
+  C := Uppercase(RemoveBackslashUnlessRoot(Candidate));
+  R := Uppercase(RemoveBackslashUnlessRoot(RootFolder));
+  Result := (C = R) or (Copy(C, 1, Length(R) + 1) = R + '\');
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  TargetDir, InstalledV1: String;
+begin
+  Result := '';
+  TargetDir := ExpandConstant('{app}');
+  { Never allow even a custom /DIR installation to overwrite the V1 program. }
+  if IsInFolder(TargetDir, ExpandConstant('{autopf}\NiyomSilpDesignV1')) then
+  begin
+    Result := 'NiyomSilp Design v2 cannot install inside the v1 folder.';
+    Exit;
+  end;
+  { Guard a V1 custom installation location recorded by Inno Setup. }
+  if RegQueryStringValue(
+      HKLM64,
+      'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{D657F42C-17C9-43C9-88EA-41FCD2788931}_is1',
+      'InstallLocation', InstalledV1) then
+  begin
+    if (InstalledV1 <> '') and IsInFolder(TargetDir, InstalledV1) then
+      Result := 'V2 cannot overwrite the registered NiyomSilp Design v1 installation.';
+  end;
+end;
