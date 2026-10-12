@@ -7,7 +7,7 @@ import pytest
 
 from signprint_ai.release_info import load_release_info, release_label
 from tools.generate_v2_download_installer import generate
-from signprint_ai.v2_output import V2_OUTPUT_FOLDER, output_path
+from signprint_ai.v2_output import V2_OUTPUT_FOLDER, output_folder, output_path
 
 
 def test_frozen_v2_metadata_with_windows_bom(monkeypatch, tmp_path):
@@ -93,3 +93,19 @@ def test_v2_output_rejects_explicit_v1_install_folder(tmp_path):
     v1_folder = tmp_path / "NiyomSilpDesignV1" / "outputs"
     with pytest.raises(ValueError, match="V1"):
         output_path(tmp_path / "poster.png", v1_folder, "PNG", "RGB")
+
+
+def test_open_and_export_use_the_same_v2_folder(tmp_path):
+    source = tmp_path / "original.png"
+    auto = output_folder(source, "")
+    selected = tmp_path / "V2Exports"
+    assert auto == tmp_path / V2_OUTPUT_FOLDER
+    assert output_path(source, "", "PNG", "RGB").parent == auto
+    assert output_folder(source, selected) == selected
+    assert output_path(source, selected, "PNG", "RGB").parent == selected
+
+
+def test_v2_output_does_not_allow_lower_case_v1_install_directory(tmp_path):
+    with pytest.raises(ValueError, match="V1"):
+        output_folder(tmp_path / "original.png",
+                      tmp_path / "niyomsilpdesignv1" / "subfolder")
