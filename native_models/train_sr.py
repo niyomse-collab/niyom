@@ -18,6 +18,7 @@ import torch
 from PIL import Image, ImageOps
 
 from native_models.niyomsil_sr import MODEL_ID, create_model
+from native_models.prepare_dataset import _pixel_fingerprint
 
 
 REQUIRED = {"relative_path", "rights_holder", "license", "rights_proof", "sha256", "split"}
@@ -39,6 +40,7 @@ def load_inventory(csv_path: Path, image_dir: Path) -> dict[str, list[Path]]:
     groups: dict[str, list[Path]] = {"train": [], "val": []}
     used_paths: set[Path] = set()
     hash_splits: dict[str, str] = {}
+    pixel_splits: dict[str, str] = {}
     with csv_path.open("r", newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
         if not reader.fieldnames or not REQUIRED.issubset(reader.fieldnames):
@@ -65,6 +67,12 @@ def load_inventory(csv_path: Path, image_dir: Path) -> dict[str, list[Path]]:
             if digest in hash_splits and hash_splits[digest] != split:
                 raise ValueError("Identical image in train and validation (data leakage)")
             hash_splits[digest] = split
+            pixel_hash = _pixel_fingerprint(image_path)
+            if pixel_hash in pixel_splits:
+                if pixel_splits[pixel_hash] != split:
+                    raise ValueError("Identical decoded pixels in train and validation (data leakage)")
+                raise ValueError("Duplicate decoded image pixels within a split")
+            pixel_splits[pixel_hash] = split
             used_paths.add(image_path)
             groups[split].append(image_path)
     if not groups["train"] or not groups["val"]:
