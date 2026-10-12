@@ -58,6 +58,9 @@ def test_v1_and_v2_installers_have_distinct_ids_and_paths():
     assert item(v1, "DefaultGroupName") == item(v2, "DefaultGroupName")
     assert item(v1, "OutputBaseFilename") != item(v2, "OutputBaseFilename")
     assert "UsePreviousAppDir=no" in v2
+    assert "function PrepareToInstall" in v2
+    assert "NiyomSilpDesignV1" in v2
+    assert "RegQueryStringValue" in v2
     assert "[InstallDelete]" not in v2
     assert "NiyomSilp Design v2" in v2
 
