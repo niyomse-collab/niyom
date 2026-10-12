@@ -735,6 +735,7 @@ class App(tk.Tk):
         self.files = []
         self._completed_indices.clear()
         self._queued_indices.clear()
+        self._reserved_output_paths.clear()
         while True:
             try:
                 self._job_queue.get_nowait()
@@ -906,6 +907,7 @@ class App(tk.Tk):
         # previous list must not survive and block unrelated files.
         self._completed_indices.clear()
         self._queued_indices.clear()
+        self._reserved_output_paths.clear()
         self.add_files(old)
         if not self.files:
             self.left_image.configure(image="")
@@ -1177,6 +1179,9 @@ class App(tk.Tk):
     def choose_output_dir(self):
         d = filedialog.askdirectory(title="เลือกโฟลเดอร์ผลลัพธ์")
         if d:
+            if any(part.casefold() == "niyomsilpdesignv1" for part in Path(d).parts):
+                messagebox.showerror(APP_NAME, "ไม่อนุญาตให้ V2 บันทึกงานลงในโฟลเดอร์ติดตั้ง V1")
+                return
             self.output_dir_var.set(d)
             self.output_dir_label.configure(text=d)
 
@@ -1384,7 +1389,12 @@ class App(tk.Tk):
             i for i in range(len(self.files))
             if i not in self._completed_indices
         ]
-        queued = self._enqueue_jobs(pending, self._active_settings)
+        try:
+            queued = self._enqueue_jobs(pending, self._active_settings)
+        except ValueError as exc:
+            self._active_settings = None
+            messagebox.showerror(APP_NAME, str(exc))
+            return
 
         if queued:
             self._ensure_queue_worker()
