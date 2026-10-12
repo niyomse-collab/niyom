@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 from native_models.prepare_dataset import generate, write_manifests
 
@@ -87,3 +88,37 @@ def test_generator_rejects_leaking_symlink(tmp_path):
         pytest.skip("Symlinks not available")
     with pytest.raises(ValueError, match="Unsafe"):
         generate(root, "Fixture", "test-only", evidence)
+
+
+def test_generator_rejects_identical_pixels_with_different_png_metadata(tmp_path):
+    root, evidence = _dataset(tmp_path)
+    original = root / "thai_text" / "0.png"
+    copy = root / "flat_color" / "different-metadata.png"
+    info = PngInfo()
+    info.add_text("note", "new PNG metadata, same pixels")
+    with Image.open(original) as im:
+        im.save(copy, pnginfo=info)
+    assert original.read_bytes() != copy.read_bytes()
+    with pytest.raises(ValueError, match="Duplicate decoded image pixels"):
+        generate(root, "Fixture", "test-only", evidence)
+
+
+def test_generator_rejects_transparency_without_explicit_flattening(tmp_path):
+    root, evidence = _dataset(tmp_path)
+    transparent = Image.new("RGBA", (64, 64), (255, 0, 0, 255))
+    transparent.putpixel((4, 4), (255, 0, 0, 0))
+    transparent.save(root / "thai_text" / "transparent.png")
+    with pytest.raises(ValueError, match="Transparent training image"):
+        generate(root, "Fixture", "test-only", evidence)
+
+
+def test_generator_accepts_fully_opaque_rgba(tmp_path):
+    root, evidence = _dataset(tmp_path)
+    Image.new("RGBA", (64, 64), (255, 80, 90, 255)).save(
+        root / "logo" / "opaque.png"
+    )
+    Image.new("RGB", (64, 64), (255, 80, 91)).save(
+        root / "logo" / "other.png"
+    )
+    rows = generate(root, "Fixture", "test-only", evidence)
+    assert sum(r["category"] == "logo" for r in rows) == 2
