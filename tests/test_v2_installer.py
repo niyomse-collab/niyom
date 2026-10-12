@@ -120,3 +120,28 @@ def test_v2_build_refuses_shared_v1_artifacts_before_cleanup():
     assert 'ARM_CORE_BUILD_PROOF.txt' in script[guard:cleanup]
     assert '$v1MetadataPresent' in script[guard:cleanup]
     assert 'V2 build refused: V1 build files found' in script[guard:cleanup]
+
+
+def test_v2_export_protects_registered_custom_v1_directory(monkeypatch, tmp_path):
+    from signprint_ai import v2_output
+    legacy_install = tmp_path / "custom" / "approved-program"
+    monkeypatch.setattr(v2_output, "_v1_install_locations", lambda: (legacy_install,))
+    nested = legacy_install / "images" / "processed"
+    for custom_folder in (legacy_install, nested, legacy_install / "subdir" / ".."):
+        with pytest.raises(ValueError, match="registered V1"):
+            output_path(tmp_path / "original.png", custom_folder, "PNG", "RGB")
+    assert output_folder(tmp_path / "original.png", tmp_path / "separate-v2") == tmp_path / "separate-v2"
+
+
+def test_v2_export_cannot_follow_symlink_into_v1(monkeypatch, tmp_path):
+    from signprint_ai import v2_output
+    legacy_install = tmp_path / "custom" / "approved-program"
+    legacy_install.mkdir(parents=True)
+    alias = tmp_path / "shortcut-to-v1"
+    try:
+        alias.symlink_to(legacy_install, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlink creation is not permitted on this runner")
+    monkeypatch.setattr(v2_output, "_v1_install_locations", lambda: (legacy_install,))
+    with pytest.raises(ValueError, match="registered V1"):
+        output_folder(tmp_path / "original.png", alias / "nested")
