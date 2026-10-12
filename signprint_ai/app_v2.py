@@ -1179,8 +1179,10 @@ class App(tk.Tk):
     def choose_output_dir(self):
         d = filedialog.askdirectory(title="เลือกโฟลเดอร์ผลลัพธ์")
         if d:
-            if any(part.casefold() == "niyomsilpdesignv1" for part in Path(d).parts):
-                messagebox.showerror(APP_NAME, "ไม่อนุญาตให้ V2 บันทึกงานลงในโฟลเดอร์ติดตั้ง V1")
+            try:
+                v2_output_folder(Path(d) / "placeholder.png", d)
+            except ValueError as exc:
+                messagebox.showerror(APP_NAME, str(exc))
                 return
             self.output_dir_var.set(d)
             self.output_dir_label.configure(text=d)
