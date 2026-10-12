@@ -101,3 +101,26 @@ def test_requires_independent_folders(tmp_path):
     manifest, source, v1, v2 = _images(tmp_path)
     with pytest.raises(ValueError, match="separate directories"):
         evaluate(manifest, source, source, v2)
+
+
+def test_transparent_logo_regression(tmp_path):
+    manifest, source, v1, v2 = _images(tmp_path, category="logo")
+    reference = Image.new("RGBA", (48, 32), (0, 0, 0, 0))
+    for x in range(10, 40):
+        for y in range(6, 26):
+            reference.putpixel((x, y), (200, 10, 30, 255))
+    reference.save(source / "sample.png")
+    reference.save(v1 / "sample.png")
+    flattened = Image.new("RGB", (48, 32), "white")
+    flattened.paste(reference, mask=reference.getchannel("A"))
+    flattened.save(v2 / "sample.png")
+    with manifest.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    rows[0]["sha256"] = hashlib.sha256((source / "sample.png").read_bytes()).hexdigest()
+    with manifest.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    result = evaluate(manifest, source, v1, v2)
+    assert result["status"] == "rejected_by_automated_quality_gate"
+    assert result["images"][0]["v2"]["alpha_mae"] > 0
