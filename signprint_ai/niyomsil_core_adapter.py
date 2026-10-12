@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from .independent_core import EngineManager, model_path
-from .processing import EnhanceSettings, print_pixels, save_image
+from .processing import EnhanceSettings, print_pixels, save_image, validate_print_target
 from .face_module import FaceProtectionModule
 
 ProgressFn = Optional[Callable[[int, str], None]]
@@ -96,10 +96,7 @@ class NiyomSilpCoreAdapter:
                 source_size[1] * model_scale,
             )
 
-        if max(target_size) > 30000:
-            raise ValueError(
-                "ขนาดด้านใดด้านหนึ่งเกิน 30,000 px ตามข้อจำกัดของ NiyomSilp Design Engine"
-            )
+        validate_print_target(target_size)
 
         if progress:
             progress(2, "Prepare / Analyze")

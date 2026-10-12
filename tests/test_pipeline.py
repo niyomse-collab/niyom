@@ -4,12 +4,25 @@ import tempfile
 import numpy as np
 from PIL import Image
 
-from signprint_ai.processing import EnhanceSettings, print_pixels
+import pytest
+
+from signprint_ai.processing import EnhanceSettings, print_pixels, validate_print_target
 from signprint_ai.pipeline import PrintEnhancementPipeline
 
 
 def test_print_pixels():
     assert print_pixels(200, 80, "cm", 150) == (11811, 4724)
+    assert print_pixels(700, 40, "cm", 300) == (82677, 4724)
+
+
+def test_large_vinyl_banner_300dpi_is_within_guardrail():
+    target = print_pixels(700, 40, "cm", 300)
+    validate_print_target(target)
+
+
+def test_print_guardrail_rejects_extreme_total_pixels():
+    with pytest.raises(ValueError, match="พิกเซลรวม"):
+        validate_print_target(print_pixels(700, 100, "cm", 300))
 
 
 def test_pipeline_without_ai():

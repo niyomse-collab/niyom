@@ -161,6 +161,12 @@ def test_print_size_export_respects_resize_mode(monkeypatch, tmp_path, target, m
         assert output.getpixel((0, 0)) == (color if mode == 'stretch' else (255, 255, 255))
 
 
+def test_core_adapter_uses_shared_large_banner_guardrail():
+    source = (ROOT/'signprint_ai/niyomsil_core_adapter.py').read_text(encoding='utf-8')
+    assert 'validate_print_target(target_size)' in source
+    assert '30,000 px' not in source
+
+
 def test_ui_transmits_lock_state_without_changing_ratio_sync():
     tree = ast.parse((ROOT/'signprint_ai/app_v2.py').read_text(encoding='utf-8'))
     settings = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == '_settings')
