@@ -21,6 +21,7 @@ import numpy as np
 from .niyomsil_core_adapter import NiyomSilpCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 from .large_image import image_size, needs_streaming, output_size_summary, parse_scale, preview_source, thumbnail
+from .v2_output import output_path as v2_output_path
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
@@ -71,6 +72,7 @@ class App(tk.Tk):
         self._processing_thread: threading.Thread | None = None
         self._worker_generation = 0
         self._queued_indices: set[int] = set()
+        self._reserved_output_paths: set[Path] = set()
         self._completed_indices: set[int] = set()
         self._active_index: int | None = None
         self._active_settings: EnhanceSettings | None = None
@@ -1179,10 +1181,8 @@ class App(tk.Tk):
             self.output_dir_label.configure(text=d)
 
     def _output_path(self, src: Path, settings: EnhanceSettings) -> Path:
-        ext = {"PNG": ".png", "TIFF": ".tif", "PDF": ".pdf", "JPG": ".jpg"}[settings.export_format]
-        outdir = Path(self.output_dir_var.get()) if self.output_dir_var.get() else src.parent
-        color_suffix = "_CMYK" if settings.color_mode.upper() == "CMYK" else ""
-        return outdir / f"{src.stem}_Niyomsil_AI{color_suffix}{ext}"
+        return v2_output_path(src, self.output_dir_var.get(), settings.export_format,
+                              settings.color_mode, self._reserved_output_paths)
 
     def _processing_active(self) -> bool:
         t = self._processing_thread
@@ -1207,6 +1207,7 @@ class App(tk.Tk):
                 job_settings = replace(settings, face_regions=regions,
                                        face_protection=bool(regions) and settings.face_protection)
                 out = self._output_path(src, job_settings)
+                self._reserved_output_paths.add(out)
                 self._job_queue.put((idx, src, out, job_settings))
                 self._queued_indices.add(idx)
                 queued += 1
@@ -1295,6 +1296,7 @@ class App(tk.Tk):
                     with self._queue_lock:
                         if self._active_index == idx:
                             self._active_index = None
+                        self._reserved_output_paths.discard(out)
                     self._job_queue.task_done()
         finally:
             stopped = stopped or self._stop.is_set()
@@ -1309,6 +1311,7 @@ class App(tk.Tk):
                         break
                     with self._queue_lock:
                         self._queued_indices.discard(idx)
+                        self._reserved_output_paths.discard(_out)
                     self._events.put(("row_status", idx, "หยุดแล้ว"))
                     self._job_queue.task_done()
 
