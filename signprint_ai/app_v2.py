@@ -20,7 +20,7 @@ import numpy as np
 
 from .niyomsil_core_adapter import NiyomSilpCoreAdapter
 from .processing import EnhanceSettings, print_pixels
-from .large_image import image_size, needs_streaming, parse_scale, preview_source, thumbnail
+from .large_image import image_size, needs_streaming, output_size_summary, parse_scale, preview_source, thumbnail
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
@@ -607,7 +607,7 @@ class App(tk.Tk):
         tk.Label(size, text="ปลดล็อก: กำหนดกว้าง/สูงเอง • ยืดหรือหดภาพเต็มพื้นที่ ไม่มีขอบขาว",
                  bg="#111820", fg="#84D8FF", anchor="w", justify="left", wraplength=285
                  ).grid(row=6, column=0, columnspan=4, sticky="ew", pady=(3, 0))
-        self.pixel_info = tk.Label(size, text="ขนาดพิกเซลปลายทาง: ตาม AI Upscale", bg="#111820", fg="#B8C2CB", anchor="w")
+        self.pixel_info = tk.Label(size, text="ขนาดพิกเซลปลายทาง: เลือกไฟล์ก่อน", bg="#111820", fg="#B8C2CB", anchor="w", justify="left", wraplength=285)
         self.pixel_info.grid(row=7, column=0, columnspan=4, sticky="ew", pady=(5, 0))
         size.columnconfigure(1, weight=1)
         size.columnconfigure(3, weight=1)
@@ -980,19 +980,27 @@ class App(tk.Tk):
             self._preview_job = self.after(550, self.update_preview)
 
     def _update_pixel_info(self):
-        if not self.use_print_size.get():
-            self.pixel_info.configure(text="ขนาดพิกเซลปลายทาง: ตาม AI Upscale")
-            return
         try:
-            px = print_pixels(float(self.width_var.get()), float(self.height_var.get()), self.unit_var.get(), int(float(self.dpi_var.get())))
-            note = ""
-            if self.current_index is not None:
-                original = image_size(self.files[self.current_index])
-                if px[0] < original[0] or px[1] < original[1]:
-                    note = " • ลดพิกเซลต้นฉบับตามค่าที่ตั้ง"
-                if needs_streaming(original, px):
-                    note += " • งานใหญ่ใช้ดิสก์ระหว่างทำงาน"
-            self.pixel_info.configure(text=f"ขนาดพิกเซลปลายทาง: {px[0]:,} × {px[1]:,} px{note}")
+            original = (image_size(self.files[self.current_index])
+                        if self.current_index is not None else None)
+            if self.use_print_size.get():
+                px = print_pixels(float(self.width_var.get()), float(self.height_var.get()),
+                                  self.unit_var.get(), int(float(self.dpi_var.get())))
+            elif original is not None:
+                scale = parse_scale(self.scale_var.get())
+                px = (original[0] * scale, original[1] * scale)
+            else:
+                self.pixel_info.configure(text="ขนาดพิกเซลปลายทาง: เลือกไฟล์ก่อน")
+                return
+
+            # A large *preview* is never allocated; this only reports the real
+            # export dimensions and an informational per-image RGB buffer size.
+            model_scale = (self.pipeline._model_scale_for_dimensions(*original, px)
+                           if original else 1)
+            label = output_size_summary(original or px, px, model_scale)
+            if original and (px[0] < original[0] or px[1] < original[1]):
+                label += " • ลดจำนวนพิกเซลบางด้านตามขนาดที่ตั้ง"
+            self.pixel_info.configure(text=label)
         except Exception:
             self.pixel_info.configure(text="ขนาดพิกเซลปลายทาง: —")
 
