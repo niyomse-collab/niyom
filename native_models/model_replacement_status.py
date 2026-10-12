@@ -58,6 +58,7 @@ def build_report(repo_root: Path) -> dict:
     items = default_items()
     docs = repo_root / "docs" / "NIYOMSIL_NATIVE_MODEL_ROADMAP_TH.md"
     native_sr = repo_root / "native_models" / "niyomsil_sr.py"
+    face_manifest = repo_root / "native_models" / "prepare_face_dataset.py"
     return {
         "status": "in_progress_not_production_ready",
         "native_claim_allowed": False,
@@ -68,6 +69,7 @@ def build_report(repo_root: Path) -> dict:
         ),
         "roadmap_documented": docs.is_file(),
         "native_sr_code_present": native_sr.is_file(),
+        "face_consent_manifest_code_present": face_manifest.is_file(),
         "items": [asdict(item) for item in items],
     }
 

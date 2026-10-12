@@ -17,6 +17,7 @@ def test_replacement_report_blocks_native_claim_until_all_models_are_replaced():
     assert report["native_claim_allowed"] is False
     assert report["roadmap_documented"] is True
     assert report["native_sr_code_present"] is True
+    assert report["face_consent_manifest_code_present"] is True
     components = {item["v1_component"] for item in report["items"]}
     assert "RealESRGAN_x4plus.pth" in components
     assert "GFPGANv1.4.pth" in components
@@ -44,3 +45,4 @@ def test_replacement_status_cli_outputs_json(tmp_path):
     written = json.loads(output.read_text("utf-8"))
     assert printed == written
     assert printed["native_claim_allowed"] is False
+    assert printed["face_consent_manifest_code_present"] is True

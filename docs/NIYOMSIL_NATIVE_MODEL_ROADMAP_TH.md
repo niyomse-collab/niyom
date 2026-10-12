@@ -34,11 +34,14 @@
 
 - สร้างโมเดลแยก ไม่รวมกับ SR งานป้ายทั่วไป
 - ต้องมีข้อมูลใบหน้าที่เจ้าของภาพอนุญาตให้ใช้ฝึก AI อย่างชัดเจน
+- เตรียม manifest ส่วนตัวด้วย `python -m native_models.prepare_face_dataset --dataset-dir <private-faces> --consent-dir <private-consent> --output <private-face-manifest.csv> --confirm-consent`
+- consent JSON ของแต่ละ subject ต้องมี `subject_id`, `consent_scope` ที่รวม `commercial_ai_training`, และ `rights_holder`
 - เกณฑ์ผ่าน: ใบหน้าไม่เพี้ยน, ดวงตาธรรมชาติ, ผิวไม่พลาสติก, identity ไม่หลุด และไม่ hallucinate รายละเอียดที่ทำให้คนเปลี่ยน
 
 ### ระยะ 3: Native Detector / Selector
 
 - แทน RetinaFace/facexlib ด้วย detector ที่มีสิทธิ์ถูกต้อง
+- ใช้ manifest เดียวกับ Native Face ได้ โดยจัดข้อมูลไว้ใต้ `face_detection/<subject_id>/...` และใส่ sidecar `image.png.json` ที่ระบุ `face_bbox` เมื่อมี annotation
 - ระหว่างยังไม่พร้อม สามารถใช้ detector ภายนอกได้เฉพาะเมื่อระบุเครดิตและไม่อ้างว่าเป็นโมเดลของร้าน
 
 ### ระยะ 4: Native Runtime และ Installer
@@ -51,6 +54,7 @@
 
 - v1 ยังใช้ Real-ESRGAN, GFPGAN และ RetinaFace ตามที่ระบุใน release note
 - v2 มีโครงสำหรับเตรียมข้อมูล, ฝึก SR จากศูนย์, รัน checkpoint ทดลอง และวัดผลเทียบ v1 แล้ว
+- v2 มีโครงสำหรับทำ manifest ภาพบุคคล/annotation ตรวจจับใบหน้าที่บังคับ consent แล้ว
 - ตรวจสถานะการแทนโมเดลได้ด้วย `python -m native_models.model_replacement_status --repo-root .`
 - ยังไม่มีน้ำหนักโมเดลนิยมศิลป์ที่ฝึกเสร็จและผ่านตรวจรับ
 - ยังไม่มี v2 installer สำหรับใช้งานจริง
