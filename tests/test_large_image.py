@@ -181,6 +181,25 @@ def test_export_cancellation_is_atomic(adapter, monkeypatch, tmp_path):
     assert not list(tmp_path.glob(".niyomsil*"))
 
 
+def test_large_pdf_cancel_keeps_previous_output_and_cleans_temp(adapter, monkeypatch, tmp_path):
+    # Cancellation during tiled PDF export must not replace a shop's prior file.
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    src, _ = source_file(tmp_path)
+    dst = tmp_path / "previous.pdf"
+    dst.write_bytes(b"old PDF protected")
+    interrupted = [False]
+
+    def progress(value, label):
+        if value >= 99 and "PDF" in label:
+            interrupted[0] = True
+
+    with pytest.raises(InterruptedError):
+        adapter.process(src, dst, settings_for((512, 256)), use_ai=False,
+                        progress=progress, cancel=lambda: interrupted[0])
+    assert dst.read_bytes() == b"old PDF protected"
+    assert not list(tmp_path.glob(".niyomsil*"))
+
+
 def test_insufficient_disk_preserves_pixel_request(adapter, monkeypatch, tmp_path):
     monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
     monkeypatch.setattr(large_image.shutil,"disk_usage",lambda path: SimpleNamespace(free=0))
