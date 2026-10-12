@@ -51,6 +51,7 @@
 
 - v1 ยังใช้ Real-ESRGAN, GFPGAN และ RetinaFace ตามที่ระบุใน release note
 - v2 มีโครงสำหรับเตรียมข้อมูล, ฝึก SR จากศูนย์, รัน checkpoint ทดลอง และวัดผลเทียบ v1 แล้ว
+- ตรวจสถานะการแทนโมเดลได้ด้วย `python -m native_models.model_replacement_status --repo-root .`
 - ยังไม่มีน้ำหนักโมเดลนิยมศิลป์ที่ฝึกเสร็จและผ่านตรวจรับ
 - ยังไม่มี v2 installer สำหรับใช้งานจริง
 
