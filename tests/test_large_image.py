@@ -45,6 +45,25 @@ def test_custom_scale(value, expected):
     assert large_image.parse_scale(value) == expected
 
 
+def test_large_output_summary_preserves_exact_pixels_and_reports_disk_mode():
+    # Exceeds the former 450-million-pixel V1 cap; never lower the request.
+    target = (82_677, 11_811)
+    text = large_image.output_size_summary((1_000, 600), target, model_scale=8)
+    assert "82,677 × 11,811 px" in text
+    assert "976.5 MP" in text
+    assert "แบ่งส่วนประมวลผลบนดิสก์" in text
+    assert "RGB ดิบประมาณ" in text
+
+
+def test_custom_32x_output_size_is_not_capped():
+    original = (5_000, 2_000)
+    scale = large_image.parse_scale("32x")
+    target = original[0] * scale, original[1] * scale
+    label = large_image.output_size_summary(original, target, model_scale=8)
+    assert "160,000 × 64,000 px" in label
+    assert large_image.needs_streaming(original, target, 8)
+
+
 @pytest.mark.parametrize("value", ["0x", "-3", "NaN", "inf", "3.5", ""])
 def test_invalid_scale_is_reported(value):
     with pytest.raises(ValueError):
