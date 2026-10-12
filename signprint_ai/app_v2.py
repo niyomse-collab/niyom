@@ -21,7 +21,7 @@ import numpy as np
 from .niyomsil_core_adapter import NiyomSilpCoreAdapter
 from .processing import EnhanceSettings, print_pixels
 from .large_image import image_size, needs_streaming, output_size_summary, parse_scale, preview_source, thumbnail
-from .v2_output import output_path as v2_output_path
+from .v2_output import output_folder as v2_output_folder, output_path as v2_output_path
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
@@ -1415,13 +1415,15 @@ class App(tk.Tk):
         self._set_status("กำลังหยุด…")
 
     def open_output_folder(self):
-        if self.output_dir_var.get():
-            p = Path(self.output_dir_var.get())
-        elif self.current_index is not None and self.files:
-            p = self.files[self.current_index].parent
+        if self.current_index is None or not self.files:
+            if not self.output_dir_var.get():
+                return
+            source = Path(self.output_dir_var.get()) / "untitled.png"
         else:
-            return
+            source = self.files[self.current_index]
         try:
+            p = v2_output_folder(source, self.output_dir_var.get())
+            p.mkdir(parents=True, exist_ok=True)
             if os.name == "nt":
                 os.startfile(p)  # type: ignore[attr-defined]
             elif sys.platform == "darwin":
