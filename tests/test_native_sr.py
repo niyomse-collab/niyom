@@ -12,6 +12,7 @@ pytest.importorskip("numpy")
 from PIL import Image
 
 from native_models.niyomsil_sr import MODEL_ID, create_model
+from native_models.run_sr import upscale_image
 from native_models.train_sr import load_inventory, train
 
 
@@ -76,3 +77,31 @@ def test_small_cpu_training_creates_provenance(tmp_path):
     assert record["status"] == "experimental_NOT_approved_for_production"
     assert record["training_origin"] == "random_initialization_no_upstream_checkpoint"
     assert (tmp_path / "out" / record["checkpoint"]).is_file()
+
+
+def test_trained_checkpoint_can_process_rgba_without_losing_alpha(tmp_path):
+    import json
+    from types import SimpleNamespace
+
+    folder, manifest = _inventory(tmp_path)
+    out_dir = tmp_path / "out"
+    args = SimpleNamespace(
+        data_dir=str(folder), manifest=str(manifest), output_dir=str(out_dir),
+        scale=2, epochs=1, batch_size=1, patch=16, channels=8, blocks=1,
+        lr=0.0001, seed=20261011, device="cpu",
+    )
+    train(args)
+    record = json.loads((out_dir / "TRAINING_PROVENANCE.json").read_text("utf-8"))
+
+    logo = Image.new("RGBA", (9, 7), (220, 10, 10, 255))
+    logo.putpixel((0, 0), (220, 10, 10, 0))
+    source = tmp_path / "logo.png"
+    target = tmp_path / "logo-x2.png"
+    logo.save(source)
+
+    upscale_image(source, out_dir / record["checkpoint"], target, device_name="cpu")
+
+    with Image.open(target) as result:
+        assert result.mode == "RGBA"
+        assert result.size == (18, 14)
+        assert result.getchannel("A").getextrema()[0] < 255

@@ -89,6 +89,8 @@ python -m native_models.finetune_realesrgan `
 ชุดเครื่องมือนี้รัน **บนเครื่องที่เก็บรูปเท่านั้น** และไม่เรียก API หรืออัปโหลดภาพเข้า GitHub:
 
 - `native_models/prepare_dataset.py` ตรวจความครบของข้อมูลสิทธิ์, หลักฐานสิทธิ์ในไฟล์ส่วนตัว, SHA-256 ของรูปทุกใบ, ห้ามรูปซ้ำ และแบ่งภาพ **train/val แยกตามประเภท** ให้ทำซ้ำได้
+- `native_models/train_sr.py` ฝึกโมเดล `niyomsil-sr-v1` จากศูนย์โดยไม่โหลด checkpoint ภายนอก เหมาะสำหรับเส้นทาง “โมเดลของนิยมศิลป์เอง” ระยะทดลอง
+- `native_models/run_sr.py` โหลดเฉพาะ checkpoint ที่บันทึกว่าเป็น `random_initialization_no_upstream_checkpoint` และสร้างภาพ v2 สำหรับนำไปเทียบกับ v1 โดยยังไม่แทน runtime หลัก
 - `native_models/evaluate_sign_v2.py` เปรียบเทียบ **ภาพอ้างอิงความละเอียดสูง / v1 / v2** ที่มีชื่อและขนาดพิกเซลตรงกัน โดยแยกงานภาษาไทย โลโก้ พื้นสี ภาพถ่าย และภาพบุคคล
 - วัด PSNR, RGB MAE, edge error, mean-color bias และ flat-color error; ตัดสิทธิ์ผล v2 ที่แย่ลงเกินเกณฑ์กับภาพใด ๆ ไม่ใช่แค่ดูคะแนนเฉลี่ย
 - ผลผ่านการวัดหมายถึง `eligible_for_human_print_review` **ไม่ใช่** คุณภาพผ่านแล้วหรือโมเดลได้รับอนุญาตนำไปผลิตจริง การตรวจตัวหนังสือไทย การรักษาอัตลักษณ์หน้า และสีพิมพ์ต้องตรวจด้วยคน/งานพิมพ์จริง
@@ -120,6 +122,28 @@ python -m native_models.prepare_dataset `
 ```
 
 ผลลัพธ์สำหรับเปรียบเทียบต้องส่งออก **RGB ขนาดพิกเซลเดียวกัน** ในทั้งสามโฟลเดอร์ และใช้ชื่อไฟล์ตรงกับ `relative_path` ตามหมวด เช่น `thai_text\\sample.png`
+
+**ตัวอย่างฝึกโมเดลจากศูนย์ของนิยมศิลป์:** ใช้สำหรับทดลองเท่านั้น และต้องใช้ข้อมูลที่ตรวจสิทธิ์แล้ว
+
+```powershell
+python -m native_models.train_sr `
+  --manifest "C:\\private-v2\\manifest.csv" `
+  --data-dir "C:\\private-v2\\images" `
+  --output-dir "C:\\private-v2\\training-runs\\niyomsil-sr-v1" `
+  --scale 4 --epochs 10 --batch-size 2 --patch 128 --device cuda
+```
+
+หลังฝึกเสร็จ สามารถสร้างผลลัพธ์ v2 จาก checkpoint ทดลองเพื่อเอาไปวัดผลได้:
+
+```powershell
+python -m native_models.run_sr `
+  --checkpoint "C:\\private-v2\\training-runs\\niyomsil-sr-v1\\niyomsil-sr-v1-x4-experimental.pth" `
+  --input "C:\\private-v2\\low-res\\thai_text\\sample.png" `
+  --output "C:\\private-v2\\output-v2\\thai_text\\sample.png" `
+  --device cuda
+```
+
+หากอินพุตเป็น PNG โปร่งใส ระบบจะขยาย alpha channel แยกและใส่กลับในผลลัพธ์ เพื่อใช้ตรวจงานโลโก้โดยไม่ทำความโปร่งใสหาย
 
 ```powershell
 python -m native_models.evaluate_sign_v2 `
