@@ -1,0 +1,56 @@
+[Setup]
+AppName=NiyomSilp Design v2
+AppVersion=@@VERSION@@
+AppPublisher=NiyomSilp Design
+CreateAppDir=no
+Uninstallable=no
+CreateUninstallRegKey=no
+OutputDir=@@OUTPUT@@
+OutputBaseFilename=NiyomSilp-Design-v2-Install
+SetupIconFile=@@ICON@@
+Compression=lzma2/normal
+WizardStyle=modern
+PrivilegesRequired=admin
+ArchitecturesAllowed=x64compatible
+DisableWelcomePage=no
+DisableReadyPage=no
+DisableFinishedPage=yes
+
+[Run]
+Filename: "{tmp}\NiyomSilp-Design-v2-Setup.exe"; Parameters: "{param:INSTALLARGS|}"; Flags: waituntilterminated hidewizard; Check: InstallPayload
+
+[Code]
+var
+  DownloadPage: TDownloadWizardPage;
+
+function InstallPayload: Boolean;
+begin
+  Result := ExpandConstant('{param:VERIFYONLY|0}') <> '1';
+end;
+
+procedure InitializeWizard;
+begin
+  DownloadPage := CreateDownloadPage('ดาวน์โหลด NiyomSilp Design v2',
+    'กำลังเตรียมโปรแกรมและโมเดลสำหรับติดตั้ง', nil);
+  DownloadPage.ShowBaseNameInsteadOfUrl := True;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  LocalFolder: String;
+begin
+  Result := '';
+  DownloadPage.Clear;
+  LocalFolder := ExpandConstant('{param:PAYLOADDIR|}');
+  try
+    if not WizardSilent then DownloadPage.Show;
+    try
+@@PAYLOADS@@
+      if LocalFolder = '' then DownloadPage.Download;
+    except
+      Result := 'ดาวน์โหลดหรือยืนยันไฟล์ไม่สำเร็จ: ' + GetExceptionMessage;
+    end;
+  finally
+    if not WizardSilent then DownloadPage.Hide;
+  end;
+end;

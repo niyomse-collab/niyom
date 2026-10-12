@@ -2,6 +2,9 @@
 build/
 dist/
 release/
+build_info.json
+package-smoke/
+installed-smoke/
 __pycache__/
 *.pyc
 tools/realesrgan-ncnn-vulkan.exe

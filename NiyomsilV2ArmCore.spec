@@ -60,6 +60,11 @@ datas = [
     (str(ROOT / "NOTICE_INDEPENDENT_PROJECT.txt"), "."),
 ] + dynamic_files
 
+if (ROOT / "build_info.json").is_file():
+    datas.append((str(ROOT / "build_info.json"), "."))
+if (ROOT / "README_V2_TH.md").is_file():
+    datas.append((str(ROOT / "README_V2_TH.md"), "."))
+
 # pyvips-binary is a binary distribution, not an importable Python package.
 # Collect its native extension/DLLs and bundled license files explicitly.
 vips_binaries = []
