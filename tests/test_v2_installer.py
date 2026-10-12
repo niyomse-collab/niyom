@@ -109,3 +109,14 @@ def test_v2_output_does_not_allow_lower_case_v1_install_directory(tmp_path):
     with pytest.raises(ValueError, match="V1"):
         output_folder(tmp_path / "original.png",
                       tmp_path / "niyomsilpdesignv1" / "subfolder")
+
+
+def test_v2_build_refuses_shared_v1_artifacts_before_cleanup():
+    script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(encoding="utf-8")
+    guard = script.index('if ($Channel -eq "v2") {')
+    cleanup = script.index('Remove-Item build, dist, release')
+    assert guard < cleanup
+    assert 'NiyomSilp-Design-v1-*' in script[guard:cleanup]
+    assert 'ARM_CORE_BUILD_PROOF.txt' in script[guard:cleanup]
+    assert '$v1MetadataPresent' in script[guard:cleanup]
+    assert 'V2 build refused: V1 build files found' in script[guard:cleanup]
