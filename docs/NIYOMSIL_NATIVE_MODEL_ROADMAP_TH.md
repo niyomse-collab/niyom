@@ -19,6 +19,7 @@
 2. ต้องมีหลักฐานสิทธิ์ภาพฝึกและภาพทดสอบ เก็บภายในร้าน ไม่ commit ขึ้น GitHub
 3. ต้องฝึกจาก random initialization หรือมีเอกสารโอนสิทธิ์/อนุญาต base weights ที่ชัดเจน
 4. ต้องมี provenance JSON ระบุที่มา, checksum, config, จำนวนภาพ, seed, metric และวันที่ฝึก
+   และตรวจด้วย `python -m native_models.validate_provenance <TRAINING_PROVENANCE.json>`
 5. ต้องผ่าน benchmark เทียบ v1 ด้วย validation set เดียวกัน และผ่านการตรวจงานพิมพ์จริง
 6. ต้องรักษาทางถอยกลับไป v1 ที่ผ่านตรวจรับแล้ว จนกว่า v2 จะผ่านครบทุกหมวด
 
@@ -56,6 +57,7 @@
 - v2 มีโครงสำหรับเตรียมข้อมูล, ฝึก SR จากศูนย์, รัน checkpoint ทดลอง และวัดผลเทียบ v1 แล้ว
 - v2 มีโครงสำหรับทำ manifest ภาพบุคคล/annotation ตรวจจับใบหน้าที่บังคับ consent แล้ว
 - ตรวจสถานะการแทนโมเดลได้ด้วย `python -m native_models.model_replacement_status --repo-root .`
+- ตรวจ provenance ก่อนเรียกโมเดลว่า native ได้ด้วย `python -m native_models.validate_provenance <TRAINING_PROVENANCE.json>`
 - ยังไม่มีน้ำหนักโมเดลนิยมศิลป์ที่ฝึกเสร็จและผ่านตรวจรับ
 - ยังไม่มี v2 installer สำหรับใช้งานจริง
 

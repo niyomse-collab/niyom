@@ -68,7 +68,9 @@ def test_native_model_roadmap_names_all_v1_external_models():
         "detection_Resnet50_Final.pth",
         "niyomsil-sr-v1",
         "niyomsil-face-v1",
+        "niyomsil-detector-v1",
         "provenance JSON",
+        "validate_provenance",
     ):
         assert name in roadmap
     assert "ไม่ทำให้เป็นเจ้าของลิขสิทธิ์โมเดล" in roadmap
