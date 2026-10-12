@@ -131,6 +131,25 @@ def needs_streaming(source_size, target_size, model_scale=1):
     return max(source_pixels, math.prod(target_size), inference_pixels) > IN_MEMORY_PIXELS
 
 
+def output_size_summary(source_size, target_size, model_scale=1):
+    """Inform the operator without introducing a new pixel-count limit.
+
+    The uncompressed RGB estimate describes one image buffer, not peak RAM or
+    disk usage. Multi-pass AI can require several temporary disk rasters.
+    """
+    validate_target_size(target_size)
+    pixels = math.prod(target_size)
+    raw_gib = pixels * 3 / (1024 ** 3)
+    mode = ("แบ่งส่วนประมวลผลบนดิสก์" if needs_streaming(
+        source_size, target_size, model_scale) else "ประมวลผลในหน่วยความจำ")
+    return (
+        f"ขนาดพิกเซลปลายทาง: {target_size[0]:,} × {target_size[1]:,} px"
+        f" • {pixels / 1_000_000:,.1f} MP"
+        f" • RGB ดิบประมาณ {raw_gib:,.2f} GiB/ภาพ"
+        f" • {mode}"
+    )
+
+
 def thumbnail(path, box=(1600, 1600)):
     size = image_size(path)
     if math.prod(size) <= IN_MEMORY_PIXELS:
