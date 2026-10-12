@@ -94,6 +94,7 @@ python -m native_models.finetune_realesrgan `
 - `native_models/train_sr.py` ฝึกโมเดล `niyomsil-sr-v1` จากศูนย์โดยไม่โหลด checkpoint ภายนอก เหมาะสำหรับเส้นทาง “โมเดลของนิยมศิลป์เอง” ระยะทดลอง
 - `native_models/run_sr.py` โหลดเฉพาะ checkpoint ที่บันทึกว่าเป็น `random_initialization_no_upstream_checkpoint` และสร้างภาพ v2 สำหรับนำไปเทียบกับ v1 โดยยังไม่แทน runtime หลัก
 - `native_models/validate_provenance.py` ตรวจ provenance ของ `niyomsil-sr-v1`, `niyomsil-face-v1`, และ `niyomsil-detector-v1` ก่อนเรียกว่าเป็นโมเดล native หรือก่อนอนุมัติ production
+- `native_models/production_gate.py` ตรวจว่ามี native model ครบทั้ง 3 ตัวและทุกตัวเป็น `approved_for_production` ก่อนแพ็ก v2 production
 - `native_models/evaluate_sign_v2.py` เปรียบเทียบ **ภาพอ้างอิงความละเอียดสูง / v1 / v2** ที่มีชื่อและขนาดพิกเซลตรงกัน โดยแยกงานภาษาไทย โลโก้ พื้นสี ภาพถ่าย และภาพบุคคล
 - `docs/NIYOMSIL_NATIVE_MODEL_ROADMAP_TH.md` แยกแผนแทน Real-ESRGAN, GFPGAN และ RetinaFace ทีละตัว เพื่อไม่สับสนระหว่างโมเดลที่ฝึกเองกับโมเดล derivative
 - วัด PSNR, RGB MAE, edge error, mean-color bias และ flat-color error; ตัดสิทธิ์ผล v2 ที่แย่ลงเกินเกณฑ์กับภาพใด ๆ ไม่ใช่แค่ดูคะแนนเฉลี่ย
@@ -152,6 +153,13 @@ python -m native_models.run_sr `
 ```powershell
 python -m native_models.validate_provenance `
   "C:\\private-v2\\training-runs\\niyomsil-sr-v1\\TRAINING_PROVENANCE.json"
+```
+
+ก่อนสร้างตัวติดตั้ง v2 production ต้องผ่าน gate รวมทั้ง 3 โมเดล:
+
+```powershell
+python -m native_models.production_gate `
+  --models-root "C:\\private-v2\\approved-native-models"
 ```
 
 ```powershell

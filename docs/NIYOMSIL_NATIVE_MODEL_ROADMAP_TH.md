@@ -21,7 +21,8 @@
 4. ต้องมี provenance JSON ระบุที่มา, checksum, config, จำนวนภาพ, seed, metric และวันที่ฝึก
    และตรวจด้วย `python -m native_models.validate_provenance <TRAINING_PROVENANCE.json>`
 5. ต้องผ่าน benchmark เทียบ v1 ด้วย validation set เดียวกัน และผ่านการตรวจงานพิมพ์จริง
-6. ต้องรักษาทางถอยกลับไป v1 ที่ผ่านตรวจรับแล้ว จนกว่า v2 จะผ่านครบทุกหมวด
+6. ก่อนแพ็ก v2 production ต้องตรวจครบทั้ง 3 โมเดลด้วย `python -m native_models.production_gate --models-root <approved-native-models>`
+7. ต้องรักษาทางถอยกลับไป v1 ที่ผ่านตรวจรับแล้ว จนกว่า v2 จะผ่านครบทุกหมวด
 
 ## ลำดับพัฒนา
 
@@ -59,6 +60,7 @@
 - v2 มีโครงสำหรับทำ manifest ภาพบุคคล/annotation ตรวจจับใบหน้าที่บังคับ consent แล้ว
 - ตรวจสถานะการแทนโมเดลได้ด้วย `python -m native_models.model_replacement_status --repo-root .`
 - ตรวจ provenance ก่อนเรียกโมเดลว่า native ได้ด้วย `python -m native_models.validate_provenance <TRAINING_PROVENANCE.json>`
+- ตรวจ production gate ก่อนสร้าง installer v2 ได้ด้วย `python -m native_models.production_gate --models-root <approved-native-models>`
 - ยังไม่มีน้ำหนักโมเดลนิยมศิลป์ที่ฝึกเสร็จและผ่านตรวจรับ
 - ยังไม่มี v2 installer สำหรับใช้งานจริง
 

@@ -18,6 +18,7 @@ REQUIRED_FIELDS = {
     "model_id",
     "status",
     "training_origin",
+    "checkpoint",
     "train_files",
     "validation_files",
     "inventory_sha256",
@@ -37,6 +38,16 @@ def _read(path: Path) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("Provenance must be a JSON object")
     return payload
+
+
+def _hash_file(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def validate(path: Path, *, require_production: bool = False) -> dict:
@@ -63,12 +74,21 @@ def validate(path: Path, *, require_production: bool = False) -> dict:
     validation_files = int(payload["validation_files"])
     if train_files <= 0 or validation_files <= 0:
         raise ValueError("Provenance must include train and validation files")
+    checkpoint_path = path.parent / str(payload["checkpoint"])
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(f"Missing checkpoint file: {checkpoint_path}")
+    actual_hash = _hash_file(checkpoint_path)
+    expected_hash = str(payload["checkpoint_sha256"]).strip().lower()
+    if actual_hash != expected_hash:
+        raise ValueError("Checkpoint SHA256 does not match provenance")
     return {
         "model_id": model_id,
         "status": status,
         "native_claim_allowed": True,
         "production_ready": status == "approved_for_production",
         "training_origin": origin,
+        "checkpoint": checkpoint_path.name,
+        "checkpoint_sha256": actual_hash,
     }
 
 
