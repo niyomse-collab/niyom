@@ -9,6 +9,28 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+# Never clean or replace files from a previously built/approved V1 checkout.
+# V2 should be built in an independent clean workspace. Check BEFORE venv,
+# metadata, model downloads or any build/release folder deletion.
+if ($Channel -eq "v2") {
+    $v1ReleaseFiles = @(Get-ChildItem ".\\release\\NiyomSilp-Design-v1-*" -File -ErrorAction SilentlyContinue)
+    $v1Proof = ".\\dist\\NiyomsilAIEnhancer\\ARM_CORE_BUILD_PROOF.txt"
+    $v1Metadata = ".\\build_info.json"
+    $v1MetadataPresent = $false
+    if (Test-Path $v1Metadata) {
+        try {
+            $priorBuildInfo = Get-Content $v1Metadata -Raw | ConvertFrom-Json
+            $v1MetadataPresent = ($priorBuildInfo.channel -eq "v1")
+        } catch {
+            # Unknown metadata must not be deleted by an unrelated V2 build.
+            throw "V2 build refused: pre-existing build_info.json cannot be verified. Use a clean V2 checkout."
+        }
+    }
+    if ($v1ReleaseFiles.Count -gt 0 -or (Test-Path $v1Proof) -or $v1MetadataPresent) {
+        throw "V2 build refused: V1 build files found in this workspace. Build V2 in a separate clean checkout so V1 remains untouched."
+    }
+}
+
 $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
 if (-not $pythonCmd) {
     $pythonCmd = Get-Command py -ErrorAction SilentlyContinue
