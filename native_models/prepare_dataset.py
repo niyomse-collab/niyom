@@ -15,7 +15,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from native_models.evaluate_sign_v2 import CATEGORIES, FIELDS, _safe_file
+from native_models.evaluate_sign_v2 import CATEGORIES, _safe_file
 
 MANIFEST_COLUMNS = [
     "relative_path", "category", "split", "rights_holder",
@@ -30,6 +30,26 @@ def _hash_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             result.update(chunk)
     return result.hexdigest()
+
+
+def _pixel_fingerprint(path: Path) -> str:
+    """Fingerprint decoded RGB pixels, not metadata or PNG compression bytes."""
+    with Image.open(path) as source:
+        image = ImageOps.exif_transpose(source)
+        if image.mode in ("RGBA", "LA") or "transparency" in image.info:
+            alpha = image.convert("RGBA").getchannel("A")
+            if alpha.getextrema()[0] != 255:
+                raise ValueError(
+                    f"Transparent training image: {path.name}. "
+                    "Flatten onto a documented background before RGB training."
+                )
+        rgb = image.convert("RGB")
+        digest = hashlib.sha256()
+        digest.update(rgb.width.to_bytes(8, "big"))
+        digest.update(rgb.height.to_bytes(8, "big"))
+        for y in range(rgb.height):
+            digest.update(rgb.crop((0, y, rgb.width, y + 1)).tobytes())
+        return digest.hexdigest()
 
 
 def generate(image_dir: Path, rights_holder: str, license_name: str, evidence: Path,
@@ -58,6 +78,7 @@ def generate(image_dir: Path, rights_holder: str, license_name: str, evidence: P
         raise ValueError("No supported image files found")
     groups: dict[str, list[dict]] = defaultdict(list)
     seen_hashes: set[str] = set()
+    seen_pixels: set[str] = set()
     for file in files:
         relative = file.relative_to(root).as_posix()
         category = relative.split("/")[0].lower()
@@ -73,6 +94,10 @@ def generate(image_dir: Path, rights_holder: str, license_name: str, evidence: P
         if digest in seen_hashes:
             raise ValueError(f"Duplicate image content detected: {relative}")
         seen_hashes.add(digest)
+        pixel_digest = _pixel_fingerprint(image)
+        if pixel_digest in seen_pixels:
+            raise ValueError(f"Duplicate decoded image pixels: {relative}")
+        seen_pixels.add(pixel_digest)
         groups[category].append({
             "relative_path": relative, "category": category,
             "rights_holder": rights_holder.strip(),
