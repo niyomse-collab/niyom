@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import importlib.util
+import importlib.metadata
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
 
@@ -15,6 +16,8 @@ hiddenimports = [
     "basicsr.archs.rrdbnet_arch",
     "basicsr.utils.flow_util",
     "realesrgan.archs.srvgg_arch",
+    "pyvips",
+    "_libvips",
 ]
 # BasicSR discovers several modules dynamically (including basicsr.ops).
 # Freeze the complete Python module graph so the packaged EXE does not fail
@@ -57,10 +60,23 @@ datas = [
     (str(ROOT / "NOTICE_INDEPENDENT_PROJECT.txt"), "."),
 ] + dynamic_files
 
+# pyvips-binary is a binary distribution, not an importable Python package.
+# Collect its native extension/DLLs and bundled license files explicitly.
+vips_binaries = []
+for distribution_name in ("pyvips-binary", "pyvips", "tifffile"):
+    distribution = importlib.metadata.distribution(distribution_name)
+    for item in distribution.files or []:
+        path = Path(distribution.locate_file(item))
+        destination = str(Path(str(item)).parent).replace("\\", "/")
+        if path.suffix.lower() in (".dll", ".pyd", ".so") or ".so." in path.name:
+            vips_binaries.append((str(path), destination))
+        elif "licenses" in str(item).lower() or path.name.startswith(".load-order-"):
+            datas.append((str(path), destination))
+
 a = Analysis(
     [str(ROOT / "run.py")],
     pathex=[str(ROOT)],
-    binaries=[],
+    binaries=vips_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

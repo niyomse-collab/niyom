@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import math
 import tempfile
 from pathlib import Path
 from typing import Callable, Optional
@@ -9,7 +10,8 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from .independent_core import EngineManager, model_path
-from .processing import EnhanceSettings, print_pixels, save_image, validate_print_target
+from .processing import EnhanceSettings, print_pixels, save_image
+from .large_image import image_size, needs_streaming, parse_scale, process_large, validate_export
 from .face_module import FaceProtectionModule
 
 ProgressFn = Optional[Callable[[int, str], None]]
@@ -76,27 +78,39 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
-        with Image.open(src) as im:
-            source_size = im.size
+        source_size = image_size(src)
 
-        if settings.print_width and settings.print_height:
-            target_size = print_pixels(
-                settings.print_width,
-                settings.print_height,
-                settings.print_unit,
-                settings.dpi,
-            )
+        if settings.print_width is not None or settings.print_height is not None:
+            if (settings.print_width is None or settings.print_height is None or
+                    not all(math.isfinite(n) and n > 0 for n in
+                            (settings.print_width, settings.print_height, settings.dpi))):
+                raise ValueError("กรุณาใส่ความกว้าง ความสูง และ DPI เป็นค่าบวกที่มีขอบเขต")
+            try:
+                target_size = print_pixels(
+                    settings.print_width,
+                    settings.print_height,
+                    settings.print_unit,
+                    settings.dpi,
+                )
+            except OverflowError as exc:
+                raise ValueError("ขนาดงานเกินช่วงตัวเลขที่ระบบไฟล์ภาพรองรับ") from exc
             model_scale = self._model_scale_for_dimensions(
                 source_size[0], source_size[1], target_size
             )
         else:
-            model_scale = int(settings.ai_scale)
+            requested_scale = parse_scale(settings.ai_scale)
             target_size = (
-                source_size[0] * model_scale,
-                source_size[1] * model_scale,
+                source_size[0] * requested_scale,
+                source_size[1] * requested_scale,
             )
+            model_scale = (1 if requested_scale == 1 else
+                           self._model_scale_for_dimensions(*source_size, target_size))
 
-        validate_print_target(target_size)
+        validate_export(dst, target_size, settings)
+
+        if needs_streaming(source_size, target_size, model_scale if use_ai else 1):
+            return process_large(self, src, dst, settings, source_size, target_size,
+                                 model_scale, progress, cancel, use_ai)
 
         if progress:
             progress(2, "Prepare / Analyze")
@@ -276,6 +290,8 @@ class NiyomSilpCoreAdapter:
             "output_size": output.size,
             "ai_available": True,
             "ai_scale": model_scale,
+            "requested_ai_scale": settings.ai_scale,
+            "processing_mode": "memory",
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",

@@ -20,6 +20,7 @@ import numpy as np
 
 from .niyomsil_core_adapter import NiyomSilpCoreAdapter
 from .processing import EnhanceSettings, print_pixels
+from .large_image import image_size, needs_streaming, parse_scale, preview_source, thumbnail
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
@@ -617,11 +618,12 @@ class App(tk.Tk):
         # 2. AI quality — same V1 settings/semantics, redesigned only.
         ai = self._section(parent, "2", "AI ปรับปรุงคุณภาพ")
         self.scale_var = tk.StringVar(value="4x")
-        tk.Label(ai, text="AI Upscale", bg="#111820", fg="#FFFFFF").grid(row=0, column=0, sticky="w")
+        tk.Label(ai, text="อัตราขยายปลายทาง", bg="#111820", fg="#FFFFFF").grid(row=0, column=0, sticky="w")
         scale = ttk.Combobox(ai, textvariable=self.scale_var, values=("2x", "4x", "8x"),
-                             state="readonly", width=17, style="Dark.TCombobox")
+                             state="normal", width=17, style="Dark.TCombobox")
         scale.grid(row=0, column=1, sticky="ew", padx=(8, 0))
         scale.bind("<<ComboboxSelected>>", lambda e: self._settings_changed())
+        scale.bind("<KeyRelease>", lambda e: self._settings_changed())
 
         self.v1_mode = tk.BooleanVar(value=True)
         ttk.Checkbutton(
@@ -845,8 +847,7 @@ class App(tk.Tk):
             p = Path(raw)
             if p.exists() and p not in self.files:
                 try:
-                    with Image.open(p) as im:
-                        size = im.size
+                    size = image_size(p)
                 except Exception:
                     continue
                 self.files.append(p)
@@ -923,8 +924,7 @@ class App(tk.Tk):
         self.current_index = idx
         p = self.files[idx]
         try:
-            with Image.open(p) as im:
-                w, h = im.size
+            w, h = image_size(p)
             self.original_ratio = w / max(1, h)
             if self.lock_ratio.get():
                 try:
@@ -985,15 +985,20 @@ class App(tk.Tk):
             px = print_pixels(float(self.width_var.get()), float(self.height_var.get()), self.unit_var.get(), int(float(self.dpi_var.get())))
             note = ""
             if self.current_index is not None:
-                with Image.open(self.files[self.current_index]) as source:
-                    if px[0] < source.width or px[1] < source.height:
-                        note = " • ลดพิกเซลต้นฉบับ"
+                original = image_size(self.files[self.current_index])
+                if px[0] < original[0] or px[1] < original[1]:
+                    note = " • ลดพิกเซลต้นฉบับตามค่าที่ตั้ง"
+                if needs_streaming(original, px):
+                    note += " • งานใหญ่ใช้ดิสก์ระหว่างทำงาน"
             self.pixel_info.configure(text=f"ขนาดพิกเซลปลายทาง: {px[0]:,} × {px[1]:,} px{note}")
         except Exception:
             self.pixel_info.configure(text="ขนาดพิกเซลปลายทาง: —")
 
     def _update_tree_output_sizes(self):
-        scale = int(self.scale_var.get().rstrip("x"))
+        try:
+            scale = parse_scale(self.scale_var.get())
+        except ValueError:
+            return
         target = None
         if self.use_print_size.get():
             try:
@@ -1004,8 +1009,7 @@ class App(tk.Tk):
             if not self.tree.exists(str(i)):
                 continue
             try:
-                with Image.open(p) as im:
-                    w, h = im.size
+                w, h = image_size(p)
                 ow, oh = target if target else (w * scale, h * scale)
                 vals = list(self.tree.item(str(i), "values"))
                 vals[2] = f"{ow:,} × {oh:,}"
@@ -1021,7 +1025,7 @@ class App(tk.Tk):
             contrast=round(self.contrast_var.get()),
             sharpness=round(self.sharp_var.get()),
             saturation=round(self.sat_var.get()),
-            ai_scale=int(self.scale_var.get().rstrip("x")),
+            ai_scale=parse_scale(self.scale_var.get()),
             device=self._device_choices[self.device_var.get()],
             dpi=max(1, int(float(self.dpi_var.get() or 150))),
             print_unit=self.unit_var.get(),
@@ -1056,12 +1060,10 @@ class App(tk.Tk):
             try:
                 with tempfile.TemporaryDirectory(prefix="signprint_preview_") as td:
                     td = Path(td)
-                    with Image.open(p) as im:
-                        im = ImageOps.exif_transpose(im).convert("RGB")
-                        im.thumbnail((1200, 800), Image.Resampling.LANCZOS)
-                        preview_in = td / "preview_input.png"
-                        preview_out = td / "preview_output.png"
-                        im.save(preview_in)
+                    im = thumbnail(p, (1200, 800))
+                    preview_in = td / "preview_input.png"
+                    preview_out = td / "preview_output.png"
+                    im.save(preview_in)
                     # Screen preview always stays RGB; ICC/CMYK is an export-only
                     # stage so it cannot alter the proven V1 processing result.
                     ps = replace(
@@ -1109,8 +1111,7 @@ class App(tk.Tk):
                     del self._preview_cache[old]
             if len(self._preview_cache) >= 2:
                 self._preview_cache.pop(next(iter(self._preview_cache)))
-            with Image.open(path) as image:
-                self._preview_cache[key] = ImageOps.exif_transpose(image).convert("RGB")
+            self._preview_cache[key] = preview_source(path)
         return self._preview_cache[key]
 
     def _preview_box(self, panel):
@@ -1322,7 +1323,7 @@ class App(tk.Tk):
             messagebox.showinfo(APP_NAME, "กรุณาเพิ่มภาพก่อน")
             return
         try:
-            requested_scale = int(self.scale_var.get().rstrip("x"))
+            requested_scale = parse_scale(self.scale_var.get())
         except Exception:
             requested_scale = 1
         if requested_scale > 1 and not self.pipeline.ai.available:

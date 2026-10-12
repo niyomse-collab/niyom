@@ -1,4 +1,5 @@
 # Runtime versions taken from the uploaded ARM AI Image Enhancer V2.2.8 component catalog.
+-r requirements_v2_large_images.txt
 basicsr==1.4.2
 realesrgan==0.3.0
 gfpgan==1.3.8

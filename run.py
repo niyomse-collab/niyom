@@ -14,5 +14,8 @@ if __name__ == "__main__":
         FaceProtectionModule().smoke_test("cpu")
         raise SystemExit(0)
     if os.environ.get("NIYOMSIL_IMPORT_SMOKE") == "1":
+        from signprint_ai.large_image import vips
+        image = vips().Image.black(8, 8, bands=3)
+        assert image.width == 8 and len(image.write_to_memory()) == 8 * 8 * 3
         raise SystemExit(0)
     main()
