@@ -27,9 +27,8 @@ from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
 
 APP_NAME = "NiyomSilp Design"
-APP_VERSION = "v1"
 from .release_info import release_label
-APP_VERSION = release_label(APP_VERSION)
+APP_VERSION = release_label("v2")
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
