@@ -1,0 +1,58 @@
+name: NiyomSilp v2 Offline Build Launcher
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-v2:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout isolated v2 development branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev/niyomsil-design-v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies and test sources
+        run: |
+          python -m pip install pytest numpy Pillow opencv-python-headless pypdf -r requirements_v2_large_images.txt
+          python -m pytest -q
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build v2 and verify offline installer
+        shell: powershell
+        run: |
+          .\build_windows.ps1 -Channel v2 -Version 2.0.0-offline-candidate
+          if ($LASTEXITCODE -ne 0) { throw 'v2 runtime build failed' }
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { $iscc = Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe' }
+          & $iscc '.\installer_v2_all_in_one.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Standalone setup failed' }
+          $exe = '.\release\NiyomSilp-Design-v2-Setup.exe'
+          if (-not (Test-Path $exe)) { throw 'Installer missing' }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  NiyomSilp-Design-v2-Setup.exe" | Set-Content '.\release\ALL_IN_ONE_SHA256.txt' -Encoding ascii
+          $target = Join-Path $PWD 'offline-installed'
+          $p = Start-Process $exe -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=$target" -PassThru
+          if (-not $p.WaitForExit(900000)) { $p.Kill(); throw 'Install timeout' }
+          $p.Refresh()
+          if ($p.ExitCode -ne 0) { throw "Install failed $($p.ExitCode)" }
+          $installed = Join-Path $target 'NiyomsilAIEnhancer.exe'
+          .\tools\Test-V2-Package.ps1 -Exe $installed -OutputDir offline-smoke -Mode imports -TimeoutSeconds 120
+          if ($LASTEXITCODE -ne 0) { throw 'Import smoke failed' }
+          .\tools\Test-V2-Package.ps1 -Exe $installed -OutputDir offline-smoke -Mode processing -TimeoutSeconds 1200
+          if ($LASTEXITCODE -ne 0) { throw 'Processing smoke failed' }
+          $p = Start-Process (Join-Path $target 'unins000.exe') -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru
+          if (-not $p.WaitForExit(300000)) { $p.Kill(); throw 'Uninstall timeout' }
+          $p.Refresh()
+          if ($p.ExitCode -ne 0) { throw 'Uninstall failed' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NiyomSilp-v2-OneFile-Offline-Candidate
+          compression-level: 0
+          path: |
+            release/NiyomSilp-Design-v2-Setup.exe
+            release/ALL_IN_ONE_SHA256.txt
+          if-no-files-found: error
