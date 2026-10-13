@@ -1,6 +1,10 @@
 name: Build v2 offline all-in-one candidate
 on:
   workflow_dispatch:
+  push:
+    branches: [dev/niyomsil-design-v2]
+    paths:
+      - '.github/workflows/build-v2-offline.yml'
 
 jobs:
   offline-installer:
