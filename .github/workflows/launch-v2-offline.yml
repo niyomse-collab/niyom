@@ -24,7 +24,7 @@ jobs:
       - name: Build v2 and verify offline installer
         shell: powershell
         run: |
-          .\build_windows.ps1 -Channel v2 -Version 2.0.0-offline-candidate
+          .\build_windows.ps1 -Channel v2 -Version 2.0.0-beta.15
           if ($LASTEXITCODE -ne 0) { throw 'v2 runtime build failed' }
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $iscc)) { $iscc = Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe' }
