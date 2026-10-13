@@ -343,7 +343,7 @@ class App(tk.Tk):
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
         tk.Label(line1, text="Design", bg="#111820", fg="#FF2028",
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
-        tk.Label(line1, text=" v1", bg="#111820", fg="#FFFFFF",
+        tk.Label(line1, text=f" {APP_VERSION}", bg="#111820", fg="#FFFFFF",
                  font=(self.ui_font_family, 16, "bold")).pack(side="left", padx=(6, 0), pady=(8, 0))
         tk.Label(
             title,
