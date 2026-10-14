@@ -378,7 +378,8 @@ def preview_source(path):
     if math.prod(image_size(path)) > IN_MEMORY_PIXELS:
         return LazyPreviewSource(path)
     with Image.open(path) as image:
-        return ImageOps.exif_transpose(image).convert("RGB")
+        oriented = ImageOps.exif_transpose(image)
+        return oriented.convert("RGBA" if "A" in oriented.getbands() or "transparency" in oriented.info else "RGB")
 
 
 def process_large(adapter, src, dst, settings, source_size, target_size,
