@@ -222,7 +222,8 @@ def make_source_raster(src, raw_path, progress, cancel):
     return size
 
 
-def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *, refine_edges=False):
+def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
+                   refine_edges=False, protected_regions=None):
     import tifffile
 
     # Refine only the final AI pass, on padded image tiles BEFORE cropping.
@@ -258,9 +259,27 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *, r
                 if enhanced.shape != expected or enhanced.dtype != np.uint8:
                     raise RuntimeError("AI ส่งขนาดหรือชนิดข้อมูลของส่วนภาพไม่ตรงตามคำขอ")
                 if refine_edges:
-                    # Padded context keeps local edge filters consistent across
-                    # tile boundaries; cropping follows the refinement.
-                    enhanced = np.asarray(refine_sign_edges(Image.fromarray(enhanced, "RGB")))
+                    # Refine on the padded tile, then crop so boundaries do
+                    # not introduce separate sharpening lines or gaps.
+                    padded = Image.fromarray(enhanced, "RGB")
+                    if protected_regions:
+                        # Source-normalized face ROIs map into each padded tile's
+                        # own image coordinates. Avoid touching restored faces.
+                        tile_faces = tuple(
+                            ((x1 * width - left) / (right - left),
+                             (y1 * height - top) / (bottom - top),
+                             (x2 * width - left) / (right - left),
+                             (y2 * height - top) / (bottom - top))
+                            for x1, y1, x2, y2 in protected_regions
+                            if x2 * width > left and x1 * width < right
+                            and y2 * height > top and y1 * height < bottom
+                        )
+                        padded = refine_sign_edges(
+                            padded, protected_regions=tile_faces
+                        ) if tile_faces else refine_sign_edges(padded)
+                    else:
+                        padded = refine_sign_edges(padded)
+                    enhanced = np.asarray(padded)
                 offset_x, offset_y = (x - left) * scale, (y - top) * scale
                 storage_tile = np.zeros((tile_height,tile_width,3),dtype="uint8")
                 storage_tile[:(y2-y)*scale, :(x2-x)*scale] = enhanced[
@@ -434,7 +453,10 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
                                   10 + round(72 * index / len(passes)),
                                   10 + round(72 * (index + 1) / len(passes)),
                                   refine_edges=(index == len(passes) - 1 and
-                                                not settings.face_protection))
+                                                (not settings.face_protection or
+                                                 bool(settings.face_regions))),
+                                  protected_regions=(settings.face_regions
+                                                     if settings.face_protection else None))
             if current != source_raw:
                 current.unlink()
             current = next_raw

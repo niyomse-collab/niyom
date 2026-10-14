@@ -263,10 +263,25 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
-        if use_ai and model_scale > 1 and not face_info["applied"]:
-            if progress:
-                progress(96, "Refine Text / Graphic Edges")
-            output = refine_sign_edges(output)
+        if use_ai and model_scale > 1:
+            if not face_info["applied"]:
+                if progress:
+                    progress(96, "Refine Text / Graphic Edges")
+                output = refine_sign_edges(output)
+            elif settings.face_regions:
+                # A selected and restored face should not disable lettering
+                # cleanup in the rest of a mixed photo/sign composition.
+                # The confirmed face area and a safety margin stay pixel-identical.
+                from .face_module.detection import map_regions
+                protected = map_regions(
+                    settings.face_regions, source_size, target_size,
+                    settings.resize_mode
+                )
+                if progress:
+                    progress(96, "Refine Graphics / Preserve Selected Faces")
+                output = refine_sign_edges(output, protected_regions=protected)
+            # No confirmed face coordinates? Prefer preserving the portrait
+            # over guessing a bounding box from the post-restoration pixels.
 
         if progress:
             progress(96, "Save Output")
