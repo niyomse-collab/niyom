@@ -11,6 +11,7 @@ from PIL import Image, ImageOps
 from .independent_core import EngineManager, model_path
 from .processing import EnhanceSettings, print_pixels, save_image
 from .face_module import FaceProtectionModule
+from .v2_graphic_edges import refine_sign_edges
 
 ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
@@ -251,6 +252,13 @@ class NiyomSilpCoreAdapter:
 
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
+
+        # Automatic, conservative lettering cleanup for v2 AI jobs only.
+        # RGBA alpha is carried through unchanged by the refinement module.
+        if use_ai and model_scale > 1 and not face_info["applied"]:
+            if progress:
+                progress(96, "Refine Text / Graphic Edges")
+            output = refine_sign_edges(output)
 
         if progress:
             progress(96, "Save Output")
