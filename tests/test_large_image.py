@@ -391,3 +391,40 @@ def test_large_master_dispatches_before_pillow_alpha_read(adapter, monkeypatch, 
     result = adapter.process(src, dst, EnhanceSettings(ai_scale=1), use_ai=False)
     assert result["processing_mode"] == "disk_tiles"
     assert calls == [(src, dst, (20_000, 10_000), (20_000, 10_000), 1)]
+
+
+def test_tiled_graphic_refinement_receives_selected_face_roi(monkeypatch, tmp_path):
+    """Each padded AI tile maps confirmed face regions into its own canvas."""
+    from signprint_ai import v2_graphic_edges
+
+    image = np.zeros((24, 24, 3), dtype=np.uint8)
+    image[:] = (240, 215, 160)
+    image[5:20, 4:20] = (27, 48, 125)
+    src, dst = tmp_path / "graphics_src.tif", tmp_path / "graphics_4x.tif"
+    Image.fromarray(image, "RGB").save(src)
+
+    def scale_tile(tile, scale, cancel):
+        return np.repeat(np.repeat(tile, scale, axis=0), scale, axis=1)
+
+    engine = SimpleNamespace(
+        upsampler=SimpleNamespace(tile_size=12, tile_pad=6),
+        enhance_tile=scale_tile,
+    )
+    seen = []
+    real_refine = v2_graphic_edges.refine_sign_edges
+
+    def record(tile, protected_regions=None):
+        seen.append(protected_regions)
+        return real_refine(tile, protected_regions=protected_regions)
+
+    monkeypatch.setattr(v2_graphic_edges, "refine_sign_edges", record)
+    result = large_image.upscale_raster(
+        src, dst, (24, 24), 4, engine, None, None, 0, 100,
+        refine_edges=True, protected_regions=((0.25, 0.25, 0.75, 0.75),),
+    )
+    assert result == (96, 96)
+    assert len(seen) == 4 and all(r is not None for r in seen)
+    with Image.open(dst) as exported:
+        assert exported.size == result
+        # Normalized selected face center is preserved as real source content.
+        assert exported.getpixel((48, 48)) == (27, 48, 125)
