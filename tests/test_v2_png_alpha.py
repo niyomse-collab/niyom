@@ -102,9 +102,9 @@ def test_v2_contain_resize_keeps_transparent_padding(tmp_path: Path):
 
     settings = EnhanceSettings()
     settings.ai_scale = 1
-    settings.print_width = 40
-    settings.print_height = 40
-    settings.print_unit = "px"
+    settings.print_width = 40 / 72
+    settings.print_height = 40 / 72
+    settings.print_unit = "in"
     settings.dpi = 72
     settings.resize_mode = "contain"
     adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
