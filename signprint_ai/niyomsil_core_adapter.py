@@ -78,6 +78,9 @@ class NiyomSilpCoreAdapter:
 
         with Image.open(src) as im:
             source_size = im.size
+            oriented = ImageOps.exif_transpose(im)
+            has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
+            source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
 
         if settings.print_width and settings.print_height:
             target_size = print_pixels(
@@ -158,6 +161,13 @@ class NiyomSilpCoreAdapter:
                 with Image.open(final_ai) as im:
                     output = im.convert("RGB").copy()
 
+        # The AI core works in RGB. Restore the original transparency as an
+        # independently resampled mask rather than inventing an opaque backdrop.
+        # This also preserves alpha when the core returns RGB-only PNG files.
+        if source_alpha is not None:
+            alpha = source_alpha.resize(output.size, Image.Resampling.LANCZOS)
+            output.putalpha(alpha)
+
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
@@ -199,6 +209,10 @@ class NiyomSilpCoreAdapter:
                     cancel=cancel,
                 )
                 output = protected
+                if source_alpha is not None:
+                    alpha = source_alpha.resize(output.size, Image.Resampling.LANCZOS)
+                    output = output.convert("RGBA")
+                    output.putalpha(alpha)
                 face_info = face_result.as_dict()
             except InterruptedError:
                 raise
@@ -224,7 +238,8 @@ class NiyomSilpCoreAdapter:
                     target_size,
                     method=Image.Resampling.LANCZOS,
                 )
-                canvas = Image.new("RGB", target_size, "white")
+                canvas = Image.new("RGBA" if source_alpha is not None else "RGB", target_size,
+                                   (0, 0, 0, 0) if source_alpha is not None else "white")
                 canvas.paste(
                     contained,
                     (
@@ -253,7 +268,7 @@ class NiyomSilpCoreAdapter:
             )
         else:
             save_image(
-                np.asarray(output),
+                np.asarray(output.convert("RGB")) if output.mode == "RGBA" and dst.suffix.lower() in (".jpg", ".jpeg", ".pdf") else np.asarray(output),
                 dst,
                 dpi=settings.dpi,
                 color_mode=settings.color_mode,
