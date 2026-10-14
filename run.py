@@ -7,8 +7,7 @@ from signprint_ai.app_v2 import main
 if __name__ == "__main__":
     if os.environ.get("NIYOMSIL_PACKAGE_SMOKE") == "1":
         from signprint_ai.package_smoke import run
-        run(os.environ["NIYOMSIL_SMOKE_OUTPUT"])
-        raise SystemExit(0)
+        raise SystemExit(run(os.environ["NIYOMSIL_SMOKE_OUTPUT"]))
     if os.environ.get("NIYOMSIL_UI_SMOKE") == "1":
         from signprint_ai.ui_smoke import run
         run()
