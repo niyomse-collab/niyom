@@ -13,6 +13,7 @@ from .independent_core import EngineManager, model_path
 from .processing import EnhanceSettings, print_pixels, save_image
 from .large_image import image_size, needs_streaming, parse_scale, process_large, validate_export
 from .face_module import FaceProtectionModule
+from .v2_graphic_edges import refine_sign_edges
 
 ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
@@ -169,6 +170,9 @@ class NiyomSilpCoreAdapter:
                 with Image.open(final_ai) as im:
                     output = im.convert("RGB").copy()
 
+        if source_alpha is not None:
+            output.putalpha(source_alpha.resize(output.size, Image.Resampling.LANCZOS))
+
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
@@ -210,6 +214,9 @@ class NiyomSilpCoreAdapter:
                     cancel=cancel,
                 )
                 output = protected
+                if source_alpha is not None:
+                    output = output.convert("RGBA")
+                    output.putalpha(source_alpha.resize(output.size, Image.Resampling.LANCZOS))
                 face_info = face_result.as_dict()
             except InterruptedError:
                 raise
@@ -235,7 +242,8 @@ class NiyomSilpCoreAdapter:
                     target_size,
                     method=Image.Resampling.LANCZOS,
                 )
-                canvas = Image.new("RGB", target_size, "white")
+                canvas = Image.new("RGBA" if source_alpha is not None else "RGB", target_size,
+                                   (0, 0, 0, 0) if source_alpha is not None else "white")
                 canvas.paste(
                     contained,
                     (
@@ -247,6 +255,11 @@ class NiyomSilpCoreAdapter:
 
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
+
+        if use_ai and model_scale > 1 and not face_info["applied"]:
+            if progress:
+                progress(96, "Refine Text / Graphic Edges")
+            output = refine_sign_edges(output)
 
         if progress:
             progress(96, "Save Output")
@@ -263,8 +276,14 @@ class NiyomSilpCoreAdapter:
                 compress_level=3,
             )
         else:
+            if output.mode == "RGBA" and dst.suffix.lower() in (".jpg", ".jpeg", ".pdf"):
+                flattened = Image.new("RGB", output.size, "white")
+                flattened.paste(output, mask=output.getchannel("A"))
+                export_pixels = np.asarray(flattened)
+            else:
+                export_pixels = np.asarray(output)
             save_image(
-                np.asarray(output),
+                export_pixels,
                 dst,
                 dpi=settings.dpi,
                 color_mode=settings.color_mode,
