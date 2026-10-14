@@ -326,3 +326,44 @@ def test_streamed_png_rgba_after_mock_tiled_ai(adapter, monkeypatch, tmp_path):
         assert exported.size == (76, 52)
         assert exported.getchannel("A").getpixel((0, 0)) == 0
         assert exported.getchannel("A").getpixel((38, 26)) == 255
+
+
+def test_streamed_ai_refines_padded_tiles_and_keeps_original_alpha(adapter, monkeypatch, tmp_path):
+    """The v2 edge pass runs for disk tiles, without changing PNG transparency."""
+    from signprint_ai import v2_graphic_edges
+
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    src, dst = tmp_path / "lettering.png", tmp_path / "refined.png"
+    pixels = np.zeros((72, 72, 4), dtype=np.uint8)
+    pixels[:, :, :3] = (210, 20, 55)
+    pixels[20:52, 20:52, 3] = 255
+    Image.fromarray(pixels, "RGBA").save(src)
+
+    def enhance_tile(tile, amount, cancel):
+        return np.repeat(np.repeat(tile, amount, axis=0), amount, axis=1)
+
+    engine = SimpleNamespace(
+        upsampler=SimpleNamespace(tile_size=24, tile_pad=5),
+        enhance_tile=enhance_tile, device_name=lambda: "CPU")
+    adapter.engine_manager.create_engine = lambda device: engine
+
+    calls = []
+
+    def marked_refinement(image):
+        calls.append(image.size)
+        array = np.asarray(image).copy()
+        array[:, :, 0] = np.minimum(255, array[:, :, 0].astype(np.uint16) + 1)
+        return Image.fromarray(array.astype(np.uint8), "RGB")
+
+    monkeypatch.setattr(v2_graphic_edges, "refine_sign_edges", marked_refinement)
+    result = adapter.process(src, dst, EnhanceSettings(ai_scale=4))
+    assert result["processing_mode"] == "disk_tiles"
+    assert len(calls) == 9
+    # Padded context is included before cropped regions are stitched.
+    assert all(w >= 96 and h >= 96 for w, h in calls)
+    with Image.open(dst) as exported:
+        assert exported.mode == "RGBA"
+        assert exported.size == (288, 288)
+        assert exported.getpixel((144, 144)) == (211, 20, 55, 255)
+        assert exported.getchannel("A").getpixel((0, 0)) == 0
+        assert exported.getchannel("A").getpixel((144, 144)) == 255
