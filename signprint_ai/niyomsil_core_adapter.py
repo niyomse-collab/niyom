@@ -80,12 +80,6 @@ class NiyomSilpCoreAdapter:
             raise InterruptedError("Processing stopped by user")
 
         source_size = image_size(src)
-        # Preserve source transparency independently of the RGB-only AI engine.
-        with Image.open(src) as source_image:
-            oriented = ImageOps.exif_transpose(source_image)
-            has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
-            source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
-
         if settings.print_width is not None or settings.print_height is not None:
             if (settings.print_width is None or settings.print_height is None or
                     not all(math.isfinite(n) and n > 0 for n in
@@ -117,6 +111,14 @@ class NiyomSilpCoreAdapter:
         if needs_streaming(source_size, target_size, model_scale if use_ai else 1):
             return process_large(self, src, dst, settings, source_size, target_size,
                                  model_scale, progress, cancel, use_ai)
+
+        # Only small images reach Pillow. Large masters must use libvips for
+        # RGB and alpha, without allocating a full RGBA canvas or triggering
+        # Pillow's decompression-bomb guard on legitimate print files.
+        with Image.open(src) as source_image:
+            oriented = ImageOps.exif_transpose(source_image)
+            has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
+            source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
 
         if progress:
             progress(2, "Prepare / Analyze")

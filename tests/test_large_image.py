@@ -367,3 +367,27 @@ def test_streamed_ai_refines_padded_tiles_and_keeps_original_alpha(adapter, monk
         assert exported.getpixel((144, 144)) == (211, 20, 55, 255)
         assert exported.getchannel("A").getpixel((0, 0)) == 0
         assert exported.getchannel("A").getpixel((144, 144)) == 255
+
+
+def test_large_master_dispatches_before_pillow_alpha_read(adapter, monkeypatch, tmp_path):
+    """An approved 200 MP print master must stream before Pillow opens alpha."""
+    from signprint_ai import niyomsil_core_adapter as core
+
+    src, dst = tmp_path / "huge.png", tmp_path / "processed.png"
+    src.write_bytes(b"large-image-handled-by-streaming")
+    monkeypatch.setattr(core, "image_size", lambda path: (20_000, 10_000))
+    calls = []
+
+    def forbidden_pillow_open(*args, **kwargs):
+        raise Image.DecompressionBombError("200 MP must not reach Pillow")
+
+    def streamed(adapter_arg, source, output, settings, source_size,
+                 target_size, model_scale, progress, cancel, use_ai):
+        calls.append((source, output, source_size, target_size, model_scale))
+        return {"processing_mode": "disk_tiles", "output_size": target_size}
+
+    monkeypatch.setattr(core.Image, "open", forbidden_pillow_open)
+    monkeypatch.setattr(core, "process_large", streamed)
+    result = adapter.process(src, dst, EnhanceSettings(ai_scale=1), use_ai=False)
+    assert result["processing_mode"] == "disk_tiles"
+    assert calls == [(src, dst, (20_000, 10_000), (20_000, 10_000), 1)]

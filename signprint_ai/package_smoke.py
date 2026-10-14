@@ -18,8 +18,12 @@ def run(output_dir):
         report = _run(folder)
         (folder / "package-smoke.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     except Exception:
+        # This is a windowed PyInstaller EXE (console=False). Re-raising here
+        # may display a modal error dialog and keep the runner alive until the
+        # 20-minute watchdog fires. Persist the traceback and exit nonzero.
         (folder / "package-smoke-error.txt").write_text(traceback.format_exc(), encoding="utf-8")
-        raise
+        return 1
+    return 0
 
 
 def _run(folder):
