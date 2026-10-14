@@ -273,7 +273,7 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi):
     return target
 
 
-def resize_image(image, size, mode="fit"):
+def resize_image(image, size, mode="fit", background=None):
     width, height = size
     if (image.width, image.height) == size:
         return image
@@ -291,7 +291,7 @@ def resize_image(image, size, mode="fit"):
         raise RuntimeError("ส่วนปรับขนาดส่งจำนวนพิกเซลไม่ตรงตามคำขอ")
     if contained != size:
         image = image.embed((width - contained[0]) // 2, (height - contained[1]) // 2,
-                            width, height, extend="background", background=[255, 255, 255])
+                            width, height, extend="background", background=(background if background is not None else [255] * image.bands))
     return image
 
 
@@ -439,6 +439,15 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
             image, face_info = apply_faces(adapter, image, read_raster(source_raw, image_size(src)),
                                            settings, folder, progress, cancel)
         image = resize_image(image, target_size, settings.resize_mode)
+        # The tiled AI engine stores RGB only. Stream the original alpha mask
+        # independently at final resolution, including transparent fit margins.
+        if dst.suffix.lower() == ".png":
+            source = open_vips(src, access="random")
+            if source.hasalpha():
+                alpha = source.extract_band(source.bands - 1).cast("uchar")
+                alpha = resize_image(alpha, target_size, settings.resize_mode,
+                                     background=[0])
+                image = image.bandjoin(alpha).copy(interpretation="srgb")
         export_image(image, dst, settings, progress, cancel)
         return face_info
     finally:
