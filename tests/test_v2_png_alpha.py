@@ -44,7 +44,7 @@ def test_v2_adapter_keeps_alpha_without_ai(tmp_path: Path):
     rgba.putpixel((3, 3), (220, 60, 30, 90))
     rgba.save(src)
 
-    adapter = NiyomSilpCoreAdapter()
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
     settings = EnhanceSettings()
     settings.ai_scale = 1
     adapter.process(src, dst, settings, use_ai=False)
@@ -73,8 +73,12 @@ def test_v2_adapter_keeps_alpha_with_mock_ai_2x_and_4x(tmp_path: Path):
         def device_name(self):
             return "test"
 
-    adapter = NiyomSilpCoreAdapter()
-    adapter.engine_manager.create_engine = lambda device: FakeEngine()
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    class FakeManager:
+        engine = None
+        def create_engine(self, device):
+            return FakeEngine()
+    adapter.engine_manager = FakeManager()
     for scale in (2, 4):
         dst = tmp_path / f"result_{scale}x.png"
         settings = EnhanceSettings()
