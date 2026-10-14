@@ -80,6 +80,11 @@ class NiyomSilpCoreAdapter:
             raise InterruptedError("Processing stopped by user")
 
         source_size = image_size(src)
+        # Preserve source transparency independently of the RGB-only AI engine.
+        with Image.open(src) as source_image:
+            oriented = ImageOps.exif_transpose(source_image)
+            has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
+            source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
 
         if settings.print_width is not None or settings.print_height is not None:
             if (settings.print_width is None or settings.print_height is None or
