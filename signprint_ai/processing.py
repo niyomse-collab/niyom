@@ -12,6 +12,9 @@ from PIL import Image, ImageCms
 ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
 
+MAX_PRINT_SIDE_PIXELS = 120_000
+MAX_PRINT_TOTAL_PIXELS = 450_000_000
+
 
 @dataclass
 class EnhanceSettings:
@@ -73,6 +76,24 @@ def print_pixels(width: float, height: float, unit: str, dpi: int) -> Tuple[int,
         max(1, round(unit_to_inches(width, unit) * dpi)),
         max(1, round(unit_to_inches(height, unit) * dpi)),
     )
+
+
+def validate_print_target(target: Tuple[int, int]) -> None:
+    """Guard against accidental raster sizes while allowing long vinyl banners."""
+    width, height = target
+    if width <= 0 or height <= 0:
+        raise ValueError("Print target pixels must be positive")
+    if width > MAX_PRINT_SIDE_PIXELS or height > MAX_PRINT_SIDE_PIXELS:
+        raise ValueError(
+            f"ขนาดด้านใดด้านหนึ่งเกิน {MAX_PRINT_SIDE_PIXELS:,} px "
+            "กรุณาลด DPI หรือแบ่งงานเป็นหลายช่วง"
+        )
+    total = width * height
+    if total > MAX_PRINT_TOTAL_PIXELS:
+        raise ValueError(
+            f"จำนวนพิกเซลรวมเกิน {MAX_PRINT_TOTAL_PIXELS:,} px "
+            "กรุณาลด DPI หรือแบ่งงานเป็นหลายช่วงเพื่อเลี่ยง RAM ไม่พอ"
+        )
 
 
 def _edge_map(rgb: np.ndarray) -> np.ndarray:

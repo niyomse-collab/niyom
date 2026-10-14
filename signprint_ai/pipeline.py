@@ -14,6 +14,7 @@ from .processing import (
     load_image,
     print_pixels,
     save_image,
+    validate_print_target,
 )
 from .realesrgan_ncnn import RealESRGANNCNN
 
@@ -68,10 +69,7 @@ class PrintEnhancementPipeline:
         target = None
         if settings.print_width and settings.print_height:
             target = print_pixels(settings.print_width, settings.print_height, settings.print_unit, settings.dpi)
-            # Guardrail for accidental enormous allocations; banners can still be
-            # large, but 60k px on a side is beyond practical single-image RAM use.
-            if target[0] > 60000 or target[1] > 60000:
-                raise ValueError("ขนาดพิกเซลปลายทางเกิน 60,000 px ต่อด้าน กรุณาลด DPI หรือขนาดงาน")
+            validate_print_target(target)
             if progress:
                 progress(82, f"ปรับขนาดปลายทาง {target[0]:,} × {target[1]:,} px")
             rgb = final_resize(rgb, target)

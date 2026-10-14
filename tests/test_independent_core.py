@@ -78,6 +78,20 @@ def test_hook_cleanup_on_inference_failure(monkeypatch, tmp_path):
     assert state.removed and not dst.exists()
 
 
+@pytest.mark.parametrize('fail', [False, True])
+def test_bounded_tile_releases_device_tensors_and_restores_tiling(monkeypatch, fail):
+    engine, state = fake_engine(monkeypatch, fail=fail)
+    pixels = np.full((3,4,3),121,dtype=np.uint8)
+    if fail:
+        with pytest.raises(RuntimeError,match='inference failed'):
+            engine.enhance_tile(pixels,4)
+    else:
+        result = engine.enhance_tile(pixels,4)
+        assert result.shape == (12,16,3) and (result == 121).all()
+    assert state.removed and engine.upsampler.tile_size == 128
+    assert engine.upsampler.img is None and engine.upsampler.output is None
+
+
 def test_adapter_passes_and_unfiltered_export(monkeypatch, tmp_path):
     from signprint_ai import independent_core
     monkeypatch.setattr(independent_core, 'DeviceManager', lambda: SimpleNamespace(
@@ -159,6 +173,13 @@ def test_print_size_export_respects_resize_mode(monkeypatch, tmp_path, target, m
         assert output.size == target
         assert output.getpixel((target[0]//2, target[1]//2)) == color
         assert output.getpixel((0, 0)) == (color if mode == 'stretch' else (255, 255, 255))
+
+
+def test_v2_accepts_targets_above_old_pixel_ceilings():
+    from signprint_ai.large_image import validate_target_size, needs_streaming
+    target = (165354, 11811)
+    validate_target_size(target)
+    assert needs_streaming((1200, 800), target)
 
 
 def test_ui_transmits_lock_state_without_changing_ratio_sync():

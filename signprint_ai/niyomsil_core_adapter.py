@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import math
 import tempfile
 from pathlib import Path
 from typing import Callable, Optional
@@ -10,7 +11,9 @@ from PIL import Image, ImageOps
 
 from .independent_core import EngineManager, model_path
 from .processing import EnhanceSettings, print_pixels, save_image
+from .large_image import image_size, needs_streaming, parse_scale, process_large, validate_export
 from .face_module import FaceProtectionModule
+from .v2_graphic_edges import refine_sign_edges
 
 ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
@@ -76,30 +79,46 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
-        with Image.open(src) as im:
-            source_size = im.size
-
-        if settings.print_width and settings.print_height:
-            target_size = print_pixels(
-                settings.print_width,
-                settings.print_height,
-                settings.print_unit,
-                settings.dpi,
-            )
+        source_size = image_size(src)
+        if settings.print_width is not None or settings.print_height is not None:
+            if (settings.print_width is None or settings.print_height is None or
+                    not all(math.isfinite(n) and n > 0 for n in
+                            (settings.print_width, settings.print_height, settings.dpi))):
+                raise ValueError("กรุณาใส่ความกว้าง ความสูง และ DPI เป็นค่าบวกที่มีขอบเขต")
+            try:
+                target_size = print_pixels(
+                    settings.print_width,
+                    settings.print_height,
+                    settings.print_unit,
+                    settings.dpi,
+                )
+            except OverflowError as exc:
+                raise ValueError("ขนาดงานเกินช่วงตัวเลขที่ระบบไฟล์ภาพรองรับ") from exc
             model_scale = self._model_scale_for_dimensions(
                 source_size[0], source_size[1], target_size
             )
         else:
-            model_scale = int(settings.ai_scale)
+            requested_scale = parse_scale(settings.ai_scale)
             target_size = (
-                source_size[0] * model_scale,
-                source_size[1] * model_scale,
+                source_size[0] * requested_scale,
+                source_size[1] * requested_scale,
             )
+            model_scale = (1 if requested_scale == 1 else
+                           self._model_scale_for_dimensions(*source_size, target_size))
 
-        if max(target_size) > 30000:
-            raise ValueError(
-                "ขนาดด้านใดด้านหนึ่งเกิน 30,000 px ตามข้อจำกัดของ NiyomSilp Design Engine"
-            )
+        validate_export(dst, target_size, settings)
+
+        if needs_streaming(source_size, target_size, model_scale if use_ai else 1):
+            return process_large(self, src, dst, settings, source_size, target_size,
+                                 model_scale, progress, cancel, use_ai)
+
+        # Only small images reach Pillow. Large masters must use libvips for
+        # RGB and alpha, without allocating a full RGBA canvas or triggering
+        # Pillow's decompression-bomb guard on legitimate print files.
+        with Image.open(src) as source_image:
+            oriented = ImageOps.exif_transpose(source_image)
+            has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
+            source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
 
         if progress:
             progress(2, "Prepare / Analyze")
@@ -158,6 +177,9 @@ class NiyomSilpCoreAdapter:
                 with Image.open(final_ai) as im:
                     output = im.convert("RGB").copy()
 
+        if source_alpha is not None:
+            output.putalpha(source_alpha.resize(output.size, Image.Resampling.LANCZOS))
+
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
@@ -199,6 +221,9 @@ class NiyomSilpCoreAdapter:
                     cancel=cancel,
                 )
                 output = protected
+                if source_alpha is not None:
+                    output = output.convert("RGBA")
+                    output.putalpha(source_alpha.resize(output.size, Image.Resampling.LANCZOS))
                 face_info = face_result.as_dict()
             except InterruptedError:
                 raise
@@ -224,7 +249,8 @@ class NiyomSilpCoreAdapter:
                     target_size,
                     method=Image.Resampling.LANCZOS,
                 )
-                canvas = Image.new("RGB", target_size, "white")
+                canvas = Image.new("RGBA" if source_alpha is not None else "RGB", target_size,
+                                   (0, 0, 0, 0) if source_alpha is not None else "white")
                 canvas.paste(
                     contained,
                     (
@@ -236,6 +262,26 @@ class NiyomSilpCoreAdapter:
 
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
+
+        if use_ai and model_scale > 1:
+            if not face_info["applied"]:
+                if progress:
+                    progress(96, "Refine Text / Graphic Edges")
+                output = refine_sign_edges(output)
+            elif settings.face_regions:
+                # A selected and restored face should not disable lettering
+                # cleanup in the rest of a mixed photo/sign composition.
+                # The confirmed face area and a safety margin stay pixel-identical.
+                from .face_module.detection import map_regions
+                protected = map_regions(
+                    settings.face_regions, source_size, target_size,
+                    settings.resize_mode
+                )
+                if progress:
+                    progress(96, "Refine Graphics / Preserve Selected Faces")
+                output = refine_sign_edges(output, protected_regions=protected)
+            # No confirmed face coordinates? Prefer preserving the portrait
+            # over guessing a bounding box from the post-restoration pixels.
 
         if progress:
             progress(96, "Save Output")
@@ -252,8 +298,14 @@ class NiyomSilpCoreAdapter:
                 compress_level=3,
             )
         else:
+            if output.mode == "RGBA" and dst.suffix.lower() in (".jpg", ".jpeg", ".pdf"):
+                flattened = Image.new("RGB", output.size, "white")
+                flattened.paste(output, mask=output.getchannel("A"))
+                export_pixels = np.asarray(flattened)
+            else:
+                export_pixels = np.asarray(output)
             save_image(
-                np.asarray(output),
+                export_pixels,
                 dst,
                 dpi=settings.dpi,
                 color_mode=settings.color_mode,
@@ -279,6 +331,8 @@ class NiyomSilpCoreAdapter:
             "output_size": output.size,
             "ai_available": True,
             "ai_scale": model_scale,
+            "requested_ai_scale": settings.ai_scale,
+            "processing_mode": "memory",
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",

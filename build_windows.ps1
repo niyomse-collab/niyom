@@ -1,9 +1,35 @@
 param(
-    [switch]$SkipInstaller
+    [switch]$SkipInstaller,
+    [ValidateSet("v1", "v2")]
+    [string]$Channel = "v1",
+    [ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+(?:-beta\.[0-9]+)?$')]
+    [string]$Version = "1.0.1"
 )
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
+
+# Never clean or replace files from a previously built/approved V1 checkout.
+# V2 should be built in an independent clean workspace. Check BEFORE venv,
+# metadata, model downloads or any build/release folder deletion.
+if ($Channel -eq "v2") {
+    $v1ReleaseFiles = @(Get-ChildItem ".\\release\\NiyomSilp-Design-v1-*" -File -ErrorAction SilentlyContinue)
+    $v1Proof = ".\\dist\\NiyomsilAIEnhancer\\ARM_CORE_BUILD_PROOF.txt"
+    $v1Metadata = ".\\build_info.json"
+    $v1MetadataPresent = $false
+    if (Test-Path $v1Metadata) {
+        try {
+            $priorBuildInfo = Get-Content $v1Metadata -Raw | ConvertFrom-Json
+            $v1MetadataPresent = ($priorBuildInfo.channel -eq "v1")
+        } catch {
+            # Unknown metadata must not be deleted by an unrelated V2 build.
+            throw "V2 build refused: pre-existing build_info.json cannot be verified. Use a clean V2 checkout."
+        }
+    }
+    if ($v1ReleaseFiles.Count -gt 0 -or (Test-Path $v1Proof) -or $v1MetadataPresent) {
+        throw "V2 build refused: V1 build files found in this workspace. Build V2 in a separate clean checkout so V1 remains untouched."
+    }
+}
 
 $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
 if (-not $pythonCmd) {
@@ -25,6 +51,14 @@ if (Test-Path ".venv-build") {
 if ($LASTEXITCODE -ne 0) { throw "Could not create build venv" }
 
 $py = ".\.venv-build\Scripts\python.exe"
+
+if ($Channel -eq "v2" -and $Version -eq "1.0.1") { $Version = "2.0.0-beta.1" }
+$sourceCommit = (& git rev-parse HEAD).Trim()
+@{ channel = $Channel; version = $Version; source_commit = $sourceCommit } |
+    ConvertTo-Json | Set-Content ".\build_info.json" -Encoding utf8
+$proofName = if ($Channel -eq "v2") { "BUILD_PROOF.txt" } else { "ARM_CORE_BUILD_PROOF.txt" }
+$installerScript = if ($Channel -eq "v2") { ".\installer_v2.iss" } else { ".\installer.iss" }
+$installerName = if ($Channel -eq "v2") { "NiyomSilp-Design-v2-Setup.exe" } else { "NiyomSilp-Design-v1-Setup.exe" }
 
 & $py -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
@@ -123,11 +157,13 @@ if ($packedRetinaHash -ne $expectedRetinaHash) {
 }
 
 @"
-NIYOMSIL DESIGN v1 - VERIFIED INSTALLER BUILD PROOF
+NIYOMSIL DESIGN $Channel - VERIFIED INSTALLER BUILD PROOF
+Version: $Version
+Source commit: $sourceCommit
 
 UI:
 - signprint_ai/app_v2.py
-- Black/Red NiyomSilp Design v1 interface
+- Black/Red NiyomSilp Design $Channel interface
 
 AI processing core:
 - signprint_ai/independent_core.py
@@ -162,7 +198,7 @@ Important:
 - When enabled, GFPGAN/RetinaFace runs only as a post-ARM face layer.
 - If Face Protect fails, the ARM result is preserved.
 - CMYK/ICC conversion is export-only.
-"@ | Set-Content ".\dist\NiyomsilAIEnhancer\ARM_CORE_BUILD_PROOF.txt" -Encoding utf8
+"@ | Set-Content ".\dist\NiyomsilAIEnhancer\$proofName" -Encoding utf8
 
 Get-Item $exe | Format-List FullName,Length
 Get-Item $packedModel | Format-List FullName,Length
@@ -182,22 +218,33 @@ if (-not $SkipInstaller) {
     }
 
     Write-Host "Building Windows installer..."
-    & $iscc ".\installer.iss"
+    if ($Channel -eq "v2") {
+        & $iscc "/DMyAppVersion=$Version" $installerScript
+    } else {
+        & $iscc $installerScript
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Inno Setup compilation failed with exit code $LASTEXITCODE"
     }
 
-    $installer = ".\release\NiyomSilp-Design-v1-Setup.exe"
+    $installer = ".\release\$installerName"
     if (-not (Test-Path $installer)) {
         throw "Installer compile reported success but the expected EXE is missing."
     }
 
     $installerHash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
-    "$installerHash  NiyomSilp-Design-v1-Setup.exe" |
-        Set-Content ".\release\NiyomSilp-Design-v1-Setup.exe.sha256.txt" -Encoding ascii
+    "$installerHash  $installerName" |
+        Set-Content ".\release\$installerName.sha256.txt" -Encoding ascii
+
+    if ($Channel -eq "v2") {
+        Get-ChildItem ".\release\NiyomSilp-Design-v2-Setup*" -File |
+            Where-Object { $_.Extension -in ".exe", ".bin" } |
+            ForEach-Object { "$((Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower())  $($_.Name)" } |
+            Set-Content ".\release\SHA256SUMS.txt" -Encoding ascii
+    }
 
     Get-Item $installer | Format-List FullName,Length
     Write-Host "Installer SHA256: $installerHash"
 }
 
-Write-Host "NIYOMSIL DESIGN v1 BUILD COMPLETE"
+Write-Host "NIYOMSIL DESIGN $Channel BUILD COMPLETE"

@@ -1,0 +1,430 @@
+"""Behavioral checks for exact-size V2 disk processing and failure cleanup."""
+from types import SimpleNamespace
+
+import cv2
+import numpy as np
+import pytest
+from PIL import Image
+from pypdf import PdfReader
+
+from signprint_ai import independent_core, large_image
+from signprint_ai.independent_core import DeviceInfo
+from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
+from signprint_ai.processing import EnhanceSettings, print_pixels
+from signprint_ai.preview_viewport import PreviewViewport
+
+
+@pytest.fixture
+def adapter(monkeypatch):
+    monkeypatch.setattr(independent_core, "DeviceManager", lambda: SimpleNamespace(
+        get_default_device=lambda: DeviceInfo("cpu", "CPU", "CPU")))
+    return NiyomSilpCoreAdapter()
+
+
+def source_file(tmp_path):
+    pixels = np.arange(19*13*3, dtype="uint16").reshape(13, 19, 3).astype("uint8")
+    path = tmp_path / "source.png"
+    Image.fromarray(pixels).save(path)
+    return path, pixels
+
+
+def settings_for(size, mode="stretch", dpi=300):
+    return EnhanceSettings(print_width=size[0]/dpi, print_height=size[1]/dpi,
+                           print_unit="inch", dpi=dpi, resize_mode=mode)
+
+
+@pytest.mark.parametrize("size", [(700, 100), (1400, 300), (5000, 1500)])
+def test_large_print_requests_are_accepted_without_clamping(size):
+    target = print_pixels(*size, "cm", 300)
+    large_image.validate_target_size(target)
+    assert large_image.needs_streaming((1000, 600), target)
+
+
+@pytest.mark.parametrize("value,expected", [("16x",16), ("32X",32), (" 128 ",128), (1,1)])
+def test_custom_scale(value, expected):
+    assert large_image.parse_scale(value) == expected
+
+
+def test_large_output_summary_preserves_exact_pixels_and_reports_disk_mode():
+    # Exceeds the former 450-million-pixel V1 cap; never lower the request.
+    target = (82_677, 11_811)
+    text = large_image.output_size_summary((1_000, 600), target, model_scale=8)
+    assert "82,677 × 11,811 px" in text
+    assert "976.5 MP" in text
+    assert "แบ่งส่วนประมวลผลบนดิสก์" in text
+    assert "RGB ดิบประมาณ" in text
+
+
+def test_custom_32x_output_size_is_not_capped():
+    original = (5_000, 2_000)
+    scale = large_image.parse_scale("32x")
+    target = original[0] * scale, original[1] * scale
+    label = large_image.output_size_summary(original, target, model_scale=8)
+    assert "160,000 × 64,000 px" in label
+    assert large_image.needs_streaming(original, target, 8)
+
+
+@pytest.mark.parametrize("value", ["0x", "-3", "NaN", "inf", "3.5", ""])
+def test_invalid_scale_is_reported(value):
+    with pytest.raises(ValueError):
+        large_image.parse_scale(value)
+
+
+@pytest.mark.parametrize("suffix", [".png", ".tif", ".jpg", ".pdf"])
+@pytest.mark.parametrize("mode", ["fit", "stretch"])
+def test_streamed_output_dimensions_dpi_and_border_color(adapter, monkeypatch, tmp_path, suffix, mode):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    src, dst = tmp_path/"in.png", tmp_path/("out"+suffix)
+    color = (41, 123, 207)
+    Image.new("RGB", (60, 40), color).save(src)
+    target = (200, 70)
+    result = adapter.process(src, dst, settings_for(target, mode), use_ai=False)
+    assert result["output_size"] == target and result["processing_mode"] == "disk_tiles"
+    if suffix == ".pdf":
+        page = PdfReader(dst).pages[0]
+        assert float(page.mediabox.width)*page.get("/UserUnit",1) == pytest.approx(target[0]*72/300)
+        image = page.images[0].image
+    else:
+        image = Image.open(dst)
+        assert image.info["dpi"] == pytest.approx((300,300), abs=.03)
+    assert image.size == target
+    center = image.convert("RGB").getpixel((100,35))
+    assert max(abs(a-b) for a,b in zip(center,color)) <= (3 if suffix == ".jpg" else 0)
+    edge = image.convert("RGB").getpixel((0,0))
+    expected = color if mode == "stretch" else (255,255,255)
+    assert max(abs(a-b) for a,b in zip(edge,expected)) <= (3 if suffix == ".jpg" else 0)
+    image.close()
+    assert not list(tmp_path.glob(".niyomsil*"))
+
+
+def test_wide_png_exceeds_old_side_ceiling(adapter, monkeypatch, tmp_path):
+    # This must exercise NiyomSilp V2, not the legacy V1 in-memory guard.
+    from signprint_ai import processing as legacy
+    def forbidden_v1_pixel_limit(*_args, **_kwargs):
+        raise AssertionError("V2 must not call the V1 pixel-count guard")
+    monkeypatch.setattr(legacy, "validate_print_target", forbidden_v1_pixel_limit)
+    src = tmp_path/"in.png"
+    Image.new("RGB", (20,20), (18,91,203)).save(src)
+    target = (130_001, 2)
+    result = adapter.process(src, tmp_path/"wide.png", settings_for(target), use_ai=False)
+    assert result["output_size"] == target
+    with Image.open(result["output"]) as output:
+        assert output.size == target and output.getpixel((130_000,1)) == (18,91,203)
+
+
+@pytest.mark.parametrize("scale", [2,4,8,16])
+def test_tiled_ai_keeps_passes_exact_size_and_bounded_tiles(adapter, monkeypatch, tmp_path, scale):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    src, pixels = source_file(tmp_path)
+    calls = []
+    def enhance_tile(tile, amount, cancel):
+        calls.append((amount,tile.shape))
+        return np.repeat(np.repeat(tile, amount, axis=0), amount, axis=1)
+    engine = SimpleNamespace(upsampler=SimpleNamespace(tile_size=8,tile_pad=3),
+                             enhance_tile=enhance_tile, device_name=lambda: "CPU")
+    adapter.engine_manager.create_engine = lambda device: engine
+    result = adapter.process(src, tmp_path/"ai.png", EnhanceSettings(ai_scale=scale))
+    assert result["output_size"] == (19*scale,13*scale)
+    assert result["requested_ai_scale"] == scale
+    assert {n for n,_ in calls} == ({4,2} if scale >= 8 else {scale})
+    assert max(max(shape[:2]) for _,shape in calls) <= 14
+    if scale <= 8:
+        with Image.open(result["output"]) as output:
+            np.testing.assert_array_equal(np.asarray(output), np.repeat(np.repeat(pixels,scale,axis=0),scale,axis=1))
+    assert not list(tmp_path.glob(".niyomsil*"))
+
+
+def test_tile_context_matches_whole_image_filter(tmp_path):
+    _, pixels = source_file(tmp_path)
+    src, dst = tmp_path/"src.tif", tmp_path/"out.tif"
+    Image.fromarray(pixels).save(src)
+    def enhance(tile, scale, cancel):
+        filtered = cv2.GaussianBlur(tile, (5,5), .9)
+        return np.repeat(np.repeat(filtered,scale,axis=0),scale,axis=1)
+    engine = SimpleNamespace(upsampler=SimpleNamespace(tile_size=8,tile_pad=3),enhance_tile=enhance)
+    size = large_image.upscale_raster(src,dst,(19,13),4,engine,None,None,0,100)
+    with Image.open(dst) as result:
+        actual = np.array(result)
+    expected = np.repeat(np.repeat(cv2.GaussianBlur(pixels,(5,5),.9),4,axis=0),4,axis=1)
+    np.testing.assert_array_equal(actual,expected)
+
+
+@pytest.mark.parametrize("exception", [InterruptedError("stop"), RuntimeError("inference failed")])
+def test_failed_ai_preserves_existing_output_and_cleans_temp(adapter, monkeypatch, tmp_path, exception):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    src,_ = source_file(tmp_path)
+    dst = tmp_path/"existing.png"
+    dst.write_bytes(b"original output")
+    def fail(*args):
+        raise exception
+    engine = SimpleNamespace(upsampler=SimpleNamespace(tile_size=8,tile_pad=3),enhance_tile=fail)
+    adapter.engine_manager.create_engine = lambda device: engine
+    with pytest.raises(type(exception)):
+        adapter.process(src,dst,EnhanceSettings(ai_scale=4))
+    assert dst.read_bytes() == b"original output"
+    assert not list(tmp_path.glob(".niyomsil*"))
+
+
+def test_export_cancellation_is_atomic(adapter, monkeypatch, tmp_path):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    src,_ = source_file(tmp_path)
+    dst = tmp_path/"existing.png"
+    dst.write_bytes(b"original output")
+    stopped = [False]
+    def progress(value, label):
+        if value >= 99:
+            stopped[0] = True
+    with pytest.raises(InterruptedError):
+        adapter.process(src,dst,settings_for((1000,700)),use_ai=False,
+                        progress=progress,cancel=lambda: stopped[0])
+    assert dst.read_bytes() == b"original output"
+    assert not list(tmp_path.glob(".niyomsil*"))
+
+
+def test_large_pdf_cancel_keeps_previous_output_and_cleans_temp(adapter, monkeypatch, tmp_path):
+    # Cancellation during tiled PDF export must not replace a shop's prior file.
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    src, _ = source_file(tmp_path)
+    dst = tmp_path / "previous.pdf"
+    dst.write_bytes(b"old PDF protected")
+    interrupted = [False]
+
+    def progress(value, label):
+        if value >= 99 and "PDF" in label:
+            interrupted[0] = True
+
+    with pytest.raises(InterruptedError):
+        adapter.process(src, dst, settings_for((512, 256)), use_ai=False,
+                        progress=progress, cancel=lambda: interrupted[0])
+    assert dst.read_bytes() == b"old PDF protected"
+    assert not list(tmp_path.glob(".niyomsil*"))
+
+
+def test_insufficient_disk_preserves_pixel_request(adapter, monkeypatch, tmp_path):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    monkeypatch.setattr(large_image.shutil,"disk_usage",lambda path: SimpleNamespace(free=0))
+    src,_ = source_file(tmp_path)
+    with pytest.raises(OSError, match="พื้นที่ดิสก์ไม่พอ"):
+        adapter.process(src,tmp_path/"out.png",settings_for((200,100)),use_ai=False)
+    assert not (tmp_path/"out.png").exists() and not list(tmp_path.glob(".niyomsil*"))
+
+
+def test_jpeg_format_limit_does_not_change_requested_size(adapter, tmp_path):
+    src,_ = source_file(tmp_path)
+    with pytest.raises(ValueError, match="PNG, TIFF หรือ PDF"):
+        adapter.process(src,tmp_path/"out.jpg",settings_for((80_000,2)),use_ai=False)
+    assert not (tmp_path/"out.jpg").exists()
+
+
+def test_bigtiff_is_valid_and_retains_dpi(adapter, monkeypatch, tmp_path):
+    monkeypatch.setattr(large_image,"IN_MEMORY_PIXELS",1)
+    monkeypatch.setattr(large_image,"TIFF_BIG_THRESHOLD_BYTES",1)
+    src,_ = source_file(tmp_path)
+    dst = tmp_path/"big.tif"
+    adapter.process(src,dst,settings_for((64,32)),use_ai=False)
+    assert dst.read_bytes()[:4] in (b"II+\x00",b"MM\x00+")
+    with Image.open(dst) as output:
+        assert output.size == (64,32) and output.info["dpi"] == (300,300)
+
+
+def test_pdf_tiles_reconstruct_exact_pixels_and_large_physical_page(tmp_path):
+    from signprint_ai.large_pdf import save_pdf
+    pixels = np.arange(2080*1100*3,dtype="uint32").reshape(1100,2080,3).astype("uint8")
+    image = large_image.vips().Image.new_from_memory(pixels.tobytes(),2080,1100,3,"uchar")
+    dst = tmp_path/"banner.pdf"
+    save_pdf(image,dst,dpi=1)
+    page = PdfReader(dst).pages[0]
+    assert page.get("/UserUnit") > 1
+    assert float(page.mediabox.width)*page["/UserUnit"] == pytest.approx(2080*72)
+    restored = np.empty_like(pixels)
+    count = 0
+    for y in range(0,1100,512):
+        for x in range(0,2080,1024):
+            tile = np.asarray(page.images[f"/Im{count}"].image)
+            restored[y:y+tile.shape[0],x:x+tile.shape[1]] = tile
+            count += 1
+    np.testing.assert_array_equal(restored,pixels)
+    assert count == 9 and page.get_contents().get_data().count(b" Do Q") == 9
+
+
+@pytest.mark.parametrize("view", ["fit","actual","zoom"])
+def test_lazy_viewport_keeps_real_dimensions_and_only_allocates_panel(monkeypatch,tmp_path,view):
+    monkeypatch.setattr(large_image,"IN_MEMORY_PIXELS",1)
+    src = tmp_path/"in.png"
+    Image.new("RGB",(1000,600),(13,81,207)).save(src)
+    source = large_image.preview_source(src)
+    assert isinstance(source,large_image.LazyPreviewSource) and source.size == (1000,600)
+    viewport = PreviewViewport()
+    if view == "actual":
+        viewport.one_to_one()
+    elif view == "zoom":
+        viewport.magnify(2)
+    output = viewport.render(source,(120,80))
+    assert output.size == (120,80) and output.getpixel((60,40)) == (13,81,207)
+
+
+def test_large_protect_uses_source_detail_without_full_face_canvas(adapter,monkeypatch,tmp_path):
+    monkeypatch.setattr(large_image,"IN_MEMORY_PIXELS",1)
+    src = tmp_path/"face.png"
+    Image.new("RGB",(20,20),(210,91,43)).save(src)
+    engine = SimpleNamespace(upsampler=SimpleNamespace(tile_size=8,tile_pad=3),
+        enhance_tile=lambda tile,scale,cancel: np.zeros((tile.shape[0]*scale,tile.shape[1]*scale,3),dtype="uint8"),
+        device_name=lambda: "CPU")
+    adapter.engine_manager.create_engine=lambda device: engine
+    result=adapter.process(src,tmp_path/"protected.png",EnhanceSettings(ai_scale=4,face_protection=True,
+                                               face_regions=((.2,.2,.6,.6),),face_mode="protect"))
+    assert result["face_protection"]["applied"] and result["face_protection"]["face_count"] == 1
+    with Image.open(result["output"]) as output:
+        assert output.getpixel((32,32)) == (210,91,43)
+        assert output.getpixel((72,72)) == (0,0,0)
+
+
+@pytest.mark.parametrize("width,height,dpi", [(float("nan"),10,300),(10,float("inf"),300),(0,10,300),(10,10,0)])
+def test_invalid_print_settings_fail_clearly(adapter,tmp_path,width,height,dpi):
+    src,_=source_file(tmp_path)
+    with pytest.raises(ValueError):
+        adapter.process(src,tmp_path/"out.png",EnhanceSettings(print_width=width,print_height=height,dpi=dpi),use_ai=False)
+
+
+@pytest.mark.parametrize("mode", ["fit", "stretch"])
+def test_streamed_png_rgba_preserves_alpha_and_transparent_padding(adapter, monkeypatch, tmp_path, mode):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    src, dst = tmp_path / "transparent.png", tmp_path / "export.png"
+    pixels = np.zeros((24, 32, 4), dtype=np.uint8)
+    pixels[:, :, :3] = (235, 42, 19)
+    pixels[:, :, 3] = 0
+    pixels[5:19, 7:25, 3] = 255
+    pixels[6:18, 8:24, 3] = 128
+    Image.fromarray(pixels, "RGBA").save(src)
+    target = (120, 120)
+    result = adapter.process(src, dst, settings_for(target, mode), use_ai=False)
+    assert result["processing_mode"] == "disk_tiles"
+    with Image.open(dst) as exported:
+        assert exported.mode == "RGBA"
+        assert exported.size == target
+        assert exported.getchannel("A").getpixel((0, 0)) == 0
+        assert exported.getchannel("A").getpixel((60, 60)) >= 120
+        if mode == "fit":
+            assert exported.getchannel("A").getpixel((60, 4)) == 0
+
+
+def test_streamed_png_rgba_after_mock_tiled_ai(adapter, monkeypatch, tmp_path):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    src, dst = tmp_path / "transparent.png", tmp_path / "export.png"
+    pixels = np.zeros((13, 19, 4), dtype=np.uint8)
+    pixels[:, :, :3] = (210, 20, 55)
+    pixels[3:10, 5:14, 3] = 255
+    Image.fromarray(pixels, "RGBA").save(src)
+    def enhance_tile(tile, amount, cancel):
+        return np.repeat(np.repeat(tile, amount, axis=0), amount, axis=1)
+    engine = SimpleNamespace(upsampler=SimpleNamespace(tile_size=8, tile_pad=3),
+                             enhance_tile=enhance_tile, device_name=lambda: "CPU")
+    adapter.engine_manager.create_engine = lambda device: engine
+    adapter.process(src, dst, EnhanceSettings(ai_scale=4))
+    with Image.open(dst) as exported:
+        assert exported.mode == "RGBA"
+        assert exported.size == (76, 52)
+        assert exported.getchannel("A").getpixel((0, 0)) == 0
+        assert exported.getchannel("A").getpixel((38, 26)) == 255
+
+
+def test_streamed_ai_refines_padded_tiles_and_keeps_original_alpha(adapter, monkeypatch, tmp_path):
+    """The v2 edge pass runs for disk tiles, without changing PNG transparency."""
+    from signprint_ai import v2_graphic_edges
+
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    src, dst = tmp_path / "lettering.png", tmp_path / "refined.png"
+    pixels = np.zeros((72, 72, 4), dtype=np.uint8)
+    pixels[:, :, :3] = (210, 20, 55)
+    pixels[20:52, 20:52, 3] = 255
+    Image.fromarray(pixels, "RGBA").save(src)
+
+    def enhance_tile(tile, amount, cancel):
+        return np.repeat(np.repeat(tile, amount, axis=0), amount, axis=1)
+
+    engine = SimpleNamespace(
+        upsampler=SimpleNamespace(tile_size=24, tile_pad=5),
+        enhance_tile=enhance_tile, device_name=lambda: "CPU")
+    adapter.engine_manager.create_engine = lambda device: engine
+
+    calls = []
+
+    def marked_refinement(image):
+        calls.append(image.size)
+        array = np.asarray(image).copy()
+        array[:, :, 0] = np.minimum(255, array[:, :, 0].astype(np.uint16) + 1)
+        return Image.fromarray(array.astype(np.uint8), "RGB")
+
+    monkeypatch.setattr(v2_graphic_edges, "refine_sign_edges", marked_refinement)
+    result = adapter.process(src, dst, EnhanceSettings(ai_scale=4))
+    assert result["processing_mode"] == "disk_tiles"
+    assert len(calls) == 9
+    # Padded context is included before cropped regions are stitched.
+    assert all(w >= 96 and h >= 96 for w, h in calls)
+    with Image.open(dst) as exported:
+        assert exported.mode == "RGBA"
+        assert exported.size == (288, 288)
+        assert exported.getpixel((144, 144)) == (211, 20, 55, 255)
+        assert exported.getchannel("A").getpixel((0, 0)) == 0
+        assert exported.getchannel("A").getpixel((144, 144)) == 255
+
+
+def test_large_master_dispatches_before_pillow_alpha_read(adapter, monkeypatch, tmp_path):
+    """An approved 200 MP print master must stream before Pillow opens alpha."""
+    from signprint_ai import niyomsil_core_adapter as core
+
+    src, dst = tmp_path / "huge.png", tmp_path / "processed.png"
+    src.write_bytes(b"large-image-handled-by-streaming")
+    monkeypatch.setattr(core, "image_size", lambda path: (20_000, 10_000))
+    calls = []
+
+    def forbidden_pillow_open(*args, **kwargs):
+        raise Image.DecompressionBombError("200 MP must not reach Pillow")
+
+    def streamed(adapter_arg, source, output, settings, source_size,
+                 target_size, model_scale, progress, cancel, use_ai):
+        calls.append((source, output, source_size, target_size, model_scale))
+        return {"processing_mode": "disk_tiles", "output_size": target_size}
+
+    monkeypatch.setattr(core.Image, "open", forbidden_pillow_open)
+    monkeypatch.setattr(core, "process_large", streamed)
+    result = adapter.process(src, dst, EnhanceSettings(ai_scale=1), use_ai=False)
+    assert result["processing_mode"] == "disk_tiles"
+    assert calls == [(src, dst, (20_000, 10_000), (20_000, 10_000), 1)]
+
+
+def test_tiled_graphic_refinement_receives_selected_face_roi(monkeypatch, tmp_path):
+    """Each padded AI tile maps confirmed face regions into its own canvas."""
+    from signprint_ai import v2_graphic_edges
+
+    image = np.zeros((24, 24, 3), dtype=np.uint8)
+    image[:] = (240, 215, 160)
+    image[5:20, 4:20] = (27, 48, 125)
+    src, dst = tmp_path / "graphics_src.tif", tmp_path / "graphics_4x.tif"
+    Image.fromarray(image, "RGB").save(src)
+
+    def scale_tile(tile, scale, cancel):
+        return np.repeat(np.repeat(tile, scale, axis=0), scale, axis=1)
+
+    engine = SimpleNamespace(
+        upsampler=SimpleNamespace(tile_size=12, tile_pad=6),
+        enhance_tile=scale_tile,
+    )
+    seen = []
+    real_refine = v2_graphic_edges.refine_sign_edges
+
+    def record(tile, protected_regions=None):
+        seen.append(protected_regions)
+        return real_refine(tile, protected_regions=protected_regions)
+
+    monkeypatch.setattr(v2_graphic_edges, "refine_sign_edges", record)
+    result = large_image.upscale_raster(
+        src, dst, (24, 24), 4, engine, None, None, 0, 100,
+        refine_edges=True, protected_regions=((0.25, 0.25, 0.75, 0.75),),
+    )
+    assert result == (96, 96)
+    assert len(seen) == 4 and all(r is not None for r in seen)
+    with Image.open(dst) as exported:
+        assert exported.size == result
+        # Normalized selected face center is preserved as real source content.
+        assert exported.getpixel((48, 48)) == (27, 48, 125)

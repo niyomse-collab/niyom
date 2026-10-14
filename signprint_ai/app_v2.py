@@ -20,12 +20,15 @@ import numpy as np
 
 from .niyomsil_core_adapter import NiyomSilpCoreAdapter
 from .processing import EnhanceSettings, print_pixels
+from .large_image import image_size, needs_streaming, output_size_summary, parse_scale, preview_source, thumbnail
+from .v2_output import output_folder as v2_output_folder, output_path as v2_output_path
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
 
 APP_NAME = "NiyomSilp Design"
-APP_VERSION = "v1"
+from .release_info import release_label
+APP_VERSION = release_label("v2")
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
 IMAGE_TYPES = [("Image files", "*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp"), ("All files", "*.*")]
@@ -68,6 +71,7 @@ class App(tk.Tk):
         self._processing_thread: threading.Thread | None = None
         self._worker_generation = 0
         self._queued_indices: set[int] = set()
+        self._reserved_output_paths: set[Path] = set()
         self._completed_indices: set[int] = set()
         self._active_index: int | None = None
         self._active_settings: EnhanceSettings | None = None
@@ -338,7 +342,7 @@ class App(tk.Tk):
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
         tk.Label(line1, text="Design", bg="#111820", fg="#FF2028",
                  font=(self.ui_font_family, 24, "bold")).pack(side="left")
-        tk.Label(line1, text=" v1", bg="#111820", fg="#FFFFFF",
+        tk.Label(line1, text=f" {APP_VERSION}", bg="#111820", fg="#FFFFFF",
                  font=(self.ui_font_family, 16, "bold")).pack(side="left", padx=(6, 0), pady=(8, 0))
         tk.Label(
             title,
@@ -604,7 +608,7 @@ class App(tk.Tk):
         tk.Label(size, text="ปลดล็อก: กำหนดกว้าง/สูงเอง • ยืดหรือหดภาพเต็มพื้นที่ ไม่มีขอบขาว",
                  bg="#111820", fg="#84D8FF", anchor="w", justify="left", wraplength=285
                  ).grid(row=6, column=0, columnspan=4, sticky="ew", pady=(3, 0))
-        self.pixel_info = tk.Label(size, text="ขนาดพิกเซลปลายทาง: ตาม AI Upscale", bg="#111820", fg="#B8C2CB", anchor="w")
+        self.pixel_info = tk.Label(size, text="ขนาดพิกเซลปลายทาง: เลือกไฟล์ก่อน", bg="#111820", fg="#B8C2CB", anchor="w", justify="left", wraplength=285)
         self.pixel_info.grid(row=7, column=0, columnspan=4, sticky="ew", pady=(5, 0))
         size.columnconfigure(1, weight=1)
         size.columnconfigure(3, weight=1)
@@ -617,11 +621,12 @@ class App(tk.Tk):
         # 2. AI quality — same V1 settings/semantics, redesigned only.
         ai = self._section(parent, "2", "AI ปรับปรุงคุณภาพ")
         self.scale_var = tk.StringVar(value="4x")
-        tk.Label(ai, text="AI Upscale", bg="#111820", fg="#FFFFFF").grid(row=0, column=0, sticky="w")
+        tk.Label(ai, text="อัตราขยายปลายทาง", bg="#111820", fg="#FFFFFF").grid(row=0, column=0, sticky="w")
         scale = ttk.Combobox(ai, textvariable=self.scale_var, values=("2x", "4x", "8x"),
-                             state="readonly", width=17, style="Dark.TCombobox")
+                             state="normal", width=17, style="Dark.TCombobox")
         scale.grid(row=0, column=1, sticky="ew", padx=(8, 0))
         scale.bind("<<ComboboxSelected>>", lambda e: self._settings_changed())
+        scale.bind("<KeyRelease>", lambda e: self._settings_changed())
 
         self.v1_mode = tk.BooleanVar(value=True)
         ttk.Checkbutton(
@@ -729,6 +734,7 @@ class App(tk.Tk):
         self.files = []
         self._completed_indices.clear()
         self._queued_indices.clear()
+        self._reserved_output_paths.clear()
         while True:
             try:
                 self._job_queue.get_nowait()
@@ -845,8 +851,7 @@ class App(tk.Tk):
             p = Path(raw)
             if p.exists() and p not in self.files:
                 try:
-                    with Image.open(p) as im:
-                        size = im.size
+                    size = image_size(p)
                 except Exception:
                     continue
                 self.files.append(p)
@@ -901,6 +906,7 @@ class App(tk.Tk):
         # previous list must not survive and block unrelated files.
         self._completed_indices.clear()
         self._queued_indices.clear()
+        self._reserved_output_paths.clear()
         self.add_files(old)
         if not self.files:
             self.left_image.configure(image="")
@@ -923,8 +929,7 @@ class App(tk.Tk):
         self.current_index = idx
         p = self.files[idx]
         try:
-            with Image.open(p) as im:
-                w, h = im.size
+            w, h = image_size(p)
             self.original_ratio = w / max(1, h)
             if self.lock_ratio.get():
                 try:
@@ -978,22 +983,35 @@ class App(tk.Tk):
             self._preview_job = self.after(550, self.update_preview)
 
     def _update_pixel_info(self):
-        if not self.use_print_size.get():
-            self.pixel_info.configure(text="ขนาดพิกเซลปลายทาง: ตาม AI Upscale")
-            return
         try:
-            px = print_pixels(float(self.width_var.get()), float(self.height_var.get()), self.unit_var.get(), int(float(self.dpi_var.get())))
-            note = ""
-            if self.current_index is not None:
-                with Image.open(self.files[self.current_index]) as source:
-                    if px[0] < source.width or px[1] < source.height:
-                        note = " • ลดพิกเซลต้นฉบับ"
-            self.pixel_info.configure(text=f"ขนาดพิกเซลปลายทาง: {px[0]:,} × {px[1]:,} px{note}")
+            original = (image_size(self.files[self.current_index])
+                        if self.current_index is not None else None)
+            if self.use_print_size.get():
+                px = print_pixels(float(self.width_var.get()), float(self.height_var.get()),
+                                  self.unit_var.get(), int(float(self.dpi_var.get())))
+            elif original is not None:
+                scale = parse_scale(self.scale_var.get())
+                px = (original[0] * scale, original[1] * scale)
+            else:
+                self.pixel_info.configure(text="ขนาดพิกเซลปลายทาง: เลือกไฟล์ก่อน")
+                return
+
+            # A large *preview* is never allocated; this only reports the real
+            # export dimensions and an informational per-image RGB buffer size.
+            model_scale = (self.pipeline._model_scale_for_dimensions(*original, px)
+                           if original else 1)
+            label = output_size_summary(original or px, px, model_scale)
+            if original and (px[0] < original[0] or px[1] < original[1]):
+                label += " • ลดจำนวนพิกเซลบางด้านตามขนาดที่ตั้ง"
+            self.pixel_info.configure(text=label)
         except Exception:
             self.pixel_info.configure(text="ขนาดพิกเซลปลายทาง: —")
 
     def _update_tree_output_sizes(self):
-        scale = int(self.scale_var.get().rstrip("x"))
+        try:
+            scale = parse_scale(self.scale_var.get())
+        except ValueError:
+            return
         target = None
         if self.use_print_size.get():
             try:
@@ -1004,8 +1022,7 @@ class App(tk.Tk):
             if not self.tree.exists(str(i)):
                 continue
             try:
-                with Image.open(p) as im:
-                    w, h = im.size
+                w, h = image_size(p)
                 ow, oh = target if target else (w * scale, h * scale)
                 vals = list(self.tree.item(str(i), "values"))
                 vals[2] = f"{ow:,} × {oh:,}"
@@ -1021,7 +1038,7 @@ class App(tk.Tk):
             contrast=round(self.contrast_var.get()),
             sharpness=round(self.sharp_var.get()),
             saturation=round(self.sat_var.get()),
-            ai_scale=int(self.scale_var.get().rstrip("x")),
+            ai_scale=parse_scale(self.scale_var.get()),
             device=self._device_choices[self.device_var.get()],
             dpi=max(1, int(float(self.dpi_var.get() or 150))),
             print_unit=self.unit_var.get(),
@@ -1056,12 +1073,10 @@ class App(tk.Tk):
             try:
                 with tempfile.TemporaryDirectory(prefix="signprint_preview_") as td:
                     td = Path(td)
-                    with Image.open(p) as im:
-                        im = ImageOps.exif_transpose(im).convert("RGB")
-                        im.thumbnail((1200, 800), Image.Resampling.LANCZOS)
-                        preview_in = td / "preview_input.png"
-                        preview_out = td / "preview_output.png"
-                        im.save(preview_in)
+                    im = thumbnail(p, (1200, 800))
+                    preview_in = td / "preview_input.png"
+                    preview_out = td / "preview_output.png"
+                    im.save(preview_in)
                     # Screen preview always stays RGB; ICC/CMYK is an export-only
                     # stage so it cannot alter the proven V1 processing result.
                     ps = replace(
@@ -1109,8 +1124,7 @@ class App(tk.Tk):
                     del self._preview_cache[old]
             if len(self._preview_cache) >= 2:
                 self._preview_cache.pop(next(iter(self._preview_cache)))
-            with Image.open(path) as image:
-                self._preview_cache[key] = ImageOps.exif_transpose(image).convert("RGB")
+            self._preview_cache[key] = preview_source(path)
         return self._preview_cache[key]
 
     def _preview_box(self, panel):
@@ -1164,14 +1178,17 @@ class App(tk.Tk):
     def choose_output_dir(self):
         d = filedialog.askdirectory(title="เลือกโฟลเดอร์ผลลัพธ์")
         if d:
+            try:
+                v2_output_folder(Path(d) / "placeholder.png", d)
+            except ValueError as exc:
+                messagebox.showerror(APP_NAME, str(exc))
+                return
             self.output_dir_var.set(d)
             self.output_dir_label.configure(text=d)
 
     def _output_path(self, src: Path, settings: EnhanceSettings) -> Path:
-        ext = {"PNG": ".png", "TIFF": ".tif", "PDF": ".pdf", "JPG": ".jpg"}[settings.export_format]
-        outdir = Path(self.output_dir_var.get()) if self.output_dir_var.get() else src.parent
-        color_suffix = "_CMYK" if settings.color_mode.upper() == "CMYK" else ""
-        return outdir / f"{src.stem}_Niyomsil_AI{color_suffix}{ext}"
+        return v2_output_path(src, self.output_dir_var.get(), settings.export_format,
+                              settings.color_mode, self._reserved_output_paths)
 
     def _processing_active(self) -> bool:
         t = self._processing_thread
@@ -1196,6 +1213,7 @@ class App(tk.Tk):
                 job_settings = replace(settings, face_regions=regions,
                                        face_protection=bool(regions) and settings.face_protection)
                 out = self._output_path(src, job_settings)
+                self._reserved_output_paths.add(out)
                 self._job_queue.put((idx, src, out, job_settings))
                 self._queued_indices.add(idx)
                 queued += 1
@@ -1284,6 +1302,7 @@ class App(tk.Tk):
                     with self._queue_lock:
                         if self._active_index == idx:
                             self._active_index = None
+                        self._reserved_output_paths.discard(out)
                     self._job_queue.task_done()
         finally:
             stopped = stopped or self._stop.is_set()
@@ -1298,6 +1317,7 @@ class App(tk.Tk):
                         break
                     with self._queue_lock:
                         self._queued_indices.discard(idx)
+                        self._reserved_output_paths.discard(_out)
                     self._events.put(("row_status", idx, "หยุดแล้ว"))
                     self._job_queue.task_done()
 
@@ -1322,7 +1342,7 @@ class App(tk.Tk):
             messagebox.showinfo(APP_NAME, "กรุณาเพิ่มภาพก่อน")
             return
         try:
-            requested_scale = int(self.scale_var.get().rstrip("x"))
+            requested_scale = parse_scale(self.scale_var.get())
         except Exception:
             requested_scale = 1
         if requested_scale > 1 and not self.pipeline.ai.available:
@@ -1370,7 +1390,12 @@ class App(tk.Tk):
             i for i in range(len(self.files))
             if i not in self._completed_indices
         ]
-        queued = self._enqueue_jobs(pending, self._active_settings)
+        try:
+            queued = self._enqueue_jobs(pending, self._active_settings)
+        except ValueError as exc:
+            self._active_settings = None
+            messagebox.showerror(APP_NAME, str(exc))
+            return
 
         if queued:
             self._ensure_queue_worker()
@@ -1391,13 +1416,15 @@ class App(tk.Tk):
         self._set_status("กำลังหยุด…")
 
     def open_output_folder(self):
-        if self.output_dir_var.get():
-            p = Path(self.output_dir_var.get())
-        elif self.current_index is not None and self.files:
-            p = self.files[self.current_index].parent
+        if self.current_index is None or not self.files:
+            if not self.output_dir_var.get():
+                return
+            source = Path(self.output_dir_var.get()) / "untitled.png"
         else:
-            return
+            source = self.files[self.current_index]
         try:
+            p = v2_output_folder(source, self.output_dir_var.get())
+            p.mkdir(parents=True, exist_ok=True)
             if os.name == "nt":
                 os.startfile(p)  # type: ignore[attr-defined]
             elif sys.platform == "darwin":

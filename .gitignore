@@ -2,8 +2,16 @@
 build/
 dist/
 release/
+build_info.json
+package-smoke/
+installed-smoke/
 __pycache__/
 *.pyc
 tools/realesrgan-ncnn-vulkan.exe
 tools/models/
 tools/*.dll
+
+# Private V2 training images / outputs / rights review (never commit customer data)
+training_data/
+training_runs/
+*.private-rights.json
