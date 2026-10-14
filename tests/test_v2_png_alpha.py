@@ -90,3 +90,49 @@ def test_v2_adapter_keeps_alpha_with_mock_ai_2x_and_4x(tmp_path: Path):
             alpha = result.getchannel("A")
             assert alpha.getpixel((0, 0)) == 0
             assert alpha.getpixel((6 * scale, 5 * scale)) == 255
+
+
+def test_v2_contain_resize_keeps_transparent_padding(tmp_path: Path):
+    from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
+
+    src, dst = tmp_path / "source.png", tmp_path / "contained.png"
+    image = Image.new("RGBA", (20, 10), (255, 0, 0, 255))
+    image.putpixel((0, 0), (255, 0, 0, 80))
+    image.save(src)
+
+    settings = EnhanceSettings()
+    settings.ai_scale = 1
+    settings.print_width = 40
+    settings.print_height = 40
+    settings.print_unit = "px"
+    settings.dpi = 72
+    settings.resize_mode = "contain"
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    adapter.process(src, dst, settings, use_ai=False)
+
+    with Image.open(dst) as result:
+        assert result.mode == "RGBA"
+        assert result.getchannel("A").getpixel((0, 0)) == 0
+        assert result.getchannel("A").getpixel((result.width // 2, result.height // 2)) == 255
+
+
+def test_v2_palette_png_transparency_is_preserved(tmp_path: Path):
+    from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
+
+    src, dst = tmp_path / "palette.png", tmp_path / "result.png"
+    image = Image.new("P", (8, 8), 0)
+    image.putpalette([0, 0, 0, 240, 60, 40] + [0] * (256 * 3 - 6))
+    for x in range(2, 6):
+        for y in range(2, 6):
+            image.putpixel((x, y), 1)
+    image.info["transparency"] = 0
+    image.save(src, transparency=0)
+
+    settings = EnhanceSettings()
+    settings.ai_scale = 1
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    adapter.process(src, dst, settings, use_ai=False)
+    with Image.open(dst) as result:
+        assert result.mode == "RGBA"
+        assert result.getchannel("A").getpixel((0, 0)) == 0
+        assert result.getchannel("A").getpixel((3, 3)) == 255
