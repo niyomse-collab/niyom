@@ -267,8 +267,15 @@ class NiyomSilpCoreAdapter:
                 compress_level=3,
             )
         else:
+            # Formats without transparency require explicit white compositing.
+            if output.mode == "RGBA" and dst.suffix.lower() in (".jpg", ".jpeg", ".pdf"):
+                flattened = Image.new("RGB", output.size, "white")
+                flattened.paste(output, mask=output.getchannel("A"))
+                export_pixels = np.asarray(flattened)
+            else:
+                export_pixels = np.asarray(output)
             save_image(
-                np.asarray(output.convert("RGB")) if output.mode == "RGBA" and dst.suffix.lower() in (".jpg", ".jpeg", ".pdf") else np.asarray(output),
+                export_pixels,
                 dst,
                 dpi=settings.dpi,
                 color_mode=settings.color_mode,
