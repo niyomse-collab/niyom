@@ -1057,7 +1057,8 @@ class App(tk.Tk):
                 with tempfile.TemporaryDirectory(prefix="signprint_preview_") as td:
                     td = Path(td)
                     with Image.open(p) as im:
-                        im = ImageOps.exif_transpose(im).convert("RGB")
+                        im = ImageOps.exif_transpose(im)
+                        im = im.convert("RGBA" if "A" in im.getbands() or "transparency" in im.info else "RGB")
                         im.thumbnail((1200, 800), Image.Resampling.LANCZOS)
                         preview_in = td / "preview_input.png"
                         preview_out = td / "preview_output.png"
@@ -1110,7 +1111,8 @@ class App(tk.Tk):
             if len(self._preview_cache) >= 2:
                 self._preview_cache.pop(next(iter(self._preview_cache)))
             with Image.open(path) as image:
-                self._preview_cache[key] = ImageOps.exif_transpose(image).convert("RGB")
+                src = ImageOps.exif_transpose(image)
+                self._preview_cache[key] = src.convert("RGBA" if "A" in src.getbands() or "transparency" in src.info else "RGB")
         return self._preview_cache[key]
 
     def _preview_box(self, panel):
