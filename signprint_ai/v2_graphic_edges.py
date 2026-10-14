@@ -15,7 +15,7 @@ def refine_sign_edges(image: Image.Image) -> Image.Image:
     Only high-contrast edges adjacent to nearly uniform colors are refined.
     Avoid aggressive morphological operations that could break Thai marks.
     """
-    if image.width < 8 or image.height < 8:
+    if image.width < 64 or image.height < 64:
         return image
     original_mode = image.mode
     rgb = np.asarray(image.convert("RGB"), dtype=np.uint8)
