@@ -222,8 +222,13 @@ def make_source_raster(src, raw_path, progress, cancel):
     return size
 
 
-def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi):
+def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *, refine_edges=False):
     import tifffile
+
+    # Refine only the final AI pass, on padded image tiles BEFORE cropping.
+    # The source alpha mask is streamed separately and is never touched here.
+    if refine_edges:
+        from .v2_graphic_edges import refine_sign_edges
 
     width, height = size
     target = width * scale, height * scale
@@ -252,6 +257,10 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi):
                 expected = ((bottom - top) * scale, (right - left) * scale, 3)
                 if enhanced.shape != expected or enhanced.dtype != np.uint8:
                     raise RuntimeError("AI ส่งขนาดหรือชนิดข้อมูลของส่วนภาพไม่ตรงตามคำขอ")
+                if refine_edges:
+                    # Padded context keeps local edge filters consistent across
+                    # tile boundaries; cropping follows the refinement.
+                    enhanced = np.asarray(refine_sign_edges(Image.fromarray(enhanced, "RGB")))
                 offset_x, offset_y = (x - left) * scale, (y - top) * scale
                 storage_tile = np.zeros((tile_height,tile_width,3),dtype="uint8")
                 storage_tile[:(y2-y)*scale, :(x2-x)*scale] = enhanced[
@@ -273,7 +282,7 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi):
     return target
 
 
-def resize_image(image, size, mode="fit"):
+def resize_image(image, size, mode="fit", background=None):
     width, height = size
     if (image.width, image.height) == size:
         return image
@@ -291,7 +300,7 @@ def resize_image(image, size, mode="fit"):
         raise RuntimeError("ส่วนปรับขนาดส่งจำนวนพิกเซลไม่ตรงตามคำขอ")
     if contained != size:
         image = image.embed((width - contained[0]) // 2, (height - contained[1]) // 2,
-                            width, height, extend="background", background=[255, 255, 255])
+                            width, height, extend="background", background=(background if background is not None else [255] * image.bands))
     return image
 
 
@@ -378,7 +387,8 @@ def preview_source(path):
     if math.prod(image_size(path)) > IN_MEMORY_PIXELS:
         return LazyPreviewSource(path)
     with Image.open(path) as image:
-        return ImageOps.exif_transpose(image).convert("RGB")
+        oriented = ImageOps.exif_transpose(image)
+        return oriented.convert("RGBA" if "A" in oriented.getbands() or "transparency" in oriented.info else "RGB")
 
 
 def process_large(adapter, src, dst, settings, source_size, target_size,
@@ -422,7 +432,9 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
             next_raw = folder / f"pass_{index}.tif"
             size = upscale_raster(current, next_raw, size, scale, engine, progress, cancel,
                                   10 + round(72 * index / len(passes)),
-                                  10 + round(72 * (index + 1) / len(passes)))
+                                  10 + round(72 * (index + 1) / len(passes)),
+                                  refine_edges=(index == len(passes) - 1 and
+                                                not settings.face_protection))
             if current != source_raw:
                 current.unlink()
             current = next_raw
@@ -438,6 +450,15 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
             image, face_info = apply_faces(adapter, image, read_raster(source_raw, image_size(src)),
                                            settings, folder, progress, cancel)
         image = resize_image(image, target_size, settings.resize_mode)
+        # The tiled AI engine stores RGB only. Stream the original alpha mask
+        # independently at final resolution, including transparent fit margins.
+        if dst.suffix.lower() == ".png":
+            source = open_vips(src, access="random")
+            if source.hasalpha():
+                alpha = source.extract_band(source.bands - 1).cast("uchar")
+                alpha = resize_image(alpha, target_size, settings.resize_mode,
+                                     background=[0])
+                image = image.bandjoin(alpha).copy(interpretation="srgb")
         export_image(image, dst, settings, progress, cancel)
         return face_info
     finally:
