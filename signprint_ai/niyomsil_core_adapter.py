@@ -132,13 +132,27 @@ class NiyomSilpCoreAdapter:
             with tempfile.TemporaryDirectory(prefix="niyomsil_core_") as td:
                 td = Path(td)
                 final_ai = td / "core_final.png"
+                src_for_ai = src
+                if source_alpha is not None:
+                    # Keep visible RGB and the entire source alpha pixel-identical.
+                    # Only replace the hidden RGB near zero-alpha cutout pixels
+                    # before AI, which otherwise interpolates dark matte halos.
+                    from .v2_alpha_edges import bleed_transparent_rgb
+                    with Image.open(src) as raw:
+                        oriented = ImageOps.exif_transpose(raw).convert("RGBA")
+                        rgba = np.asarray(oriented)
+                        clean = bleed_transparent_rgb(
+                            rgba[..., :3].copy(), rgba[..., 3].copy()
+                        )
+                    src_for_ai = td / "alpha_safe_source.png"
+                    Image.fromarray(clean, "RGB").save(src_for_ai)
 
                 if model_scale == 8:
                     stage4 = td / "core_4x.png"
                     if progress:
                         progress(10, "NiyomSilp Design Engine · pass 1/2 · 4x")
                     engine.enhance(
-                        src,
+                        src_for_ai,
                         stage4,
                         scale=4,
                         progress_callback=self._mapped_progress(
@@ -165,7 +179,7 @@ class NiyomSilpCoreAdapter:
                     if progress:
                         progress(10, f"NiyomSilp Design Engine · {model_scale}x")
                     engine.enhance(
-                        src,
+                        src_for_ai,
                         final_ai,
                         scale=model_scale,
                         progress_callback=self._mapped_progress(
