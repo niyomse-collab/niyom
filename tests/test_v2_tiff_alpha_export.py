@@ -160,7 +160,8 @@ def test_large_cmyk_input_is_flattened_to_white_before_icc(tmp_path):
     assert not export_rgb.hasalpha()
     result = large_image.to_pillow(export_rgb)
     assert result.getpixel((0, 0)) == (255, 255, 255)
-    assert result.getpixel((20, 15)) == tuple(pixels[15, 20, :3])
+    # Fully opaque interior pixel is not changed by white compositing.
+    assert result.getpixel((10, 8)) == tuple(pixels[8, 10, :3])
 
 
 def test_small_cmyk_composes_alpha_over_white_before_icc(tmp_path, monkeypatch):
