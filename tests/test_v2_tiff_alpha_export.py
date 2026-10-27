@@ -13,6 +13,22 @@ from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
 from signprint_ai.processing import EnhanceSettings
 
 
+from types import SimpleNamespace
+
+
+def adapter_for_export():
+    # No PyTorch runtime is needed for metadata, resizing and export tests.
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    adapter.engine_manager = SimpleNamespace(
+        engine=None,
+        device_manager=SimpleNamespace(
+            get_default_device=lambda: SimpleNamespace(name="CPU")
+        ),
+    )
+    adapter.face_module = None
+    return adapter
+
+
 def transparent_master(path):
     pixels = np.zeros((36, 48, 4), dtype=np.uint8)
     # Fully transparent RGB deliberately contains dark hidden colours.
@@ -35,7 +51,7 @@ def test_rgb_export_retains_alpha(streaming, extension, mode, tmp_path, monkeypa
     dst = tmp_path / ("enhanced." + extension)
     settings = EnhanceSettings(ai_scale=1, color_mode="RGB", resize_mode=mode,
         print_width=144/300, print_height=108/300, print_unit="inch", dpi=300)
-    output = NiyomSilpCoreAdapter().process(src, dst, settings, use_ai=False)
+    output = adapter_for_export().process(src, dst, settings, use_ai=False)
     assert output["processing_mode"] == ("disk_tiles" if streaming else "memory")
     with Image.open(dst) as im:
         assert im.mode == "RGBA", (extension, streaming, im.mode)
@@ -59,7 +75,7 @@ def test_opaque_exports_compose_white_instead_of_black(streaming, extension, tmp
     dst = tmp_path / ("output." + extension)
     settings = EnhanceSettings(ai_scale=1, color_mode="RGB", resize_mode="stretch",
         print_width=96/300, print_height=72/300, print_unit="inch", dpi=300)
-    NiyomSilpCoreAdapter().process(src, dst, settings, use_ai=False)
+    adapter_for_export().process(src, dst, settings, use_ai=False)
     if extension == "pdf":
         from pypdf import PdfReader
         im = PdfReader(dst).pages[0].images[0].image.convert("RGB")
