@@ -223,7 +223,8 @@ def make_source_raster(src, raw_path, progress, cancel):
 
 
 def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
-                   refine_edges=False, protected_regions=None, refine_settings=None):
+                   refine_edges=False, protected_regions=None, refine_settings=None,
+                   alpha_source=None):
     import tifffile
 
     # Refine only the final AI pass, on padded image tiles BEFORE cropping.
@@ -243,6 +244,12 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
     ensure_disk(dst.parent, storage)
     source = read_raster(src, size)
     region = vips().Region.new(source)
+    # Only the first AI pass sees the original PNG alpha. Keep a bounded
+    # source-alpha region alongside the RGB source for each padded tile.
+    input_with_alpha = open_vips(alpha_source, access="random") if alpha_source else None
+    source_alpha = (input_with_alpha.extract_band(input_with_alpha.bands - 1).cast("uchar")
+                    if input_with_alpha is not None and input_with_alpha.hasalpha() else None)
+    alpha_region = vips().Region.new(source_alpha) if source_alpha is not None else None
 
     def tiles():
         total = math.ceil(width / tile) * math.ceil(height / tile)
@@ -255,6 +262,13 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
                 right, bottom = min(width, x2 + pad), min(height, y2 + pad)
                 pixels = np.frombuffer(region.fetch(left,top,right-left,bottom-top),
                                        dtype="uint8").reshape(bottom-top,right-left,3).copy()
+                if alpha_region is not None:
+                    from .v2_alpha_edges import bleed_transparent_rgb
+                    a = np.frombuffer(
+                        alpha_region.fetch(left, top, right-left, bottom-top),
+                        dtype="uint8"
+                    ).reshape(bottom-top, right-left).copy()
+                    pixels = bleed_transparent_rgb(pixels, a)
                 enhanced = engine.enhance_tile(pixels, scale, cancel)
                 expected = ((bottom - top) * scale, (right - left) * scale, 3)
                 if enhanced.shape != expected or enhanced.dtype != np.uint8:
@@ -299,6 +313,9 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
     finally:
         region = None
         source = None
+        alpha_region = None
+        source_alpha = None
+        input_with_alpha = None
     return target
 
 
@@ -411,6 +428,27 @@ def preview_source(path):
         return oriented.convert("RGBA" if "A" in oriented.getbands() or "transparency" in oriented.info else "RGB")
 
 
+def prepare_source_alpha_for_export(image, src, target_size, settings, dst):
+    """Preserve RGB PNG/TIFF transparency; flatten other formats over white.
+
+    AI operates on RGB only. The source alpha is resized separately so neither
+    tile inference nor colour management can silently replace transparency
+    with undefined hidden RGB (which often displays as a black backdrop).
+    """
+    source = open_vips(src, access="random")
+    if not source.hasalpha():
+        return image
+    alpha = source.extract_band(source.bands - 1).cast("uchar")
+    alpha = resize_image(alpha, target_size, settings.resize_mode, background=[0])
+    rgba = image.bandjoin(alpha).copy(interpretation="srgb")
+    suffix = Path(dst).suffix.lower()
+    if settings.color_mode.upper() == "RGB" and suffix in (".png", ".tif", ".tiff"):
+        return rgba
+    # JPEG/PDF and CMYK output do not promise transparent pixels. Compose
+    # explicitly before ICC conversion; otherwise transparent RGB can be black.
+    return rgba.flatten(background=[255, 255, 255]).copy(interpretation="srgb")
+
+
 def process_large(adapter, src, dst, settings, source_size, target_size,
                   model_scale, progress=None, cancel=None, use_ai=True):
     """Keep the master dimensions exact; temporary rasters live beside output."""
@@ -455,6 +493,7 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
                                   10 + round(72 * (index + 1) / len(passes)),
                                   refine_edges=(index == len(passes) - 1),
                                   refine_settings=settings,
+                                  alpha_source=(src if index == 0 else None),
                                   protected_regions=(settings.face_regions
                                                      if settings.face_protection else None))
             if current != source_raw:
@@ -472,15 +511,11 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
             image, face_info = apply_faces(adapter, image, read_raster(source_raw, image_size(src)),
                                            settings, folder, progress, cancel)
         image = resize_image(image, target_size, settings.resize_mode)
-        # The tiled AI engine stores RGB only. Stream the original alpha mask
-        # independently at final resolution, including transparent fit margins.
-        if dst.suffix.lower() == ".png":
-            source = open_vips(src, access="random")
-            if source.hasalpha():
-                alpha = source.extract_band(source.bands - 1).cast("uchar")
-                alpha = resize_image(alpha, target_size, settings.resize_mode,
-                                     background=[0])
-                image = image.bandjoin(alpha).copy(interpretation="srgb")
+        # Preserve RGB TIFF alpha as well as PNG. For CMYK/JPEG/PDF, blend
+        # source transparency onto white before export colour conversion.
+        image = prepare_source_alpha_for_export(
+            image, src, target_size, settings, dst
+        )
         export_image(image, dst, settings, progress, cancel)
         return face_info
     finally:
