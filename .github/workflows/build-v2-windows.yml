@@ -132,8 +132,11 @@ jobs:
         run: |
           $report = Get-Content '.\release\PACKAGE_SMOKE.json' -Raw | ConvertFrom-Json
           if (-not $report.passed -or $report.release.source_commit -ne '${{ github.sha }}') { throw 'Build report does not match source commit' }
-          gh release view $env:V2_TAG --repo '${{ github.repository }}' 2>$null
-          if ($LASTEXITCODE -eq 0) { throw 'Release already exists; refusing to replace assets' }
+          # Avoid a 404 from 'gh release view' becoming a terminating NativeCommandError in Windows PowerShell 5.1.
+          $releasesJson = gh release list --repo '${{ github.repository }}' --limit 1000 --json tagName
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to list releases; refusing to publish blindly' }
+          $releaseTags = @($releasesJson | ConvertFrom-Json | ForEach-Object { $_.tagName })
+          if ($releaseTags -contains $env:V2_TAG) { throw 'Release already exists; refusing to replace assets' }
           $notes = "NiyomSilp Design v2 $env:V2_VERSION`n`nDownload NiyomSilp-Design-v2-Install.exe and open it. It downloads and verifies the full offline payload automatically. Internet is needed for the first download; Python is bundled.`n`nWindows packaged and installed CPU tests passed, including real 2x/4x/8x inference, 16x target sizing, large image export/import and cancellation. CUDA/DirectML still require validation on shop hardware.`n`nSource: ${{ github.sha }}"
           $notes | Set-Content '.\package-smoke\release-notes.txt' -Encoding utf8
           $assets = @(Get-ChildItem '.\release\*' -File | ForEach-Object { $_.FullName })
