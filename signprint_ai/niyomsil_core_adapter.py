@@ -29,7 +29,7 @@ class NiyomSilpCoreAdapter:
       - RealESRGAN_x4plus.pth
       - CUDA tile=256 / FP32 when NVIDIA CUDA is available
       - 8x = 4x pass + 2x pass
-      - no extra denoise/contrast/sharpen filters
+      - V2-only, slider-controlled graphic finishing before face restoration
 
     This class only adapts the engine to the V2 UI API and preserves the
     existing RGB/CMYK/ICC export stage.
@@ -183,6 +183,16 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
+        # Finish graphics before face restoration so successful/failed automatic
+        # detection never disables text cleanup. Selected face ROIs are excluded.
+        if use_ai and model_scale > 1:
+            if progress:
+                progress(83, "Refine Text / Graphic Edges")
+            output = refine_sign_edges(
+                output, settings=settings,
+                protected_regions=(settings.face_regions if settings.face_protection else None),
+            )
+
         # Retouch before free resizing: detector and facial geometry see the
         # original aspect ratio. Final resizing transforms the whole image once.
         face_info = {
@@ -262,26 +272,6 @@ class NiyomSilpCoreAdapter:
 
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
-
-        if use_ai and model_scale > 1:
-            if not face_info["applied"]:
-                if progress:
-                    progress(96, "Refine Text / Graphic Edges")
-                output = refine_sign_edges(output)
-            elif settings.face_regions:
-                # A selected and restored face should not disable lettering
-                # cleanup in the rest of a mixed photo/sign composition.
-                # The confirmed face area and a safety margin stay pixel-identical.
-                from .face_module.detection import map_regions
-                protected = map_regions(
-                    settings.face_regions, source_size, target_size,
-                    settings.resize_mode
-                )
-                if progress:
-                    progress(96, "Refine Graphics / Preserve Selected Faces")
-                output = refine_sign_edges(output, protected_regions=protected)
-            # No confirmed face coordinates? Prefer preserving the portrait
-            # over guessing a bounding box from the post-restoration pixels.
 
         if progress:
             progress(96, "Save Output")

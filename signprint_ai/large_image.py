@@ -223,7 +223,7 @@ def make_source_raster(src, raw_path, progress, cancel):
 
 
 def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
-                   refine_edges=False, protected_regions=None):
+                   refine_edges=False, protected_regions=None, refine_settings=None):
     import tifffile
 
     # Refine only the final AI pass, on padded image tiles BEFORE cropping.
@@ -231,6 +231,7 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
     if refine_edges:
         from .v2_graphic_edges import refine_sign_edges
 
+    refine_kwargs = {"settings": refine_settings} if refine_settings is not None else {}
     width, height = size
     target = width * scale, height * scale
     validate_target_size(target)
@@ -275,10 +276,10 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
                             and y2 * height > top and y1 * height < bottom
                         )
                         padded = refine_sign_edges(
-                            padded, protected_regions=tile_faces
-                        ) if tile_faces else refine_sign_edges(padded)
+                            padded, protected_regions=tile_faces, **refine_kwargs
+                        ) if tile_faces else refine_sign_edges(padded, **refine_kwargs)
                     else:
-                        padded = refine_sign_edges(padded)
+                        padded = refine_sign_edges(padded, **refine_kwargs)
                     enhanced = np.asarray(padded)
                 offset_x, offset_y = (x - left) * scale, (y - top) * scale
                 storage_tile = np.zeros((tile_height,tile_width,3),dtype="uint8")
@@ -452,9 +453,8 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
             size = upscale_raster(current, next_raw, size, scale, engine, progress, cancel,
                                   10 + round(72 * index / len(passes)),
                                   10 + round(72 * (index + 1) / len(passes)),
-                                  refine_edges=(index == len(passes) - 1 and
-                                                (not settings.face_protection or
-                                                 bool(settings.face_regions))),
+                                  refine_edges=(index == len(passes) - 1),
+                                  refine_settings=settings,
                                   protected_regions=(settings.face_regions
                                                      if settings.face_protection else None))
             if current != source_raw:
