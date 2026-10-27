@@ -223,7 +223,8 @@ def make_source_raster(src, raw_path, progress, cancel):
 
 
 def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
-                   refine_edges=False, protected_regions=None, refine_settings=None):
+                   refine_edges=False, protected_regions=None, refine_settings=None,
+                   alpha_source=None):
     import tifffile
 
     # Refine only the final AI pass, on padded image tiles BEFORE cropping.
@@ -243,6 +244,12 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
     ensure_disk(dst.parent, storage)
     source = read_raster(src, size)
     region = vips().Region.new(source)
+    # Only the first AI pass sees the original PNG alpha. Keep a bounded
+    # source-alpha region alongside the RGB source for each padded tile.
+    input_with_alpha = open_vips(alpha_source, access="random") if alpha_source else None
+    source_alpha = (input_with_alpha.extract_band(input_with_alpha.bands - 1).cast("uchar")
+                    if input_with_alpha is not None and input_with_alpha.hasalpha() else None)
+    alpha_region = vips().Region.new(source_alpha) if source_alpha is not None else None
 
     def tiles():
         total = math.ceil(width / tile) * math.ceil(height / tile)
@@ -255,6 +262,13 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
                 right, bottom = min(width, x2 + pad), min(height, y2 + pad)
                 pixels = np.frombuffer(region.fetch(left,top,right-left,bottom-top),
                                        dtype="uint8").reshape(bottom-top,right-left,3).copy()
+                if alpha_region is not None:
+                    from .v2_alpha_edges import bleed_transparent_rgb
+                    a = np.frombuffer(
+                        alpha_region.fetch(left, top, right-left, bottom-top),
+                        dtype="uint8"
+                    ).reshape(bottom-top, right-left).copy()
+                    pixels = bleed_transparent_rgb(pixels, a)
                 enhanced = engine.enhance_tile(pixels, scale, cancel)
                 expected = ((bottom - top) * scale, (right - left) * scale, 3)
                 if enhanced.shape != expected or enhanced.dtype != np.uint8:
@@ -299,6 +313,9 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
     finally:
         region = None
         source = None
+        alpha_region = None
+        source_alpha = None
+        input_with_alpha = None
     return target
 
 
@@ -476,6 +493,7 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
                                   10 + round(72 * (index + 1) / len(passes)),
                                   refine_edges=(index == len(passes) - 1),
                                   refine_settings=settings,
+                                  alpha_source=(src if index == 0 else None),
                                   protected_regions=(settings.face_regions
                                                      if settings.face_protection else None))
             if current != source_raw:
