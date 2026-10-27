@@ -147,3 +147,39 @@ def test_mock_ai_sees_alpha_safe_rgb_before_upscale(streaming, monkeypatch, tmp_
         assert out.mode == "RGBA" and out.size == (384, 384)
         assert out.getpixel((0, 0))[3] == 0
         assert out.getpixel((190, 190))[3] == 255
+
+
+def test_large_cmyk_input_is_flattened_to_white_before_icc(tmp_path):
+    src = tmp_path / "original.png"
+    pixels = transparent_master(src)
+    image = large_image.as_rgb(large_image.open_vips(src))
+    settings = EnhanceSettings(ai_scale=1, color_mode="CMYK", resize_mode="stretch")
+    export_rgb = large_image.prepare_source_alpha_for_export(
+        image, src, (48, 36), settings, tmp_path / "output.tif"
+    )
+    assert not export_rgb.hasalpha()
+    result = large_image.to_pillow(export_rgb)
+    assert result.getpixel((0, 0)) == (255, 255, 255)
+    assert result.getpixel((20, 15)) == tuple(pixels[15, 20, :3])
+
+
+def test_small_cmyk_composes_alpha_over_white_before_icc(tmp_path, monkeypatch):
+    from signprint_ai import processing
+    src = tmp_path / "original.png"
+    pixels = transparent_master(src)
+    icc = tmp_path / "test.icc"
+    icc.write_bytes(b"test profile data - conversion is mocked")
+    converted = []
+    def fake_icc(image, *_args, **_kwargs):
+        converted.append(image.getpixel((0, 0)))
+        return image.convert("CMYK")
+    monkeypatch.setattr(processing.ImageCms, "createProfile", lambda _name: object())
+    monkeypatch.setattr(processing.ImageCms, "getOpenProfile", lambda _path: object())
+    monkeypatch.setattr(processing.ImageCms, "profileToProfile", fake_icc)
+    processing.save_image(
+        pixels[..., :3], tmp_path / "converted.tif",
+        alpha=pixels[..., 3], color_mode="CMYK", icc_profile_path=icc
+    )
+    assert converted == [(255, 255, 255)]
+    with Image.open(tmp_path / "converted.tif") as im:
+        assert im.mode == "CMYK"
