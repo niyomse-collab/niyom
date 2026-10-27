@@ -137,7 +137,7 @@ jobs:
           $notes = "NiyomSilp Design v2 $env:V2_VERSION`n`nDownload NiyomSilp-Design-v2-Install.exe and open it. It downloads and verifies the full offline payload automatically. Internet is needed for the first download; Python is bundled.`n`nWindows packaged and installed CPU tests passed, including real 2x/4x/8x inference, 16x target sizing, large image export/import and cancellation. CUDA/DirectML still require validation on shop hardware.`n`nSource: ${{ github.sha }}"
           $notes | Set-Content '.\package-smoke\release-notes.txt' -Encoding utf8
           $assets = @(Get-ChildItem '.\release\*' -File | ForEach-Object { $_.FullName })
-          gh release create $env:V2_TAG @assets --repo '${{ github.repository }}' --target '${{ github.sha }}' --title "NiyomSilp Design v2 $env:V2_VERSION — Windows test build" --notes-file '.\package-smoke\release-notes.txt' --prerelease --latest=false
+          gh release create $env:V2_TAG @assets --repo '${{ github.repository }}' --target '${{ github.sha }}' --title "NiyomSilp Design v2 $env:V2_VERSION - Windows test build" --notes-file '.\package-smoke\release-notes.txt' --prerelease --latest=false
           if ($LASTEXITCODE -ne 0) { throw 'Release publish failed' }
 
       - name: Verify real public download flow
