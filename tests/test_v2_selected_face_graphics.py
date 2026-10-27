@@ -70,9 +70,9 @@ def test_selected_face_does_not_disable_nonface_graphic_refinement(
 
     seen = []
 
-    def spy(image, protected_regions=None):
+    def spy(image, protected_regions=None, **kwargs):
         seen.append(protected_regions)
-        return real_refine(image, protected_regions=protected_regions)
+        return real_refine(image, protected_regions=protected_regions, **kwargs)
 
     monkeypatch.setattr(core, "refine_sign_edges", spy)
     adapter.process(source, output, settings)

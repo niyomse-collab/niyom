@@ -13,6 +13,7 @@ from PIL import Image
 def refine_sign_edges(
     image: Image.Image,
     protected_regions: tuple[tuple[float, float, float, float], ...] | None = None,
+    *, settings=None,
 ) -> Image.Image:
     """Keep lettering contours crisp without reprocessing selected face ROIs.
 
@@ -20,6 +21,13 @@ def refine_sign_edges(
     No thresholding or erosion of rendered text shapes occurs; tiny Thai vowels
     and tone marks are retained, as is the exact source alpha plane.
     """
+    # None retains the standalone refinement API; V2 always passes UI settings.
+    def strength(name):
+        return float(np.clip(getattr(settings, name, 0), 0, 100)) / 100.0
+
+    if settings is not None and not any(strength(k) for k in
+            ("denoise", "flat_smoothing", "text_graphic_boost", "sharpness")):
+        return image.copy()
     if image.width < 64 or image.height < 64:
         return image.copy()
 
@@ -77,6 +85,27 @@ def refine_sign_edges(
         np.maximum(minimum, original - 15),
         np.minimum(maximum, original + 15),
     ).astype(np.uint8)
+
+    if settings is not None:
+        base = rgb.astype(np.float32)
+        text = strength("text_graphic_boost")
+        # Blend the existing contour/fill correction with a true zero bypass.
+        adjusted = base + (sharpened.astype(np.float32) - base) * text
+        flat_weight = np.clip(1.0 - gradient / 55.0, 0, 1)[..., None]
+        adjusted += (denoised.astype(np.float32) - base) * strength("denoise") * flat_weight
+        smooth = cv2.GaussianBlur(base, (0, 0), 1.0)
+        adjusted += (smooth - base) * strength("flat_smoothing") * flat_weight * 0.65
+        detail = base - cv2.GaussianBlur(base, (0, 0), 0.85)
+        detail[np.abs(detail) < 2.0] = 0
+        adjusted += np.clip(detail, -17, 17) * edge_weight[..., None] * strength("sharpness")
+        sharpened = np.rint(np.clip(adjusted,
+            np.maximum(minimum, original - 15),
+            np.minimum(maximum, original + 15))).astype(np.uint8)
+        # Hidden RGB must not bleed into partially transparent cutout borders.
+        if "A" in image.getbands():
+            opaque = np.asarray(image.getchannel("A")) == 255
+            safe = cv2.erode(opaque.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+            sharpened[~safe] = rgb[~safe]
 
     if protected_regions:
         h, w = rgb.shape[:2]

@@ -640,8 +640,7 @@ class App(tk.Tk):
                  bg="#111820", fg="#84D8FF", anchor="w").grid(row=2, column=0, columnspan=2, sticky="ew")
         ai.columnconfigure(1, weight=1)
 
-        # 3. Keep the V2 controls visually intact. ARM Core intentionally bypasses
-        # extra denoise/contrast/sharpen filters to preserve the proven V1 quality.
+        # 3. V2 graphic finishing controls run before face restoration.
         quality = self._section(parent, "3", "การตั้งค่าขั้นสูง (NiyomSilp Design Engine)")
         self.denoise_var = tk.IntVar(value=18)
         self.flat_var = tk.IntVar(value=18)
