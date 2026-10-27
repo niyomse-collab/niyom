@@ -288,15 +288,20 @@ class NiyomSilpCoreAdapter:
                 compress_level=3,
             )
         else:
-            if output.mode == "RGBA" and dst.suffix.lower() in (".jpg", ".jpeg", ".pdf"):
-                flattened = Image.new("RGB", output.size, "white")
-                flattened.paste(output, mask=output.getchannel("A"))
-                export_pixels = np.asarray(flattened)
+            # Pass transparency as an explicit channel. Treating an RGBA
+            # ndarray as RGB silently dropped or misread alpha in TIFF export.
+            # save_image preserves it for RGB TIFF and composites it over
+            # white before CMYK ICC conversion, JPEG or PDF export.
+            if "A" in output.getbands():
+                export_pixels = np.asarray(output.convert("RGB"))
+                export_alpha = np.asarray(output.getchannel("A"))
             else:
-                export_pixels = np.asarray(output)
+                export_pixels = np.asarray(output.convert("RGB"))
+                export_alpha = None
             save_image(
                 export_pixels,
                 dst,
+                alpha=export_alpha,
                 dpi=settings.dpi,
                 color_mode=settings.color_mode,
                 icc_profile_path=settings.icc_profile_path,
