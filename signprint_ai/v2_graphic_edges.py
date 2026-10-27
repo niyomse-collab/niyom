@@ -93,8 +93,44 @@ def refine_sign_edges(
         adjusted = base + (sharpened.astype(np.float32) - base) * text
         flat_weight = np.clip(1.0 - gradient / 55.0, 0, 1)[..., None]
         adjusted += (denoised.astype(np.float32) - base) * strength("denoise") * flat_weight
-        smooth = cv2.GaussianBlur(base, (0, 0), 1.0)
-        adjusted += (smooth - base) * strength("flat_smoothing") * flat_weight * 0.65
+        # A larger but *region-gated* flat-colour correction removes mild
+        # low-frequency waviness, not photographic texture or intentional
+        # highlights. Keep a wide distance from text/graphic boundaries so the
+        # large smoothing kernel cannot bleed background into lettering.
+        flat = strength("flat_smoothing")
+        if flat:
+            barrier = cv2.dilate(
+                (gradient > 30).astype(np.uint8), np.ones((31, 31), np.uint8)
+            ) != 0
+            local_kernel = np.ones((13, 13), np.uint8)
+            colour_span = (
+                cv2.dilate(rgb, local_kernel).astype(np.int16)
+                - cv2.erode(rgb, local_kernel).astype(np.int16)
+            ).max(axis=2)
+            safe_flat = (~barrier) & (colour_span <= 22)
+            flat_reference = cv2.GaussianBlur(base, (0, 0), 6.0)
+            adjusted += (flat_reference - base) * flat * 0.90 * safe_flat[..., None]
+
+        # Along-contour averaging gently settles single-pixel zigzags on
+        # locally coherent curves/straight strokes, without blurring across
+        # the stroke. This is not vector reconstruction or OCR.
+        if text:
+            tangential_norm = cv2.magnitude(direction_x, direction_y) + 1e-3
+            tangent_x = -direction_y / tangential_norm
+            tangent_y = direction_x / tangential_norm
+            grid_y, grid_x = np.indices(gray.shape, dtype=np.float32)
+            along = np.zeros_like(base)
+            for offset in (-3.0, 3.0):
+                along += cv2.remap(
+                    base,
+                    grid_x + offset * tangent_x,
+                    grid_y + offset * tangent_y,
+                    interpolation=cv2.INTER_LINEAR,
+                    borderMode=cv2.BORDER_REFLECT_101,
+                )
+            along *= 0.5
+            adjusted += (along - base) * text * edge_weight[..., None] * 0.65
+
         detail = base - cv2.GaussianBlur(base, (0, 0), 0.85)
         detail[np.abs(detail) < 2.0] = 0
         adjusted += np.clip(detail, -17, 17) * edge_weight[..., None] * strength("sharpness")
