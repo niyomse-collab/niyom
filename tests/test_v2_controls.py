@@ -10,7 +10,7 @@ from signprint_ai import large_image, niyomsil_core_adapter as core
 from signprint_ai.processing import EnhanceSettings
 from signprint_ai.v2_graphic_edges import refine_sign_edges
 
-CONTROLS = ('denoise', 'flat_smoothing', 'text_graphic_boost', 'sharpness')
+CONTROLS = ('denoise', 'flat_smoothing', 'text_graphic_boost', 'sharpness', 'contrast', 'saturation')
 
 
 def fixture_pixels():
