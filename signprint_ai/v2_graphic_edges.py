@@ -25,9 +25,12 @@ def refine_sign_edges(
     def strength(name):
         return float(np.clip(getattr(settings, name, 0), 0, 100)) / 100.0
 
-    if settings is not None and not any(strength(k) for k in
-            ("denoise", "flat_smoothing", "text_graphic_boost", "sharpness",
-             "contrast") + (("saturation",) if getattr(settings, "saturation", 0) else ())):
+    if settings is not None and not (
+        any(strength(k) for k in
+            ("denoise", "flat_smoothing", "text_graphic_boost",
+             "sharpness", "contrast"))
+        or getattr(settings, "saturation", 0)
+    ):
         return image.copy()
     if image.width < 64 or image.height < 64:
         return image.copy()
