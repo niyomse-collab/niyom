@@ -129,7 +129,11 @@ def refine_sign_edges(
                     borderMode=cv2.BORDER_REFLECT_101,
                 )
             along *= 0.5
-            adjusted += (along - base) * text * edge_weight[..., None] * 0.65
+            # Give the tangent estimate priority over local sharpening at
+            # high-confidence edges; otherwise sharpening cancels smoothing.
+            adjusted += (along - adjusted) * text * np.minimum(
+                edge_weight * 1.3, 0.9
+            )[..., None]
 
         detail = base - cv2.GaussianBlur(base, (0, 0), 0.85)
         detail[np.abs(detail) < 2.0] = 0
