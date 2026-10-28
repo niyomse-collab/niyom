@@ -1,5 +1,5 @@
 [Setup]
-AppName=NiyomSilp Design v2
+AppName=NiyomSilp Design v2.1
 AppVersion=@@VERSION@@
 AppPublisher=NiyomSilp Design
 CreateAppDir=no
@@ -30,7 +30,7 @@ end;
 
 procedure InitializeWizard;
 begin
-  DownloadPage := CreateDownloadPage('ดาวน์โหลด NiyomSilp Design v2',
+  DownloadPage := CreateDownloadPage('ดาวน์โหลด NiyomSilp Design v2.1',
     'กำลังเตรียมโปรแกรมและโมเดลสำหรับติดตั้ง', nil);
   DownloadPage.ShowBaseNameInsteadOfUrl := True;
 end;

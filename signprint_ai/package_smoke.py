@@ -66,7 +66,7 @@ def _run(folder):
             for scale in (2, 4, 8, 16):
                 destination = work / f"ai_{scale}.png"
                 started = time.monotonic()
-                result = adapter.process(source, destination, EnhanceSettings(ai_scale=scale, device="cpu"))
+                result = adapter.process(source, destination, EnhanceSettings(ai_scale=scale, device="cpu", denoise=0, flat_smoothing=0, text_graphic_boost=0, sharpness=0, contrast=0, saturation=0))
                 with Image.open(destination) as image:
                     assert image.size == (17*scale, 13*scale)
                     assert np.asarray(image).std() > 0
@@ -78,6 +78,22 @@ def _run(folder):
                                           "seconds": round(time.monotonic()-started, 3)})
         finally:
             large_image.IN_MEMORY_PIXELS = limit
+
+        if info.get("version", "").startswith("2.1."):
+            from .v21_graphics_ai import V21Settings
+            graphic_source = work / "graphic_source.png"
+            graphic_pixels = np.full((32, 40, 3), 245, np.uint8)
+            graphic_pixels[8:24, 8:32] = (180, 20, 110)
+            Image.fromarray(graphic_pixels).save(graphic_source)
+            graphic_output = work / "graphic_v21.png"
+            graphic_settings = V21Settings(ai_scale=4, device="cpu", text_graphic_boost=28,
+                print_width=2.08, print_height=1.66, print_unit="inch", dpi=100)
+            result = adapter.process(graphic_source, graphic_output, graphic_settings)
+            assert result["ai_scale"] == 4 and result["output_size"] == (208,166)
+            with Image.open(graphic_output) as image:
+                assert image.size == (208,166) and np.asarray(image).std() > 0
+            report["checks"].append({"name": "v21_real_graphic_model_selected_4x_print_target",
+                                      "size": [208,166]})
 
         Image.new("RGB", (60,40), (41,123,207)).save(source)
         destination = work / "large_banner.png"

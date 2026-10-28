@@ -123,11 +123,12 @@ def test_tiled_ai_keeps_passes_exact_size_and_bounded_tiles(adapter, monkeypatch
     engine = SimpleNamespace(upsampler=SimpleNamespace(tile_size=8,tile_pad=3),
                              enhance_tile=enhance_tile, device_name=lambda: "CPU")
     adapter.engine_manager.create_engine = lambda device: engine
-    result = adapter.process(src, tmp_path/"ai.png", EnhanceSettings(ai_scale=scale))
+    result = adapter.process(src, tmp_path/"ai.png", EnhanceSettings(ai_scale=scale, denoise=0, flat_smoothing=0, text_graphic_boost=0, sharpness=0, contrast=0, saturation=0))
     assert result["output_size"] == (19*scale,13*scale)
     assert result["requested_ai_scale"] == scale
     assert {n for n,_ in calls} == ({4,2} if scale >= 8 else {scale})
-    assert max(max(shape[:2]) for _,shape in calls) <= 14
+    # Final finishing requires 32 output pixels of context, at most 16 source pixels at 2x.
+    assert max(max(shape[:2]) for _,shape in calls) <= 8 + 2 * 16
     if scale <= 8:
         with Image.open(result["output"]) as output:
             np.testing.assert_array_equal(np.asarray(output), np.repeat(np.repeat(pixels,scale,axis=0),scale,axis=1))

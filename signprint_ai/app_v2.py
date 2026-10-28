@@ -19,7 +19,8 @@ from PIL import Image, ImageOps, ImageTk, ImageChops, ImageCms
 import numpy as np
 
 from .niyomsil_core_adapter import NiyomSilpCoreAdapter
-from .processing import EnhanceSettings, print_pixels
+from .processing import print_pixels
+from .v21_graphics_ai import V21Settings as EnhanceSettings
 from .large_image import image_size, needs_streaming, output_size_summary, parse_scale, preview_source, thumbnail
 from .v2_output import output_folder as v2_output_folder, output_path as v2_output_path
 from .preview_viewport import PreviewViewport
@@ -27,7 +28,7 @@ from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
 
 APP_NAME = "NiyomSilp Design"
-from .release_info import release_label
+from .v21_brand import release_label
 APP_VERSION = release_label("v2")
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
@@ -655,6 +656,11 @@ class App(tk.Tk):
         self._slider(quality, "Anti-Halo Sharpen", self.sharp_var, 4)
         self._slider(quality, "Saturation", self.sat_var, 5, -30, 30)
 
+        self.graphic_ai_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(quality, text="AI เก็บขอบข้อความบนพื้นสว่าง (V2.1)",
+                        variable=self.graphic_ai_var, command=self._settings_changed,
+                        style="Dark.TCheckbutton").grid(row=6, column=0, columnspan=3, sticky="w")
+
         # Optional face module. OFF is the compatibility mode: the exact ARM
         # output path is unchanged and no GFPGAN/FaceXLib model is loaded.
         tk.Frame(quality, bg="#37414B", height=1).grid(
@@ -997,8 +1003,7 @@ class App(tk.Tk):
 
             # A large *preview* is never allocated; this only reports the real
             # export dimensions and an informational per-image RGB buffer size.
-            model_scale = (self.pipeline._model_scale_for_dimensions(*original, px)
-                           if original else 1)
+            model_scale = self.pipeline.selected_model_scale(self.scale_var.get())
             label = output_size_summary(original or px, px, model_scale)
             if original and (px[0] < original[0] or px[1] < original[1]):
                 label += " • ลดจำนวนพิกเซลบางด้านตามขนาดที่ตั้ง"
@@ -1031,6 +1036,7 @@ class App(tk.Tk):
 
     def _settings(self) -> EnhanceSettings:
         s = EnhanceSettings(
+            graphic_ai=self.graphic_ai_var.get(),
             denoise=round(self.denoise_var.get()),
             flat_smoothing=round(self.flat_var.get()),
             text_graphic_boost=round(self.text_var.get()),

@@ -1,6 +1,6 @@
-#define MyAppName "NiyomSilp Design v2"
+#define MyAppName "NiyomSilp Design v2.1"
 #ifndef MyAppVersion
-  #define MyAppVersion "2.0.0-beta.1"
+  #define MyAppVersion "2.1.0-beta.1"
 #endif
 #define MyAppPublisher "NiyomSilp Design"
 #define MyAppExeName "NiyomsilAIEnhancer.exe"

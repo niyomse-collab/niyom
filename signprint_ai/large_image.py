@@ -224,7 +224,7 @@ def make_source_raster(src, raw_path, progress, cancel):
 
 def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
                    refine_edges=False, protected_regions=None, refine_settings=None,
-                   alpha_source=None):
+                   alpha_source=None, refine_alpha_source=None):
     import tifffile
 
     # Refine only the final AI pass, on padded image tiles BEFORE cropping.
@@ -238,6 +238,11 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
     validate_target_size(target)
     tile = engine.upsampler.tile_size or 256
     pad = engine.upsampler.tile_pad
+    if hasattr(engine, "enhance_graphic_tile"):
+        pad = max(pad, math.ceil(64 / scale))
+    if refine_edges and refine_settings is not None:
+        # Geometry has 32 output pixels of finite context, also at 2x.
+        pad = max(pad, math.ceil(32 / scale))
     tile_width = max(16, min(tile*scale, math.ceil(target[0]/16)*16))
     tile_height = max(16, min(tile*scale, math.ceil(target[1]/16)*16))
     storage = math.ceil(target[0]/tile_width)*math.ceil(target[1]/tile_height)*tile_width*tile_height*3
@@ -250,6 +255,16 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
     source_alpha = (input_with_alpha.extract_band(input_with_alpha.bands - 1).cast("uchar")
                     if input_with_alpha is not None and input_with_alpha.hasalpha() else None)
     alpha_region = vips().Region.new(source_alpha) if source_alpha is not None else None
+
+    refinement_alpha = None
+    refinement_alpha_region = None
+    if refine_edges and refine_alpha_source:
+        alpha_image = open_vips(refine_alpha_source, access="random")
+        if alpha_image.hasalpha():
+            refinement_alpha = resize_image(
+                alpha_image.extract_band(alpha_image.bands - 1).cast("uchar"),
+                target, "stretch", background=[0])
+            refinement_alpha_region = vips().Region.new(refinement_alpha)
 
     def tiles():
         total = math.ceil(width / tile) * math.ceil(height / tile)
@@ -269,7 +284,15 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
                         dtype="uint8"
                     ).reshape(bottom-top, right-left).copy()
                     pixels = bleed_transparent_rgb(pixels, a)
-                enhanced = engine.enhance_tile(pixels, scale, cancel)
+                if hasattr(engine, "enhance_graphic_tile"):
+                    protected_tile = tuple(
+                        ((x1*width-left)/(right-left), (y1*height-top)/(bottom-top),
+                         (x2*width-left)/(right-left), (y2*height-top)/(bottom-top))
+                        for x1,y1,x2,y2 in protected_regions or ()
+                        if x2*width>left and x1*width<right and y2*height>top and y1*height<bottom)
+                    enhanced = engine.enhance_graphic_tile(pixels, scale, cancel, protected_tile)
+                else:
+                    enhanced = engine.enhance_tile(pixels, scale, cancel)
                 expected = ((bottom - top) * scale, (right - left) * scale, 3)
                 if enhanced.shape != expected or enhanced.dtype != np.uint8:
                     raise RuntimeError("AI ส่งขนาดหรือชนิดข้อมูลของส่วนภาพไม่ตรงตามคำขอ")
@@ -277,6 +300,12 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
                     # Refine on the padded tile, then crop so boundaries do
                     # not introduce separate sharpening lines or gaps.
                     padded = Image.fromarray(enhanced, "RGB")
+                    if refinement_alpha_region is not None:
+                        alpha_pixels = np.frombuffer(refinement_alpha_region.fetch(
+                            left * scale, top * scale,
+                            (right-left) * scale, (bottom-top) * scale), dtype="uint8"
+                        ).reshape((bottom-top)*scale, (right-left)*scale).copy()
+                        padded.putalpha(Image.fromarray(alpha_pixels))
                     if protected_regions:
                         # Source-normalized face ROIs map into each padded tile's
                         # own image coordinates. Avoid touching restored faces.
@@ -294,7 +323,7 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
                         ) if tile_faces else refine_sign_edges(padded, **refine_kwargs)
                     else:
                         padded = refine_sign_edges(padded, **refine_kwargs)
-                    enhanced = np.asarray(padded)
+                    enhanced = np.asarray(padded.convert("RGB"))
                 offset_x, offset_y = (x - left) * scale, (y - top) * scale
                 storage_tile = np.zeros((tile_height,tile_width,3),dtype="uint8")
                 storage_tile[:(y2-y)*scale, :(x2-x)*scale] = enhanced[
@@ -313,6 +342,8 @@ def upscale_raster(src, dst, size, scale, engine, progress, cancel, lo, hi, *,
     finally:
         region = None
         source = None
+        refinement_alpha_region = None
+        refinement_alpha = None
         alpha_region = None
         source_alpha = None
         input_with_alpha = None
@@ -455,7 +486,7 @@ def process_large(adapter, src, dst, settings, source_size, target_size,
     validate_export(dst, target_size, settings)
     dst.parent.mkdir(parents=True, exist_ok=True)
     check_cancel(cancel)
-    engine = adapter.engine_manager.create_engine(settings.device) if use_ai and model_scale > 1 else None
+    engine = adapter.create_job_engine(settings) if use_ai and model_scale > 1 else None
     failure = None
     with tempfile.TemporaryDirectory(prefix=".niyomsil_large_", dir=dst.parent) as folder:
         try:
@@ -476,7 +507,8 @@ def process_large(adapter, src, dst, settings, source_size, target_size,
         "ai_scale": model_scale if engine else 1, "requested_ai_scale": settings.ai_scale,
         "dpi": settings.dpi, "device": engine.device_name() if engine else "CPU",
         "engine": "NiyomSilp Design Engine", "model": "RealESRGAN_x4plus" if engine else None,
-        "runtime": "PyTorch", "processing_mode": "disk_tiles", "face_protection": face_info,
+        "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
+            "runtime": "PyTorch", "processing_mode": "disk_tiles", "face_protection": face_info,
     }
 
 
@@ -493,6 +525,7 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
                                   10 + round(72 * (index + 1) / len(passes)),
                                   refine_edges=(index == len(passes) - 1),
                                   refine_settings=settings,
+                                  refine_alpha_source=src,
                                   alpha_source=(src if index == 0 else None),
                                   protected_regions=(settings.face_regions
                                                      if settings.face_protection else None))

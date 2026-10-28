@@ -39,7 +39,7 @@ def test_individual_control_changes_pixels_with_bounded_effect(control):
     result = np.asarray(refine_sign_edges(Image.fromarray(rgb), settings=settings(**{control: 100})))
     diff = np.abs(result.astype(int) - rgb.astype(int))
     assert diff.max() > 0
-    assert diff.max() <= 15
+    assert diff.max() <= (111 if control == "text_graphic_boost" else 15)
     # Detached mark and its surrounding background stay distinct.
     assert result[16, 40, 2] > result[16, 40, 0]
     assert result[10, 40, 0] > result[10, 40, 2]

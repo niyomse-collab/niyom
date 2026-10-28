@@ -1,0 +1,136 @@
+name: Build and verify NiyomSilp Design V2.1 candidate
+# V2-only rebuild trigger after prerelease publish fix (PR #15).
+
+on:
+  push:
+    branches: [fix/v21-real-quality]
+  workflow_dispatch:
+
+# The Windows installer bundles a multi-GB CUDA runtime. Finishing an active
+# validation run is safer than cancelling it on every small V2-only commit.
+# GitHub keeps at most one running and one pending run in this group; new pending
+# runs replace older pending ones, so the newest source is built next.
+concurrency:
+  group: niyomsil-v21-candidate-installer
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+    env:
+      V2_VERSION: 2.1.0-beta.${{ github.run_number }}
+      V2_TAG: v2.1-quality-${{ github.run_number }}
+      PIP_NO_CACHE_DIR: '1'
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test sources before packaging
+        run: |
+          python -m pip install pytest numpy Pillow opencv-python-headless pypdf -r requirements_v2_large_images.txt
+          python -m pytest -q
+          python -m compileall -q signprint_ai tools run.py
+          python -c "from signprint_ai.ui_smoke import run; run(layout_only=True)"
+
+      - name: Install compiler
+        run: choco install innosetup -y --no-progress
+
+      - name: Prepare verified V2.1 graphic model
+        run: python tools/prepare_v21_model.py
+
+      - name: Build v2 runtime and full installer
+        shell: powershell
+        run: .\build_windows.ps1 -Channel v2 -Version $env:V2_VERSION
+
+      - name: Test packaged imports, UI, device selection and face backend
+        shell: powershell
+        run: |
+          $exe = '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe'
+          .\tools\Test-V2-Package.ps1 -Exe $exe -OutputDir package-smoke -Mode imports -TimeoutSeconds 120
+          .\tools\Test-V2-Package.ps1 -Exe $exe -OutputDir package-smoke -Mode ui
+          .\tools\Test-V2-Package.ps1 -Exe $exe -OutputDir package-smoke -Mode face -TimeoutSeconds 120
+
+      - name: Test real inference, large files and cancellation from packaged EXE
+        shell: powershell
+        run: .\tools\Test-V2-Package.ps1 -Exe '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe' -OutputDir package-smoke -Mode processing -TimeoutSeconds 1200
+
+      - name: Generate small download installer from checksummed payloads
+        shell: powershell
+        run: |
+          python tools\generate_v2_download_installer.py --release-dir release --repository '${{ github.repository }}' --tag $env:V2_TAG --version $env:V2_VERSION --output build\installer_v2_download.iss --icon assets\app_icon.ico
+          if ($LASTEXITCODE -ne 0) { throw 'Download installer generation failed' }
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { $iscc = Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe' }
+          & $iscc '.\build\installer_v2_download.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Download installer compile failed' }
+          Copy-Item '.\package-smoke\package-smoke.json' '.\release\PACKAGE_SMOKE.json'
+          Copy-Item '.\dist\NiyomsilAIEnhancer\BUILD_PROOF.txt' '.\release\BUILD_PROOF.txt'
+          Copy-Item '.\README_V2_TH.md' '.\release\README_V2_TH.md'
+          Copy-Item '.\THIRD_PARTY_NOTICES.md' '.\release\THIRD_PARTY_NOTICES.md'
+          Get-ChildItem '.\release\*' -File |
+            Where-Object { $_.Extension -in '.exe', '.bin' } |
+            ForEach-Object { "$((Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower())  $($_.Name)" } |
+            Set-Content '.\release\SHA256SUMS.txt' -Encoding ascii
+
+      - name: Free build-only disk space
+        shell: powershell
+        run: |
+          Remove-Item '.\.venv-build' -Recurse -Force
+          Remove-Item '.\build' -Recurse -Force
+
+      - name: Install verified full setup, test installed application and uninstall
+        shell: powershell
+        run: |
+          $target = Join-Path $PWD 'installed-smoke'
+          $args = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=$target /LOG=package-smoke\install.log"
+          $process = Start-Process '.\release\NiyomSilp-Design-v2-Setup.exe' -ArgumentList $args -PassThru
+          if (-not $process.WaitForExit(600000)) { $process.Kill(); throw 'Installer timeout' }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $exe = Join-Path $target 'NiyomsilAIEnhancer.exe'
+          .\tools\Test-V2-Package.ps1 -Exe $exe -OutputDir package-smoke\installed -Mode imports -TimeoutSeconds 120
+          .\tools\Test-V2-Package.ps1 -Exe $exe -OutputDir package-smoke\installed -Mode processing -TimeoutSeconds 1200
+          $uninstaller = Join-Path $target 'unins000.exe'
+          $process = Start-Process $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru
+          if (-not $process.WaitForExit(300000)) { $process.Kill(); throw 'Uninstall timeout' }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw 'Uninstall failed' }
+          if (Test-Path $exe) { throw 'Installed application still exists after uninstall' }
+
+      - name: Test small installer against verified local payloads
+        shell: powershell
+        run: |
+          $payload = Join-Path $PWD 'release'
+          $args = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /VERIFYONLY=1 /PAYLOADDIR=$payload /LOG=package-smoke\download-local.log"
+          $process = Start-Process '.\release\NiyomSilp-Design-v2-Install.exe' -ArgumentList $args -PassThru
+          if (-not $process.WaitForExit(600000)) { $process.Kill(); throw 'Small installer timeout' }
+          $process.Refresh()
+          if ($process.ExitCode -ne 0) { throw "Small installer failed: $($process.ExitCode)" }
+
+      - name: Upload verified installer and reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: NiyomSilp-Design-v2.1-Windows-Candidate
+          compression-level: 0
+          path: |
+            release/NiyomSilp-Design-v2-Setup*
+            release/PACKAGE_SMOKE.json
+            release/BUILD_PROOF.txt
+            release/SHA256SUMS.txt
+            release/THIRD_PARTY_NOTICES.md
+            docs/V21_QUALITY_STATUS.md
+
+      - name: Preserve diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NiyomSilp-v2-diagnostics
+          path: package-smoke/**
+          if-no-files-found: ignore

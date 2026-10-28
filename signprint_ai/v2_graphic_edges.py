@@ -94,7 +94,8 @@ def refine_sign_edges(
         base = rgb.astype(np.float32)
         text = strength("text_graphic_boost")
         # Blend the existing contour/fill correction with a true zero bypass.
-        adjusted = base + (sharpened.astype(np.float32) - base) * text
+        adjusted = base.copy()
+        adjusted[filled] += (blended[filled].astype(np.float32) - base[filled]) * text
         flat_weight = np.clip(1.0 - gradient / 55.0, 0, 1)[..., None]
         adjusted += (denoised.astype(np.float32) - base) * strength("denoise") * flat_weight
         # A larger but *region-gated* flat-colour correction removes mild
@@ -114,30 +115,6 @@ def refine_sign_edges(
             safe_flat = (~barrier) & (colour_span <= 22)
             flat_reference = cv2.GaussianBlur(base, (0, 0), 6.0)
             adjusted += (flat_reference - base) * flat * 0.90 * safe_flat[..., None]
-
-        # Along-contour averaging gently settles single-pixel zigzags on
-        # locally coherent curves/straight strokes, without blurring across
-        # the stroke. This is not vector reconstruction or OCR.
-        if text:
-            tangential_norm = cv2.magnitude(direction_x, direction_y) + 1e-3
-            tangent_x = -direction_y / tangential_norm
-            tangent_y = direction_x / tangential_norm
-            grid_y, grid_x = np.indices(gray.shape, dtype=np.float32)
-            along = np.zeros_like(base)
-            for offset in (-3.0, 3.0):
-                along += cv2.remap(
-                    base,
-                    grid_x + offset * tangent_x,
-                    grid_y + offset * tangent_y,
-                    interpolation=cv2.INTER_LINEAR,
-                    borderMode=cv2.BORDER_REFLECT_101,
-                )
-            along *= 0.5
-            # Give the tangent estimate priority over local sharpening at
-            # high-confidence edges; otherwise sharpening cancels smoothing.
-            adjusted += (along - adjusted) * text * np.minimum(
-                edge_weight * 1.3, 0.9
-            )[..., None]
 
         detail = base - cv2.GaussianBlur(base, (0, 0), 0.85)
         detail[np.abs(detail) < 2.0] = 0
@@ -163,10 +140,18 @@ def refine_sign_edges(
         sharpened = np.rint(np.clip(adjusted,
             np.maximum(minimum, original - 15),
             np.minimum(maximum, original + 15))).astype(np.uint8)
+        if text:
+            from .v21_contours import contour_delta
+            # Geometry has its own local bound. Do not clamp it back to +/-15,
+            # which only changes edge colour and prevents boundary repair.
+            geometry = contour_delta(rgb, text)
+            sharpened = np.rint(np.clip(sharpened.astype(np.float32) + geometry,
+                                      cv2.erode(rgb, np.ones((7, 7), np.uint8)),
+                                      cv2.dilate(rgb, np.ones((7, 7), np.uint8)))).astype(np.uint8)
         # Hidden RGB must not bleed into partially transparent cutout borders.
         if "A" in image.getbands():
             opaque = np.asarray(image.getchannel("A")) == 255
-            safe = cv2.erode(opaque.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0
+            safe = cv2.erode(opaque.astype(np.uint8), np.ones((15, 15), np.uint8)) > 0
             sharpened[~safe] = rgb[~safe]
 
     if protected_regions:
