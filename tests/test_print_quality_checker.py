@@ -266,3 +266,46 @@ def test_rgb_embedded_srgb_metadata_is_not_printer_certification(tmp_path):
     assert report["details"]["output_icc"]["color_space"] == "RGB"
     assert report["checks"]["printer_ink_media_rip_match"]["status"] == "NOT_TESTED"
     assert report["print_certification"] == "NOT_CERTIFIED"
+
+
+
+def test_cmyk_white_matte_guard_rejects_hidden_black(tmp_path):
+    """Fully transparent source must print as white, not saturated near-black CMYK."""
+    src, bad = tmp_path / "transparent.png", tmp_path / "wrong.tif"
+    pixels = np.zeros((78, 126, 4), dtype=np.uint8)
+    pixels[:, :, :3] = (0, 0, 0)
+    pixels[28:50, 44:82, :3] = (30, 60, 150)
+    pixels[28:50, 44:82, 3] = 255
+    Image.fromarray(pixels, "RGBA").save(src)
+    Image.new("CMYK", (252, 156), (224, 202, 186, 250)).save(bad)
+    p, report = invoke(tmp_path, src, bad)
+    assert p.returncode == 1
+    assert report["checks"]["cmyk_white_matte_samples"]["status"] == "FAIL"
+    assert report["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_cmyk_white_matte_guard_accepts_white_background_without_print_cert(tmp_path):
+    src, good = tmp_path / "transparent.png", tmp_path / "white.tif"
+    pixels = np.zeros((78, 126, 4), dtype=np.uint8)
+    pixels[28:50, 44:82, :3] = (30, 60, 150)
+    pixels[28:50, 44:82, 3] = 255
+    Image.fromarray(pixels, "RGBA").save(src)
+    Image.new("CMYK", (252, 156), (0, 0, 0, 0)).save(good)
+    p, report = invoke(tmp_path, src, good)
+    assert p.returncode == 0
+    assert report["checks"]["cmyk_white_matte_samples"]["status"] == "PASS"
+    assert report["checks"]["printer_ink_media_rip_match"]["status"] == "NOT_TESTED"
+    assert report["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_cmyk_matte_samples_abstain_if_output_exceeds_decode_budget(tmp_path, monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("printqa", CHECKER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "MAX_FULL_DECODE_PIXELS", 1)
+    src, dst = tmp_path / "src.png", tmp_path / "out.tif"
+    Image.new("RGBA", (16, 12), (0, 0, 0, 0)).save(src)
+    Image.new("CMYK", (32, 24), (0, 0, 0, 0)).save(dst)
+    checks, _ = module.inspect(src, dst)
+    assert checks["cmyk_white_matte_samples"]["status"] == "NOT_TESTED"

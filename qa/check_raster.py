@@ -44,6 +44,50 @@ def inspect_icc(output):
         return {"error": f"{type(exc).__name__}: {exc}", "bytes": len(blob)}
 
 
+def check_white_matte_samples(src, dst):
+    """Catch near-black CMYK in source-zero-alpha areas on bounded rasters.
+
+    Samples are matched by normalized coordinates only when aspect ratios
+    agree, and all source pixels around a probe have zero alpha.  This is a
+    corruption guard, not a colorimetric proof or a full-raster test.
+    """
+    if max(src.width * src.height, dst.width * dst.height) > MAX_FULL_DECODE_PIXELS:
+        return {"status": "NOT_TESTED",
+                "reason": "Large print: use bounded tile sampling on production hardware"}
+    if abs(src.width / src.height - dst.width / dst.height) > 0.01:
+        return {"status": "NOT_TESTED",
+                "reason": "Different aspect ratios; coordinates do not map directly"}
+    alpha = np.asarray(src.convert("RGBA").getchannel("A"))
+    ink = np.asarray(dst.convert("CMYK"))
+    count = 0
+    bad = 0
+    worst_ink = 0
+    for j in range(1, 12):
+        for i in range(1, 12):
+            fx, fy = (i + .5) / 13.0, (j + .5) / 13.0
+            sx = min(src.width-1, round(fx * (src.width-1)))
+            sy = min(src.height-1, round(fy * (src.height-1)))
+            if alpha[max(0, sy-2):sy+3, max(0, sx-2):sx+3].max() > 0:
+                continue
+            dx = min(dst.width-1, round(fx * (dst.width-1)))
+            dy = min(dst.height-1, round(fy * (dst.height-1)))
+            values = ink[dy, dx].astype(np.int32)
+            amount = int(values.sum())
+            worst_ink = max(worst_ink, amount)
+            count += 1
+            if amount > 80 or int(values[3]) > 40:
+                bad += 1
+    if count < 3:
+        return {"status": "NOT_TESTED",
+                "reason": "Not enough zero-alpha source areas away from cutout edges"}
+    return {
+        "status": "FAIL" if bad else "PASS",
+        "reason": (f"Black-matte risk: {bad}/{count} opaque-output probes contain "
+                   f"excessive CMYK ink (maximum summed channels {worst_ink})"
+                   if bad else f"{count} white-matte samples show no excess CMYK ink"),
+    }
+
+
 def inspect(source, output, expect_same_size=False):
     checks = {}
     details = {}
@@ -121,6 +165,8 @@ def inspect(source, output, expect_same_size=False):
         opaque_export = dst.mode == "CMYK" or dst.format in ("JPEG", "JPG")
         if source_alpha and opaque_export:
             details["source_alpha_export_policy"] = "flattened_for_opaque_format"
+            if dst.mode == "CMYK":
+                checks["cmyk_white_matte_samples"] = check_white_matte_samples(src, dst)
             for name in ("alpha_channel", "alpha_partial_preserved",
                          "alpha_nonopaque_preserved", "alpha_exact_same_size"):
                 checks[name] = {

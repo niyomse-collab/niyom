@@ -63,3 +63,16 @@ media profile are still needed. Private customer images remain excluded from Git
 When source PNG has alpha but CMYK TIFF/JPEG is explicitly requested, the export
 is an opaque white-matte transformation. QA must show alpha preservation as
 NOT_APPLICABLE, not FAIL or PASS. The visual white-matte quality remains NOT_TESTED.
+
+### Automated CMYK black-matte corruption guard
+
+For bounded output rasters with matching source/output aspect ratios, the QA checker now
+samples positions well inside zero-alpha source areas. A CMYK print that leaves
+high ink density (especially black) at these points **FAILS** rather than being
+mistaken for a legitimate white-matte conversion. The guard uses normalized
+coordinates and is conservative around antialiased cutout edges.
+
+For very large rasters exceeding the safe full-decode budget, the check reports
+**NOT_TESTED** instead of loading the entire print into memory. The real
+18898×6299 CMYK customer sample revealed near-full CMYK ink in transparent input
+areas and is known-bad evidence requiring a new V2.1 exported comparison.
