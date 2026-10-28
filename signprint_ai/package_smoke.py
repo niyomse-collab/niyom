@@ -96,6 +96,52 @@ def _run(folder):
             report["checks"].append({"name": "v21_real_graphic_model_selected_4x_print_target",
                                       "size": [208,166]})
 
+        # Verify transparent print artwork through the *packaged EXE*
+        # (not only source-level mocked ICC tests). The zero-alpha RGB
+        # deliberately contains hidden black: a black JPEG background is
+        # always a failure, even if the rest of the image looks sharp.
+        transparent_source = work / "transparent_test.png"
+        rgba = np.zeros((48, 64, 4), dtype=np.uint8)
+        rgba[14:34, 20:44, :3] = (25, 105, 215)
+        rgba[14:34, 20:44, 3] = 255
+        rgba[10, 10, :3] = (210, 30, 40)
+        rgba[10, 10, 3] = 128
+        Image.fromarray(rgba, "RGBA").save(transparent_source)
+        old_limit = large_image.IN_MEMORY_PIXELS
+        try:
+            large_image.IN_MEMORY_PIXELS = 1
+            no_effects = EnhanceSettings(
+                ai_scale=1, device="cpu", denoise=0, flat_smoothing=0,
+                text_graphic_boost=0, sharpness=0, contrast=0, saturation=0,
+                resize_mode="stretch",
+            )
+            transparent_png = work / "transparent_roundtrip.png"
+            png_result = adapter.process(transparent_source, transparent_png, no_effects, use_ai=False)
+            with Image.open(transparent_png) as result_image:
+                assert result_image.mode == "RGBA"
+                assert result_image.size == (64, 48)
+                assert result_image.getpixel((0, 0))[3] == 0
+                assert result_image.getpixel((10, 10))[3] == 128
+                assert result_image.getpixel((32, 24))[3] == 255
+
+            white_jpeg = work / "transparent_to_white.jpg"
+            jpeg_result = adapter.process(transparent_source, white_jpeg, no_effects, use_ai=False)
+            with Image.open(white_jpeg) as result_image:
+                assert result_image.mode == "RGB"
+                assert min(result_image.getpixel((0, 0))) >= 245
+                assert min(result_image.getpixel((63, 47))) >= 245
+                middle = result_image.getpixel((32, 24))
+                assert middle[2] > middle[1] > middle[0], middle
+            report["checks"].append({
+                "name": "installed_exe_disk_rgba_png_alpha_and_jpeg_white_matte",
+                "mode": [png_result["processing_mode"], jpeg_result["processing_mode"]],
+                "size": [64, 48],
+                "transparent_corner": "jpeg_white",
+                "partial_alpha": "png_128",
+            })
+        finally:
+            large_image.IN_MEMORY_PIXELS = old_limit
+
         Image.new("RGB", (60,40), (41,123,207)).save(source)
         destination = work / "large_banner.png"
         settings = EnhanceSettings(print_width=700, print_height=100, print_unit="cm",
