@@ -105,3 +105,29 @@ re-exported with V2.1 candidate commit a50aceb or newer using the same ICC,
 DPI and dimensions; run qa/probe_cmyk_matte.py privately; verify TIFF and
 Thai lettering in Photoshop at 100/200/400%; then test on shop media/RIP.
 Core regression and packaged smoke success are not substitutes.
+
+
+## Exact alpha-leak attribution using paired legacy outputs
+
+A second **private, local-only** analysis compared historical NiyomSilp RGBA
+PNG and CMYK TIFF outputs, both 18,898 × 6,299 pixels, at 68 corresponding
+fully transparent sample coordinates. The original small RGBA image
+independently confirmed zero alpha around each point. Re-applying the
+historical TIFF's own Coated GRACoL 2006 ICC in Pillow/ImageCms yielded:
+
+- ICC conversion of **hidden RGB channels directly** agreed with TIFF ink
+  within 1 channel unit (0–255) at **all 68/68 positions**.
+- RGB composited onto opaque white **before ICC** agreed within 5 channel
+  units at only **7/68** positions.
+- Mean absolute per-channel difference between historical TIFF and direct
+  hidden-RGB ICC conversion: **0.0** (rounded to two decimals).
+- Mean absolute per-channel difference between historical TIFF and
+  correctly white-composited ICC conversion: **192.19**.
+- This is strong evidence that the **historical output** passed transparent
+  hidden RGB through the ICC step without white compositing.
+
+This data is quantitative *root cause evidence* for the old TIFF, not a claim
+that fresh V2.1 CMYK printing now passes. Do not put the actual private PNG,
+TIFF, ICC, or full customer artwork into the repository. Verify a fresh
+CMYK output from candidate commit a50aceb or later at identical settings
+with bounded pixel probes and a Photoshop/physical-print review.
