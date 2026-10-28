@@ -512,3 +512,61 @@ def test_palette_transparency_preview_has_no_solid_background(tmp_path, monkeypa
     visible = PreviewViewport(actual=True).render(preview, (64, 64))
     assert visible.getpixel((0, 0)) == (23, 23, 23)
     assert visible.getpixel((32, 32)) == (0, 155, 240)
+
+
+
+def test_explicit_white_matte_for_cmyk_before_icc(tmp_path):
+    """Real customer evidence: zero-alpha hidden black must not print black."""
+    pixels = np.zeros((48, 64, 4), dtype=np.uint8)
+    pixels[12:36, 16:48, :3] = (25, 110, 210)
+    pixels[12:36, 16:48, 3] = 255
+    pixels[8, 8, :3] = (210, 30, 40)
+    pixels[8, 8, 3] = 128
+    src = tmp_path / "cutout.png"
+    Image.fromarray(pixels, "RGBA").save(src)
+    rgb = large_image.as_rgb(large_image.open_vips(src))
+    rendered = large_image.prepare_source_alpha_for_export(
+        rgb, src, (64, 48),
+        EnhanceSettings(color_mode="CMYK", resize_mode="stretch"),
+        tmp_path / "converted.tif",
+    )
+    assert rendered.bands == 3
+    result = large_image.to_pillow(rendered)
+    assert result.getpixel((0, 0)) == (255, 255, 255)
+    assert result.getpixel((63, 47)) == (255, 255, 255)
+    assert result.getpixel((32, 24)) == (25, 110, 210)
+    expected = tuple(round((component * 128 + 255 * 127) / 255)
+                     for component in (210, 30, 40))
+    assert max(abs(actual - reference) for actual, reference
+               in zip(result.getpixel((8, 8)), expected)) <= 2
+
+
+def test_rgba_jpeg_disk_export_uses_white_matte(adapter, monkeypatch, tmp_path):
+    """Test actual streaming export path, not only the compositing helper."""
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    rgba = np.zeros((40, 60, 4), dtype=np.uint8)
+    rgba[10:30, 15:45, :3] = (25, 110, 210)
+    rgba[10:30, 15:45, 3] = 255
+    src, dst = tmp_path / "transparent.png", tmp_path / "print.jpg"
+    Image.fromarray(rgba, "RGBA").save(src)
+    adapter.process(src, dst, settings_for((120, 80), "stretch"), use_ai=False)
+    with Image.open(dst) as result:
+        assert result.mode == "RGB"
+        assert min(result.getpixel((2, 2))) > 245
+        assert min(result.getpixel((117, 77))) > 245
+        red, green, blue = result.getpixel((60, 40))
+        assert blue > green > red
+
+
+def test_streaming_must_refuse_missing_alpha_decoder_for_opaque_export(tmp_path, monkeypatch):
+    """If the large-image decoder loses alpha, fail instead of creating black CMYK."""
+    src = tmp_path / "alpha.png"
+    Image.new("RGBA", (8, 8), (0, 0, 0, 0)).save(src)
+    class MissingAlpha:
+        def hasalpha(self):
+            return False
+    monkeypatch.setattr(large_image, "open_vips", lambda *args, **kwargs: MissingAlpha())
+    with pytest.raises(RuntimeError, match="Alpha"):
+        large_image.prepare_source_alpha_for_export(
+            None, src, (8, 8), EnhanceSettings(color_mode="CMYK"), tmp_path / "unsafe.tif"
+        )

@@ -499,16 +499,37 @@ def prepare_source_alpha_for_export(image, src, target_size, settings, dst):
     """
     source = open_vips(src, access="random")
     if not source.hasalpha():
+        # Never silently use hidden black RGB if the decoder unexpectedly
+        # dropped an alpha band. Pillow reads header metadata only here.
+        # The decompression-bomb guard may reject a valid huge source; that
+        # is not a reason to allocate the full print master in memory.
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+                with Image.open(src) as header:
+                    if "A" in header.getbands() or "transparency" in header.info:
+                        raise RuntimeError(
+                            "ต้นฉบับมี Alpha แต่ตัวอ่านภาพใหญ่ไม่พบช่องโปร่งใส "
+                            "หยุดส่งออกเพื่อป้องกันพื้นดำใน CMYK"
+                        )
+        except Image.DecompressionBombError:
+            pass
         return image
     alpha = source.extract_band(source.bands - 1).cast("uchar")
     alpha = resize_image(alpha, target_size, settings.resize_mode, background=[0])
-    rgba = image.bandjoin(alpha).copy(interpretation="srgb")
     suffix = Path(dst).suffix.lower()
     if settings.color_mode.upper() == "RGB" and suffix in (".png", ".tif", ".tiff"):
-        return rgba
-    # JPEG/PDF and CMYK output do not promise transparent pixels. Compose
-    # explicitly before ICC conversion; otherwise transparent RGB can be black.
-    return rgba.flatten(background=[255, 255, 255]).copy(interpretation="srgb")
+        return image.bandjoin(alpha).copy(interpretation="srgb")
+
+    # For CMYK/JPEG/PDF, explicitly composite RGB against white *before*
+    # the CMYK ICC transformation.  A customer sample with zero-alpha black
+    # pixels produced near-full ink in transparent areas (C224 M202 Y186 K250).
+    # Per-pixel arithmetic prevents hidden RGB reaching ICC conversion and
+    # does not require allocating the whole output raster in RAM.
+    opacity = alpha.cast("float") / 255.0
+    return ((image.cast("float") - 255.0) * opacity + 255.0).cast(
+        "uchar"
+    ).copy(interpretation="srgb")
 
 
 def process_large(adapter, src, dst, settings, source_size, target_size,
