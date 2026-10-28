@@ -430,3 +430,41 @@ def test_tiled_graphic_refinement_receives_selected_face_roi(monkeypatch, tmp_pa
         assert exported.size == result
         # Normalized selected face center is preserved as real source content.
         assert exported.getpixel((48, 48)) == (27, 48, 125)
+
+
+def test_large_rgba_preview_composites_alpha_without_hidden_rgb_fringe(monkeypatch, tmp_path):
+    """The lazy viewport, not just exported PNGs, must respect transparency."""
+    from signprint_ai.preview_viewport import PreviewViewport
+
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    path = tmp_path / "alpha_preview.png"
+    image = Image.new("RGBA", (80, 80), (255, 0, 0, 0))
+    for y in range(20, 60):
+        for x in range(20, 60):
+            image.putpixel((x, y), (10, 80, 220, 255))
+    image.putpixel((10, 10), (210, 30, 40, 128))
+    image.save(path)
+
+    preview = large_image.preview_source(path)
+    assert isinstance(preview, large_image.LazyPreviewSource)
+    view = PreviewViewport(actual=True)
+    rendered = view.render(preview, (80, 80))
+    assert rendered.mode == "RGB"
+    assert rendered.getpixel((0, 0)) == (23, 23, 23)
+    assert rendered.getpixel((40, 40)) == (10, 80, 220)
+    expected = tuple(round((foreground * 128 + 23 * 127) / 255)
+                     for foreground in (210, 30, 40))
+    assert max(abs(actual - reference) for actual, reference in
+               zip(rendered.getpixel((10, 10)), expected)) <= 3
+    fringe = rendered.getpixel((19, 40))
+    assert fringe[0] <= 25
+    assert view.render(preview, (160, 160)).size == (160, 160)
+
+
+def test_large_rgb_preview_retains_existing_pixel_values(monkeypatch, tmp_path):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    path = tmp_path / "rgb_preview.png"
+    Image.new("RGB", (72, 72), (15, 90, 200)).save(path)
+    preview = large_image.preview_source(path)
+    result = PreviewViewport(actual=True).render(preview, (72, 72))
+    assert result.getpixel((36, 36)) == (15, 90, 200)

@@ -434,7 +434,15 @@ class LazyPreviewSource:
         y2 = min(self.height, math.ceil(top+box[1]/scale)+margin)
         if x2 <= x1 or y2 <= y1:
             return Image.new("RGB", box, fillcolor)
-        image = as_rgb(open_vips(self.path, access="random"))
+        source = open_vips(self.path, access="random")
+        image = as_rgb(source)
+        # Large-file previews must show transparency as a neutral dark
+        # viewport, not a PNG's arbitrary hidden RGB.  Premultiply before
+        # resizing so invisible red/black pixels cannot bleed into text edges.
+        has_alpha = bool(source.hasalpha())
+        if has_alpha:
+            alpha = source.extract_band(source.bands - 1).cast("uchar")
+            image = image.bandjoin(alpha).copy(interpretation="srgb").premultiply()
         image = image.crop(x1, y1, x2-x1, y2-y1)
         # Reduce first for Fit view; affine interpolation itself does not
         # antialias a huge reduction and would alias small Thai lettering.
@@ -447,7 +455,11 @@ class LazyPreviewSource:
                              interpolate=vips().Interpolate.new("bicubic"),
                              odx=(x1-left)*scale, ody=(y1-top)*scale,
                              oarea=[0, 0, box[0], box[1]],
-                             extend="background", background=list(fillcolor))
+                             extend="background",
+                             background=list(fillcolor) + ([255] if has_alpha else []))
+        if has_alpha:
+            # Flatten only this viewport, not the full print master.
+            image = image.unpremultiply().flatten(background=list(fillcolor)).cast("uchar")
         return to_pillow(image)
 
 
