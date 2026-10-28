@@ -29,6 +29,7 @@ def test_rgba_png_to_tiff_passes_exact_alpha(tmp_path):
     p, result = invoke(tmp_path, src, dst, "--expect-same-size")
     assert p.returncode == 0
     assert result["checks"]["alpha_exact_same_size"]["status"] == "PASS"
+    assert result["details"]["output_dpi"] == [300.0, 300.0]
     assert result["print_certification"] == "NOT_CERTIFIED"
 
 
