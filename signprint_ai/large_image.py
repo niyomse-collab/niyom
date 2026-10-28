@@ -511,17 +511,15 @@ def source_declares_alpha(src):
             colour_type = ihdr[9]
             if colour_type in (4, 6):
                 return True
-            if colour_type in (0, 2):
-                return False
-            if colour_type != 3:
+            if colour_type not in (0, 2, 3):
                 raise ValueError("Unsupported PNG colour type")
             stream.read(4)  # IHDR CRC
-            # Indexed transparency is stored in a tRNS chunk before IDAT.
-            # Scan only chunk *headers*, not the IDAT or compressed image.
+            # Grayscale, truecolor and indexed PNG can all carry tRNS.
+            # Scan chunk headers before IDAT without decoding image pixels.
             for _ in range(1024):
                 header = stream.read(8)
                 if len(header) != 8:
-                    raise ValueError("Incomplete indexed PNG metadata")
+                    raise ValueError("Incomplete PNG metadata")
                 length = int.from_bytes(header[:4], "big")
                 kind = header[4:]
                 if kind == b"tRNS":
@@ -529,7 +527,7 @@ def source_declares_alpha(src):
                 if kind in (b"IDAT", b"IEND"):
                     return False
                 stream.seek(length + 4, 1)  # data and CRC, no pixel decoding
-            raise ValueError("Indexed PNG has too many metadata chunks")
+            raise ValueError("PNG has too many metadata chunks")
     if suffix in (".tif", ".tiff"):
         import tifffile  # Already required by the V2 large-image runtime.
         with tifffile.TiffFile(path) as tiff:

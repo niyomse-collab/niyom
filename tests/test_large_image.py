@@ -628,3 +628,34 @@ def test_metadata_alpha_guard_detects_tiff_extra_samples_without_pixel_decode(tm
     monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
     assert large_image.source_declares_alpha(rgba_path) is True
     assert large_image.source_declares_alpha(opaque_path) is False
+
+
+@pytest.mark.parametrize(
+    "mode,pixel,transparent",
+    [
+        ("L", 128, 128),
+        ("RGB", (10, 20, 30), (10, 20, 30)),
+    ],
+)
+def test_metadata_alpha_guard_detects_grayscale_and_rgb_png_trns(
+    tmp_path, monkeypatch, mode, pixel, transparent
+):
+    """tRNS transparency also exists on grayscale and truecolor PNGs."""
+    src = tmp_path / f"{mode.lower()}_trns.png"
+    Image.new(mode, (32, 32), pixel).save(src, transparency=transparent)
+    opaque = tmp_path / f"{mode.lower()}_opaque.png"
+    Image.new(mode, (32, 32), pixel).save(opaque)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    assert large_image.source_declares_alpha(src) is True
+    assert large_image.source_declares_alpha(opaque) is False
+
+    class NoAlpha:
+        def hasalpha(self):
+            return False
+
+    monkeypatch.setattr(large_image, "open_vips", lambda *args, **kwargs: NoAlpha())
+    with pytest.raises(RuntimeError, match="Alpha"):
+        large_image.prepare_source_alpha_for_export(
+            None, src, (32, 32), EnhanceSettings(color_mode="CMYK"),
+            tmp_path / f"{mode.lower()}_unsafe.tif",
+        )
