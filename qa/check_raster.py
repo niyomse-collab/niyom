@@ -51,12 +51,14 @@ def inspect(source, output, expect_same_size=False):
         else:
             checks["size_match"] = {"status": "NOT_TESTED",
                                     "reason": "Upscaling/resize permitted; specify --expect-same-size to enforce"}
-        source_alpha = "A" in src.getbands() or "transparency" in src.info
+        source_alpha = any(band.lower() == "a" for band in src.getbands()) or "transparency" in src.info
         if source_alpha:
-            output_alpha = "A" in dst.getbands() or "transparency" in dst.info
+            output_alpha = any(band.lower() == "a" for band in dst.getbands()) or "transparency" in dst.info
             checks["alpha_channel"] = {"status": "PASS" if output_alpha else "FAIL",
                                         "reason": "source has transparency; output must retain it"}
             if output_alpha and max(src.width * src.height, dst.width * dst.height) > MAX_FULL_DECODE_PIXELS:
+                checks["alpha_nonopaque_preserved"] = {
+                    "status": "NOT_TESTED", "reason": "Source or output exceeds safe alpha-decode budget"}
                 checks["alpha_exact_same_size"] = {
                     "status": "NOT_TESTED", "reason": "Source or output exceeds safe alpha-decode budget; exact alpha untested"}
                 checks["alpha_edge_visual"] = {
@@ -67,6 +69,14 @@ def inspect(source, output, expect_same_size=False):
                 details["output_alpha_max"] = int(a.max())
                 details["output_partial_alpha_pixels"] = int(np.count_nonzero((a > 0) & (a < 255)))
                 sa = np.asarray(src.convert("RGBA").getchannel("A"))
+                # An RGBA output can be entirely opaque despite retaining an A band.
+                # Catch this even when a legitimate resize prevents pixelwise equality.
+                lost_transparency = bool(np.any(sa < 255) and np.all(a == 255))
+                checks["alpha_nonopaque_preserved"] = {
+                    "status": "FAIL" if lost_transparency else "PASS",
+                    "reason": "Source has nonopaque pixels but output is fully opaque"
+                    if lost_transparency else "Output retains nonopaque pixels or source was opaque",
+                }
                 if src.size == dst.size:
                     equal = np.array_equal(sa, a)
                     checks["alpha_exact_same_size"] = {
@@ -79,6 +89,7 @@ def inspect(source, output, expect_same_size=False):
                     "status": "NOT_TESTED",
                     "reason": "Requires Photoshop composite on black/white/saturated backgrounds"}
             else:
+                checks["alpha_nonopaque_preserved"] = {"status": "FAIL", "reason": "Output lacks alpha"}
                 checks["alpha_exact_same_size"] = {"status": "FAIL", "reason": "Output lacks alpha"}
                 checks["alpha_edge_visual"] = {"status": "NOT_TESTED", "reason": "No alpha to inspect"}
         else:

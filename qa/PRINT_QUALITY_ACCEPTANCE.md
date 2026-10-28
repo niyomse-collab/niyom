@@ -1,7 +1,7 @@
 # NiyomSilp V2 — Print Quality Acceptance (PQA) v1
 
 Status: **NOT CERTIFIED** until every mandatory gate has evidence and passes.
-Target: `dev/niyomsil-design-v2`, source commit `aa6e8be4c45ee7051f6f04f109dce28c5815beff`, Windows release `v2-large-images-23`.
+Target: `dev/niyomsil-design-v2`, source commit `e696b9e2d1db866c19faef213a0486b741bc9f04`, Windows release `v2-large-images-24` (2026-10-28). This release is V2, **not** an approved V2.1 build.
 This is a QA-only procedure. Do not change V1, face backend, Preview/Zoom or V2 processing code for this document.
 
 ## Required evidence
@@ -41,8 +41,10 @@ Keep private customer artwork OUT of public GitHub. For each case record:
 `CERTIFIED` only if **every mandatory gate** is PASS, with a dated human sign-off for F01, U01 and P01 and a successful Windows release/download test on the exact candidate commit. A single FAIL or NOT TESTED makes overall status `NOT CERTIFIED`. CI success alone means `AUTOMATED TESTS PASSED`, not print certification.
 
 ## Current baseline
-- Existing automated regression: https://github.com/niyomse-collab/niyom/actions/runs/40604326997
-- Windows build and public download verification: https://github.com/niyomse-collab/niyom/actions/runs/40604326998
-- Candidate release: https://github.com/niyomse-collab/niyom/releases/tag/v2-large-images-23
+- QA checker (Windows/Ubuntu synthetic): https://github.com/niyomse-collab/niyom/actions/runs/40637675122
+- QA branch core regression (Windows/Ubuntu): https://github.com/niyomse-collab/niyom/actions/runs/40637675181
+- V2 Windows build (package smoke tests): https://github.com/niyomse-collab/niyom/actions/runs/40630366586
+- Existing V2 release: https://github.com/niyomse-collab/niyom/releases/tag/v2-large-images-24
+- V2.1 experimental PR: https://github.com/niyomse-collab/niyom/pull/17 (not released or print-certified)
 - Actual Photoshop and print proof evidence: **NOT TESTED / NOT SUBMITTED**
 - Overall: **NOT CERTIFIED**

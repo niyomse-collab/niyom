@@ -36,8 +36,6 @@
 
 ## Release gates
 - No merge/build/release based only on synthetic fixture scores.
-- Fix current V2.1 failing regression before proposing a candidate release:
-  https://github.com/niyomse-collab/niyom/actions/runs/40633671129
-  `test_streamed_ai_refines_padded_tiles_and_keeps_original_alpha`: ValueError `Invalid mode for data type`.
+- Earlier V2.1 regression failure: https://github.com/niyomse-collab/niyom/actions/runs/40633671129 (`Invalid mode for data type` in a streamed-alpha fixture). Later regression on the V2.1 branch passed: https://github.com/niyomse-collab/niyom/actions/runs/40637387958. The latest V2.1 Windows build and actual-artwork quality are **not** thereby certified.
 - Do not touch V1.
 - Overall status: **BENCHMARK PLANNED; NOT RUN; NOT PRINT-CERTIFIED**.

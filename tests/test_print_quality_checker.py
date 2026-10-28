@@ -127,3 +127,31 @@ def test_large_source_alpha_does_not_allocate_full_source(tmp_path, monkeypatch)
     assert checks["alpha_channel"]["status"] == "PASS"
     assert checks["alpha_exact_same_size"]["status"] == "NOT_TESTED"
     assert checks["alpha_edge_visual"]["status"] == "NOT_TESTED"
+
+
+def test_resized_rgba_that_became_fully_opaque_is_failure(tmp_path):
+    # A channel alone is not proof of transparency preservation.
+    src, dst = tmp_path / "source.png", tmp_path / "resized.png"
+    source = np.zeros((12, 12, 4), dtype=np.uint8)
+    source[..., :3] = (210, 50, 80)
+    source[..., 3] = 255
+    source[:4, :, 3] = 0
+    Image.fromarray(source, "RGBA").save(src)
+    Image.new("RGBA", (24, 24), (210, 50, 80, 255)).save(dst)
+    p, report = invoke(tmp_path, src, dst)
+    assert p.returncode == 1
+    assert report["checks"]["alpha_channel"]["status"] == "PASS"
+    assert report["checks"]["alpha_exact_same_size"]["status"] == "NOT_TESTED"
+    assert report["checks"]["alpha_nonopaque_preserved"]["status"] == "FAIL"
+    assert report["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_resized_rgba_with_transparency_retained_passes_alpha_guard(tmp_path):
+    src, dst = tmp_path / "source.png", tmp_path / "resized.png"
+    Image.new("RGBA", (12, 12), (210, 50, 80, 128)).save(src)
+    Image.new("RGBA", (24, 24), (210, 50, 80, 128)).save(dst)
+    p, report = invoke(tmp_path, src, dst)
+    assert p.returncode == 0
+    assert report["checks"]["alpha_nonopaque_preserved"]["status"] == "PASS"
+    assert report["checks"]["alpha_exact_same_size"]["status"] == "NOT_TESTED"
+    assert report["print_certification"] == "NOT_CERTIFIED"
