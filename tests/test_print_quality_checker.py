@@ -15,6 +15,7 @@ def invoke(tmp_path, src, dst, *flags):
     report = tmp_path / "report.json"
     p = subprocess.run([sys.executable, str(CHECKER), str(src), str(dst),
                         "--report", str(report), *flags], capture_output=True, text=True)
+    assert report.exists(), f"QA checker did not write report; exit={p.returncode}; stdout={p.stdout}; stderr={p.stderr}"
     return p, json.loads(report.read_text(encoding="utf-8"))
 
 
