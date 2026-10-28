@@ -92,3 +92,66 @@ def test_large_print_header_guard_does_not_block_bounded_probe(tmp_path, monkeyp
     report = probe.inspect(src, dst)
     assert report["automated_check"] == "PASS"
     assert Image.MAX_IMAGE_PIXELS == 1
+
+
+
+def test_large_source_uses_bounded_alpha_patches(tmp_path, monkeypatch):
+    """Exercise the vips branch without requiring libvips on CI runners."""
+    import sys
+    from types import SimpleNamespace
+
+    src = transparent_source(tmp_path)
+    dst = tmp_path / "white.tif"
+    Image.new("CMYK", (252, 156), (0, 0, 0, 0)).save(dst)
+
+    class FakeAlphaBand:
+        def __init__(self, image):
+            self.image = image
+
+        def crop(self, x, y, width, height):
+            assert width <= 5 and height <= 5
+            return FakeAlphaBand(self.image.crop((x, y, x+width, y+height)))
+
+        def cast(self, dtype):
+            assert dtype == "uchar"
+            return self
+
+        def write_to_memory(self):
+            return self.image.tobytes()
+
+    class FakeVipsImage:
+        def __init__(self, path):
+            self.image = Image.open(path).convert("RGBA")
+            self.bands = 4
+
+        def hasalpha(self):
+            return True
+
+        def extract_band(self, index):
+            assert index == 3
+            return FakeAlphaBand(self.image.getchannel("A"))
+
+    def open_source(path, **kwargs):
+        assert kwargs["access"] == "random"
+        assert kwargs["unlimited"] is True
+        return FakeVipsImage(path)
+
+    fake = SimpleNamespace(Image=SimpleNamespace(new_from_file=open_source))
+    monkeypatch.setitem(sys.modules, "pyvips", fake)
+    monkeypatch.setattr(probe, "MAX_FULL_SOURCE_PIXELS", 1)
+    result = probe.inspect(src, dst)
+    assert result["automated_check"] == "PASS"
+    assert result["sample_count"] >= 3
+    assert result["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_large_source_without_pyvips_is_not_tested(tmp_path, monkeypatch):
+    import sys
+    src = transparent_source(tmp_path)
+    dst = tmp_path / "white.tif"
+    Image.new("CMYK", (252, 156), (0, 0, 0, 0)).save(dst)
+    monkeypatch.setattr(probe, "MAX_FULL_SOURCE_PIXELS", 1)
+    monkeypatch.setitem(sys.modules, "pyvips", None)
+    result = probe.inspect(src, dst)
+    assert result["automated_check"] == "NOT_TESTED"
+    assert "pyvips" in result["reason"]

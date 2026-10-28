@@ -4,8 +4,8 @@
 Use: python qa/probe_cmyk_matte.py source.png output.tif --report result.json
 
 Output code: 0 PASS; 1 FAIL; 2 NOT_TESTED. A PASS is not print certification.
-For large TIFF output, install pyvips on the checking machine. If pyvips is
-unavailable, report NOT_TESTED instead of decoding a multi-gigabyte image.
+For large source PNG or output TIFF, install pyvips on the checking machine.
+If pyvips is unavailable, report NOT_TESTED instead of decoding a huge image.
 Only probes source pixels whose 5x5 neighbourhood is entirely alpha=0.
 """
 from __future__ import annotations
@@ -64,20 +64,46 @@ def inspect(source_path, output_path):
             if "A" not in source.getbands() and "transparency" not in source.info:
                 report["reason"] = "Source has no alpha to verify white matte"
                 return report
-            if source.width * source.height > MAX_FULL_SOURCE_PIXELS:
-                report["reason"] = "Source exceeds bounded alpha-decode budget"
-                return report
             if abs(source.width / source.height - output.width / output.height) > 0.01:
                 report["reason"] = "Source/output aspect ratios differ; cannot map probes safely"
                 return report
 
-            source_alpha = np.asarray(source.convert("RGBA").getchannel("A"))
+            # Decode small alpha planes in memory. For real print-sized PNGs,
+            # inspect only 5x5 regions with libvips; never materialize the
+            # entire 100+ megapixel source in Python or Pillow.
+            if source.width * source.height <= MAX_FULL_SOURCE_PIXELS:
+                source_alpha = np.asarray(source.convert("RGBA").getchannel("A"))
+                def is_zero_alpha(sx, sy):
+                    return source_alpha[max(0, sy-2):sy+3,
+                                        max(0, sx-2):sx+3].max() == 0
+            else:
+                try:
+                    import pyvips
+                except (ImportError, OSError):
+                    report["reason"] = ("Source is large and pyvips is unavailable; "
+                                        "full alpha decoding is intentionally not attempted")
+                    return report
+                options = {"access": "random", "fail_on": "error"}
+                if Path(source_path).suffix.lower() in (".png", ".tif", ".tiff"):
+                    options["unlimited"] = True
+                vip_source = pyvips.Image.new_from_file(str(source_path), **options)
+                if not vip_source.hasalpha():
+                    report["reason"] = "Source alpha was not preserved by large-image decoder"
+                    return report
+                vip_alpha = vip_source.extract_band(vip_source.bands - 1)
+                def is_zero_alpha(sx, sy):
+                    left, top = max(0, sx-2), max(0, sy-2)
+                    width = min(source.width, sx+3) - left
+                    height = min(source.height, sy+3) - top
+                    patch = vip_alpha.crop(left, top, width, height)
+                    return not any(patch.cast("uchar").write_to_memory())
+
             positions = []
             for y in FRACTIONS:
                 for x in FRACTIONS:
                     sx = _coordinate(x, source.width)
                     sy = _coordinate(y, source.height)
-                    if source_alpha[max(0, sy-2):sy+3, max(0, sx-2):sx+3].max() != 0:
+                    if not is_zero_alpha(sx, sy):
                         continue
                     positions.append((x, y,
                                       _coordinate(x, output.width),

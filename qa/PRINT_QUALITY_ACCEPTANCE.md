@@ -43,9 +43,9 @@ Keep private customer artwork OUT of public GitHub. For each case record:
 `CERTIFIED` only if **every mandatory gate** is PASS, with a dated human sign-off for F01, U01 and P01 and a successful Windows release/download test on the exact candidate commit. A single FAIL or NOT TESTED makes overall status `NOT CERTIFIED`. CI success alone means `AUTOMATED TESTS PASSED`, not print certification.
 
 ## Current baseline
-- QA checker (Windows/Ubuntu synthetic): https://github.com/niyomse-collab/niyom/actions/runs/40637675122
-- QA branch core regression (Windows/Ubuntu): https://github.com/niyomse-collab/niyom/actions/runs/40637675181
-- V2 Windows build (package smoke tests): https://github.com/niyomse-collab/niyom/actions/runs/40630366586
+- QA checker (Windows/Ubuntu synthetic, 4f785c4): https://github.com/niyomse-collab/niyom/actions/runs/40651131092
+- QA branch core regression (Windows/Ubuntu, 4f785c4): https://github.com/niyomse-collab/niyom/actions/runs/40651131109
+- V2.1 Windows candidate (a50aceb): https://github.com/niyomse-collab/niyom/actions/runs/40647828574 — CI build, packaged inference, full installer install/uninstall, and local-payload verification succeeded on 2026-10-28 07:42 UTC. Candidate artifact exists; this is NOT a public release or actual shop/Photoshop print acceptance.
 - Existing V2 release: https://github.com/niyomse-collab/niyom/releases/tag/v2-large-images-24
 - V2.1 experimental PR: https://github.com/niyomse-collab/niyom/pull/17 (not released or print-certified)
 - Actual Photoshop and print proof evidence: **NOT TESTED / NOT SUBMITTED**
@@ -72,7 +72,8 @@ high ink density (especially black) at these points **FAILS** rather than being
 mistaken for a legitimate white-matte conversion. The guard uses normalized
 coordinates and is conservative around antialiased cutout edges.
 
-For very large rasters exceeding the safe full-decode budget, the check reports
+For very large rasters exceeding the safe full-decode budget, the checker
+uses bounded pyvips patch reads when available, otherwise reports
 **NOT_TESTED** instead of loading the entire print into memory. The real
 18898×6299 CMYK customer sample revealed near-full CMYK ink in transparent input
 areas and is known-bad evidence requiring a new V2.1 exported comparison.
