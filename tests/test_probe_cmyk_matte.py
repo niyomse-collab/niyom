@@ -58,7 +58,7 @@ def test_large_tiff_without_pyvips_abstains_instead_of_allocating(tmp_path, monk
     monkeypatch.setitem(sys.modules, "pyvips", None)
     result = probe.inspect(src, dst)
     assert result["automated_check"] == "NOT_TESTED"
-    assert result["sample_count"] if "sample_count" in result else True
+    assert result["print_certification"] == "NOT_CERTIFIED"
 
 
 def test_alpha_source_is_required_for_matte_claim(tmp_path):
@@ -79,3 +79,16 @@ def test_cli_writes_not_certified_json_report(tmp_path):
     data = json.loads(report.read_text(encoding="utf-8"))
     assert data["automated_check"] == "PASS"
     assert data["print_certification"] == "NOT_CERTIFIED"
+
+
+
+def test_large_print_header_guard_does_not_block_bounded_probe(tmp_path, monkeypatch):
+    # A tiny fixture simulates an image that would trip Pillow's global pixel
+    # ceiling; the tool still refuses to decode large actual print rasters.
+    src = transparent_source(tmp_path)
+    dst = tmp_path / "white.tif"
+    Image.new("CMYK", (252, 156), (0, 0, 0, 0)).save(dst)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    report = probe.inspect(src, dst)
+    assert report["automated_check"] == "PASS"
+    assert Image.MAX_IMAGE_PIXELS == 1

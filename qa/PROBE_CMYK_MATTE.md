@@ -5,8 +5,10 @@ run this on the same local machine (no upload to GitHub):
 
     python qa/probe_cmyk_matte.py source.png exported.tif --report cmyk-check.json
 
-Large TIFF output requires pyvips (provided with the packaged V2.1 runtime).
-If unavailable, the tool reports NOT_TESTED rather than decoding all pixels.
+Large TIFF output requires pyvips in the **Python environment running this
+standalone QA script**. A frozen V2.1 installer does not necessarily expose
+its bundled pyvips to your system Python. If unavailable, the script reports
+NOT_TESTED rather than decoding all pixels.
 The script probes only positions that were fully transparent in the source,
 with a 5x5 zero-alpha neighbourhood. On CMYK output, its strict corruption
 threshold is summed ink >80 (0..1020) or black channel >40 (0..255).

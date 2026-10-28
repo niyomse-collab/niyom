@@ -28,6 +28,18 @@ def _coordinate(value, limit):
     return max(0, min(limit - 1, round(value * (limit - 1))))
 
 
+def _open_explicit_print_header(path):
+    # Pillow's global bomb guard is for unsolicited image decoding. This
+    # checker opens only explicitly chosen files, and never fully decodes a
+    # raster exceeding the bounded limits below. Restore the guard at once.
+    original_limit = Image.MAX_IMAGE_PIXELS
+    try:
+        Image.MAX_IMAGE_PIXELS = None
+        return Image.open(path)
+    finally:
+        Image.MAX_IMAGE_PIXELS = original_limit
+
+
 def inspect(source_path, output_path):
     report = {
         "schema_version": 1,
@@ -39,7 +51,8 @@ def inspect(source_path, output_path):
     }
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", Image.DecompressionBombWarning)
-        with Image.open(source_path) as source, Image.open(output_path) as output:
+        with _open_explicit_print_header(source_path) as source, \
+             _open_explicit_print_header(output_path) as output:
             report["source_size"] = list(source.size)
             report["output_size"] = list(output.size)
             report["source_mode"] = source.mode
