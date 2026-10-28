@@ -155,3 +155,61 @@ def test_resized_rgba_with_transparency_retained_passes_alpha_guard(tmp_path):
     assert report["checks"]["alpha_nonopaque_preserved"]["status"] == "PASS"
     assert report["checks"]["alpha_exact_same_size"]["status"] == "NOT_TESTED"
     assert report["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_truncated_source_fails_even_with_valid_output(tmp_path):
+    # A source PNG header can be readable even if its pixel stream is cut off.
+    rng = np.random.default_rng(2026)
+    pixels = rng.integers(0, 256, (256, 256, 3), dtype=np.uint8)
+    src, dst = tmp_path / "damaged_source.png", tmp_path / "valid_output.png"
+    Image.fromarray(pixels).save(dst)
+    data = dst.read_bytes()
+    src.write_bytes(data[:len(data) // 2])
+    p, report = invoke(tmp_path, src, dst)
+    assert p.returncode == 1
+    assert report["automated_checks"] == "FAIL"
+    assert report["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_source_full_decode_guard_does_not_allocate_large_input(tmp_path, monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("printqa", CHECKER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "MAX_FULL_DECODE_PIXELS", 64)
+    src, dst = tmp_path / "large.png", tmp_path / "small.png"
+    Image.new("RGB", (100, 100), (20, 40, 60)).save(src)
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(dst)
+    checks, _ = module.inspect(src, dst)
+    assert checks["source_decodes"]["status"] == "NOT_TESTED"
+    assert checks["output_decodes"]["status"] == "PASS"
+
+
+def test_partial_alpha_lost_even_if_some_transparency_remains_fails(tmp_path):
+    # Retaining fully transparent pixels is not enough for antialiased text.
+    src, dst = tmp_path / "antialiased.png", tmp_path / "binary.png"
+    original = np.zeros((24, 24, 4), dtype=np.uint8)
+    original[..., :3] = (220, 60, 40)
+    original[5:19, 5:19, 3] = 255
+    original[5:19, 5, 3] = 128
+    Image.fromarray(original, "RGBA").save(src)
+    damaged = original.copy()
+    damaged[..., 3] = np.where(damaged[..., 3] >= 128, 255, 0)
+    Image.fromarray(damaged, "RGBA").save(dst)
+    p, report = invoke(tmp_path, src, dst)
+    assert p.returncode == 1
+    assert report["checks"]["alpha_channel"]["status"] == "PASS"
+    assert report["checks"]["alpha_nonopaque_preserved"]["status"] == "PASS"
+    assert report["checks"]["alpha_partial_preserved"]["status"] == "FAIL"
+    assert report["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_partial_alpha_retained_does_not_claim_visual_fringe_pass(tmp_path):
+    src, dst = tmp_path / "antialiased.png", tmp_path / "unchanged.png"
+    Image.new("RGBA", (24, 24), (20, 90, 150, 128)).save(src)
+    Image.new("RGBA", (24, 24), (20, 90, 150, 128)).save(dst)
+    p, report = invoke(tmp_path, src, dst)
+    assert p.returncode == 0
+    assert report["checks"]["source_decodes"]["status"] == "PASS"
+    assert report["checks"]["alpha_partial_preserved"]["status"] == "PASS"
+    assert report["checks"]["alpha_edge_visual"]["status"] == "NOT_TESTED"

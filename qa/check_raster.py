@@ -36,6 +36,16 @@ def inspect(source, output, expect_same_size=False):
         details["source_size"] = list(src.size)
         details["output_size"] = list(dst.size)
         details["output_dpi"] = [float(value) for value in (dst.info.get("dpi") or ())]
+        # A readable header is not proof that the original pixels are intact.
+        # Decode bounded inputs too; otherwise a truncated source could pass.
+        if src.width * src.height <= MAX_FULL_DECODE_PIXELS:
+            src.load()
+            checks["source_decodes"] = {
+                "status": "PASS", "reason": "Pillow decoded every source pixel"}
+        else:
+            checks["source_decodes"] = {
+                "status": "NOT_TESTED",
+                "reason": "Source exceeds full-decode memory guard; header only, verify on target machine"}
         if dst.width * dst.height <= MAX_FULL_DECODE_PIXELS:
             dst.load()
             checks["output_decodes"] = {
@@ -57,6 +67,8 @@ def inspect(source, output, expect_same_size=False):
             checks["alpha_channel"] = {"status": "PASS" if output_alpha else "FAIL",
                                         "reason": "source has transparency; output must retain it"}
             if output_alpha and max(src.width * src.height, dst.width * dst.height) > MAX_FULL_DECODE_PIXELS:
+                checks["alpha_partial_preserved"] = {
+                    "status": "NOT_TESTED", "reason": "Source or output exceeds safe alpha-decode budget"}
                 checks["alpha_nonopaque_preserved"] = {
                     "status": "NOT_TESTED", "reason": "Source or output exceeds safe alpha-decode budget"}
                 checks["alpha_exact_same_size"] = {
@@ -69,6 +81,18 @@ def inspect(source, output, expect_same_size=False):
                 details["output_alpha_max"] = int(a.max())
                 details["output_partial_alpha_pixels"] = int(np.count_nonzero((a > 0) & (a < 255)))
                 sa = np.asarray(src.convert("RGBA").getchannel("A"))
+                # Preserve antialiased edge transparency, not just the A band.
+                # If partial alpha existed in the input, an all-binary output
+                # means translucent edges were destroyed even when some
+                # completely transparent pixels survived.
+                source_partial = bool(np.any((sa > 0) & (sa < 255)))
+                output_partial = bool(np.any((a > 0) & (a < 255)))
+                checks["alpha_partial_preserved"] = {
+                    "status": "FAIL" if source_partial and not output_partial else "PASS",
+                    "reason": "Source has partial alpha but output has only binary alpha"
+                    if source_partial and not output_partial
+                    else "Partial alpha retained or absent from source",
+                }
                 # An RGBA output can be entirely opaque despite retaining an A band.
                 # Catch this even when a legitimate resize prevents pixelwise equality.
                 lost_transparency = bool(np.any(sa < 255) and np.all(a == 255))
@@ -89,6 +113,7 @@ def inspect(source, output, expect_same_size=False):
                     "status": "NOT_TESTED",
                     "reason": "Requires Photoshop composite on black/white/saturated backgrounds"}
             else:
+                checks["alpha_partial_preserved"] = {"status": "FAIL", "reason": "Output lacks alpha"}
                 checks["alpha_nonopaque_preserved"] = {"status": "FAIL", "reason": "Output lacks alpha"}
                 checks["alpha_exact_same_size"] = {"status": "FAIL", "reason": "Output lacks alpha"}
                 checks["alpha_edge_visual"] = {"status": "NOT_TESTED", "reason": "No alpha to inspect"}
