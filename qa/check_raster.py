@@ -14,6 +14,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+# Full decoding of huge vinyl rasters can exhaust CI memory. Above this bound,
+# report the pixel decode as untested rather than claiming a successful decode.
+MAX_FULL_DECODE_PIXELS = 16_000_000
+
 
 def digest(path):
     h = hashlib.sha256()
@@ -32,7 +36,14 @@ def inspect(source, output, expect_same_size=False):
         details["source_size"] = list(src.size)
         details["output_size"] = list(dst.size)
         details["output_dpi"] = [float(value) for value in (dst.info.get("dpi") or ())]
-        checks["output_decodes"] = {"status": "PASS", "reason": "Pillow decoded output"}
+        if dst.width * dst.height <= MAX_FULL_DECODE_PIXELS:
+            dst.load()
+            checks["output_decodes"] = {
+                "status": "PASS", "reason": "Pillow decoded every output pixel"}
+        else:
+            checks["output_decodes"] = {
+                "status": "NOT_TESTED",
+                "reason": "Output exceeds full-decode memory guard; header only, verify on target machine"}
         if expect_same_size:
             ok = src.size == dst.size
             checks["size_match"] = {"status": "PASS" if ok else "FAIL",
@@ -45,7 +56,12 @@ def inspect(source, output, expect_same_size=False):
             output_alpha = "A" in dst.getbands() or "transparency" in dst.info
             checks["alpha_channel"] = {"status": "PASS" if output_alpha else "FAIL",
                                         "reason": "source has transparency; output must retain it"}
-            if output_alpha:
+            if output_alpha and dst.width * dst.height > MAX_FULL_DECODE_PIXELS:
+                checks["alpha_exact_same_size"] = {
+                    "status": "NOT_TESTED", "reason": "Large raster; full alpha comparison not run"}
+                checks["alpha_edge_visual"] = {
+                    "status": "NOT_TESTED", "reason": "Requires Photoshop contrasting-background review"}
+            elif output_alpha:
                 a = np.asarray(dst.convert("RGBA").getchannel("A"))
                 details["output_alpha_min"] = int(a.min())
                 details["output_alpha_max"] = int(a.max())
@@ -80,9 +96,10 @@ def main(argv=None):
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--expect-same-size", action="store_true")
     args = parser.parse_args(argv)
-    result = {"schema_version": 1, "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-              "source_sha256": digest(args.source), "output_sha256": digest(args.output)}
+    result = {"schema_version": 1, "timestamp_utc": datetime.now(timezone.utc).isoformat()}
     try:
+        result["source_sha256"] = digest(args.source)
+        result["output_sha256"] = digest(args.output)
         checks, details = inspect(args.source, args.output, args.expect_same_size)
         result.update(checks=checks, details=details)
         statuses = [v["status"] for v in checks.values()]
