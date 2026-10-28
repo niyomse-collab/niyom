@@ -501,9 +501,9 @@ def source_declares_alpha(src):
     suffix = path.suffix.lower()
     if suffix == ".png":
         with path.open("rb") as stream:
-            if stream.read(8) != b"\\x89PNG\\r\\n\\x1a\\n":
+            if stream.read(8) != b"\x89PNG\r\n\x1a\n":
                 raise ValueError("Invalid PNG signature")
-            if stream.read(4) != b"\\x00\\x00\\x00\\r" or stream.read(4) != b"IHDR":
+            if stream.read(4) != b"\x00\x00\x00\r" or stream.read(4) != b"IHDR":
                 raise ValueError("Invalid PNG IHDR")
             ihdr = stream.read(13)
             if len(ihdr) != 13:
