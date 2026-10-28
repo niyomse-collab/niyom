@@ -31,7 +31,7 @@ def inspect(source, output, expect_same_size=False):
         details["output_mode"] = dst.mode
         details["source_size"] = list(src.size)
         details["output_size"] = list(dst.size)
-        details["output_dpi"] = list(dst.info.get("dpi", []))
+        details["output_dpi"] = [float(value) for value in (dst.info.get("dpi") or ())]
         checks["output_decodes"] = {"status": "PASS", "reason": "Pillow decoded output"}
         if expect_same_size:
             ok = src.size == dst.size
