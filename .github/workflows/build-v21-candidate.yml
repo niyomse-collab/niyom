@@ -35,9 +35,13 @@ jobs:
       - name: Test sources before packaging
         run: |
           python -m pip install pytest numpy Pillow opencv-python-headless pypdf -r requirements_v2_large_images.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Source dependency installation failed' }
           python -m pytest -q
+          if ($LASTEXITCODE -ne 0) { throw 'Source regression tests failed' }
           python -m compileall -q signprint_ai tools run.py
+          if ($LASTEXITCODE -ne 0) { throw 'Source compilation failed' }
           python -c "from signprint_ai.ui_smoke import run; run(layout_only=True)"
+          if ($LASTEXITCODE -ne 0) { throw 'Source UI smoke test failed' }
 
       - name: Install compiler
         run: choco install innosetup -y --no-progress
