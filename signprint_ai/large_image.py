@@ -150,16 +150,36 @@ def output_size_summary(source_size, target_size, model_scale=1):
     )
 
 
+PREVIEW_BACKGROUND = (23, 23, 23)
+
+
+def composite_preview_rgba(image):
+    """Show transparent artwork over the same neutral matte in both UI paths."""
+    if "A" not in image.getbands() and "transparency" not in image.info:
+        return image.convert("RGB")
+    foreground = image.convert("RGBA")
+    background = Image.new("RGBA", foreground.size, PREVIEW_BACKGROUND + (255,))
+    return Image.alpha_composite(background, foreground).convert("RGB")
+
+
 def thumbnail(path, box=(1600, 1600)):
     size = image_size(path)
     if math.prod(size) <= IN_MEMORY_PIXELS:
         with Image.open(path) as raw:
-            image = ImageOps.exif_transpose(raw).convert("RGB")
+            image = composite_preview_rgba(ImageOps.exif_transpose(raw))
             image.thumbnail(box, Image.Resampling.LANCZOS)
             return image
-    image = as_rgb(open_vips(path))
+    source = open_vips(path)
+    image = as_rgb(source)
+    has_alpha = bool(source.hasalpha())
+    if has_alpha:
+        # Resample premultiplied channels; invisible RGB cannot tint an edge.
+        alpha = source.extract_band(source.bands - 1).cast("uchar")
+        image = image.bandjoin(alpha).copy(interpretation="srgb").premultiply()
     scale = min(1.0, box[0] / image.width, box[1] / image.height)
     image = image.resize(scale, kernel="lanczos3") if scale < 1 else image
+    if has_alpha:
+        image = image.unpremultiply().flatten(background=list(PREVIEW_BACKGROUND)).cast("uchar")
     return to_pillow(image)
 
 
@@ -467,8 +487,7 @@ def preview_source(path):
     if math.prod(image_size(path)) > IN_MEMORY_PIXELS:
         return LazyPreviewSource(path)
     with Image.open(path) as image:
-        oriented = ImageOps.exif_transpose(image)
-        return oriented.convert("RGBA" if "A" in oriented.getbands() or "transparency" in oriented.info else "RGB")
+        return composite_preview_rgba(ImageOps.exif_transpose(image))
 
 
 def prepare_source_alpha_for_export(image, src, target_size, settings, dst):

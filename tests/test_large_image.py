@@ -468,3 +468,47 @@ def test_large_rgb_preview_retains_existing_pixel_values(monkeypatch, tmp_path):
     preview = large_image.preview_source(path)
     result = PreviewViewport(actual=True).render(preview, (72, 72))
     assert result.getpixel((36, 36)) == (15, 90, 200)
+
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_transparent_preview_and_thumbnail_share_neutral_matte(tmp_path, monkeypatch, streaming):
+    """The quick preview and full viewport must show the same visible colours."""
+    from signprint_ai.preview_viewport import PreviewViewport
+
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1 if streaming else 10**9)
+    path = tmp_path / "cutout.png"
+    pixels = np.zeros((80, 80, 4), dtype="uint8")
+    pixels[:, :, :3] = (255, 0, 0)  # Hidden red must not tint transparent black.
+    pixels[20:60, 20:60, :3] = (30, 70, 220)
+    pixels[20:60, 20:60, 3] = 255
+    pixels[10, 10] = (210, 30, 40, 128)
+    Image.fromarray(pixels, "RGBA").save(path)
+
+    preview = large_image.preview_source(path)
+    rendered = PreviewViewport(actual=True).render(preview, (80, 80))
+    thumb = large_image.thumbnail(path, (80, 80))
+    assert rendered.mode == thumb.mode == "RGB"
+    for image in (rendered, thumb):
+        assert image.getpixel((0, 0)) == (23, 23, 23)
+        assert image.getpixel((40, 40)) == (30, 70, 220)
+        expected = tuple(round((c * 128 + 23 * 127) / 255) for c in (210, 30, 40))
+        assert max(abs(a - b) for a, b in zip(image.getpixel((10, 10)), expected)) <= 3
+        # No red from the completely transparent pixels beside the blue cutout.
+        assert image.getpixel((19, 40))[0] <= 25
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_palette_transparency_preview_has_no_solid_background(tmp_path, monkeypatch, streaming):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1 if streaming else 10**9)
+    path = tmp_path / "palette_cutout.png"
+    image = Image.new("P", (64, 64), 0)
+    image.putpalette([255, 0, 0, 0, 155, 240] + [0] * (256 * 3 - 6))
+    for y in range(20, 44):
+        for x in range(20, 44):
+            image.putpixel((x, y), 1)
+    image.save(path, transparency=0)
+    preview = large_image.preview_source(path)
+    visible = PreviewViewport(actual=True).render(preview, (64, 64))
+    assert visible.getpixel((0, 0)) == (23, 23, 23)
+    assert visible.getpixel((32, 32)) == (0, 155, 240)
