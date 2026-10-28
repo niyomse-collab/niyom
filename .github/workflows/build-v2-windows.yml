@@ -1,4 +1,5 @@
 name: Build and verify NiyomSilp v2 Windows
+# V2-only rebuild trigger after prerelease publish fix (PR #15).
 
 on:
   workflow_dispatch:
