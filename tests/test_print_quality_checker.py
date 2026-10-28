@@ -213,3 +213,56 @@ def test_partial_alpha_retained_does_not_claim_visual_fringe_pass(tmp_path):
     assert report["checks"]["source_decodes"]["status"] == "PASS"
     assert report["checks"]["alpha_partial_preserved"]["status"] == "PASS"
     assert report["checks"]["alpha_edge_visual"]["status"] == "NOT_TESTED"
+
+
+
+def test_cmyk_export_from_transparent_png_is_opaque_by_design_not_alpha_failure(tmp_path):
+    src, dst = tmp_path / "source.png", tmp_path / "print.tif"
+    Image.new("RGBA", (24, 18), (210, 40, 80, 128)).save(src)
+    Image.new("CMYK", (48, 36), (0, 100, 100, 0)).save(dst, dpi=(200, 200))
+    p, report = invoke(tmp_path, src, dst)
+    assert p.returncode == 0
+    assert report["automated_checks"] == "PASS_WITH_UNTESTED"
+    assert report["checks"]["alpha_channel"]["status"] == "NOT_APPLICABLE"
+    assert report["checks"]["alpha_edge_visual"]["status"] == "NOT_TESTED"
+    assert report["checks"]["cmyk_icc_consistency"]["status"] == "NOT_TESTED"
+    assert report["checks"]["printer_ink_media_rip_match"]["status"] == "NOT_TESTED"
+    assert report["details"]["source_alpha_export_policy"] == "flattened_for_opaque_format"
+    assert report["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_cmyk_raster_with_embedded_rgb_icc_is_rejected(tmp_path):
+    from PIL import ImageCms
+    src, dst = tmp_path / "source.png", tmp_path / "wrong.tif"
+    Image.new("RGB", (24, 18), (210, 40, 80)).save(src)
+    srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    Image.new("CMYK", (24, 18), (0, 0, 0, 0)).save(dst, icc_profile=srgb)
+    p, report = invoke(tmp_path, src, dst)
+    assert p.returncode == 1
+    assert report["checks"]["cmyk_icc_consistency"]["status"] == "FAIL"
+    assert report["details"]["output_icc"]["color_space"] == "RGB"
+    assert report["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_rgba_to_jpeg_is_explicitly_opaque_export(tmp_path):
+    src, dst = tmp_path / "source.png", tmp_path / "output.jpg"
+    Image.new("RGBA", (24, 18), (100, 140, 50, 100)).save(src)
+    Image.new("RGB", (24, 18), (100, 140, 50)).save(dst)
+    p, report = invoke(tmp_path, src, dst)
+    assert p.returncode == 0
+    assert report["checks"]["alpha_channel"]["status"] == "NOT_APPLICABLE"
+    assert report["checks"]["alpha_edge_visual"]["status"] == "NOT_TESTED"
+    assert report["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_rgb_embedded_srgb_metadata_is_not_printer_certification(tmp_path):
+    from PIL import ImageCms
+    src, dst = tmp_path / "source.png", tmp_path / "output.png"
+    Image.new("RGB", (24, 18), (100, 140, 50)).save(src)
+    srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    Image.new("RGB", (24, 18), (100, 140, 50)).save(dst, icc_profile=srgb)
+    p, report = invoke(tmp_path, src, dst)
+    assert p.returncode == 0
+    assert report["details"]["output_icc"]["color_space"] == "RGB"
+    assert report["checks"]["printer_ink_media_rip_match"]["status"] == "NOT_TESTED"
+    assert report["print_certification"] == "NOT_CERTIFIED"

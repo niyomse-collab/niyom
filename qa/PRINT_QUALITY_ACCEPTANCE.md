@@ -25,6 +25,8 @@ Keep private customer artwork OUT of public GitHub. For each case record:
 | F01 | Face Protect / Recover | original identity and face proportions maintained; selected regions respected | human portrait review on actual Windows hardware |
 | U01 | Preview / Zoom | preview position, crop and zoom remain correct; exported file corresponds to preview | real Windows GUI walkthrough |
 | L01 | Large vinyl 200x70 cm and 700x40 cm at 300 PPI | exact pixel dimensions within rounding; no crash, blank padding or tile seam; actual file opens | Photoshop and print inspection |
+| C01 | CMYK ICC colour management | embedded ICC is readable and has CMYK input space; this does NOT certify colour accuracy | compare printer/ink/media/MainTop RIP ICC with actual vinyl proof |
+| C02 | Transparent input exported as CMYK/JPEG | deliberate white-matte flatten is marked opaque export, not an RGBA preservation failure | inspect white-matte borders and print against physical proof |
 | W01 | Windows installer and public release | CI source commit matches release; install, packaged processing, uninstall and real public download pass | install on shop GTX 1660 Ti; CPU/GPU/Auto tested |
 | P01 | Vinyl and sticker print proofs | no objectionable visible artifacts at intended viewing distance; color judged against agreed proof and calibrated workflow | physical sign-off by shop owner |
 
@@ -48,3 +50,16 @@ Keep private customer artwork OUT of public GitHub. For each case record:
 - V2.1 experimental PR: https://github.com/niyomse-collab/niyom/pull/17 (not released or print-certified)
 - Actual Photoshop and print proof evidence: **NOT TESTED / NOT SUBMITTED**
 - Overall: **NOT CERTIFIED**
+
+## Private print sample observation (2026-10-28)
+
+A user-supplied V2 CMYK TIFF (18,898 × 6,299 pixels, 200 DPI) contains an embedded
+**Coated GRACoL 2006 (ISO 12647-2:2004)** CMYK ICC profile (print source is RGBA).
+This demonstrates only colour-profile *embedding*, not an ink/media/RIP match.
+GRACoL is a generic coated offset press reference, not a calibrated DX11 / MainTop /
+Eco Solvent / vinyl device profile. A physical colour proof and a matching printer
+media profile are still needed. Private customer images remain excluded from GitHub.
+
+When source PNG has alpha but CMYK TIFF/JPEG is explicitly requested, the export
+is an opaque white-matte transformation. QA must show alpha preservation as
+NOT_APPLICABLE, not FAIL or PASS. The visual white-matte quality remains NOT_TESTED.

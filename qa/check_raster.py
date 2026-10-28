@@ -8,11 +8,12 @@ Dependencies: Pillow, numpy. No customer files are uploaded.
 import argparse
 import hashlib
 import json
+from io import BytesIO
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageCms
 
 # Full decoding of huge vinyl rasters can exhaust CI memory. Above this bound,
 # report the pixel decode as untested rather than claiming a successful decode.
@@ -27,6 +28,22 @@ def digest(path):
     return h.hexdigest()
 
 
+def inspect_icc(output):
+    """Inspect only embedded metadata; never claim a printer/media match."""
+    blob = output.info.get("icc_profile")
+    if not blob:
+        return None
+    try:
+        profile = ImageCms.ImageCmsProfile(BytesIO(blob))
+        return {
+            "name": ImageCms.getProfileDescription(profile).strip(),
+            "color_space": str(profile.profile.xcolor_space).strip().upper(),
+            "bytes": len(blob),
+        }
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}", "bytes": len(blob)}
+
+
 def inspect(source, output, expect_same_size=False):
     checks = {}
     details = {}
@@ -36,6 +53,42 @@ def inspect(source, output, expect_same_size=False):
         details["source_size"] = list(src.size)
         details["output_size"] = list(dst.size)
         details["output_dpi"] = [float(value) for value in (dst.info.get("dpi") or ())]
+        embedded = inspect_icc(dst)
+        if embedded is not None:
+            details["output_icc"] = embedded
+        if dst.mode == "CMYK":
+            if embedded is None:
+                checks["cmyk_icc_consistency"] = {
+                    "status": "NOT_TESTED",
+                    "reason": "CMYK has no embedded ICC; confirm how the RIP assigns its profile",
+                }
+            elif embedded.get("error"):
+                checks["cmyk_icc_consistency"] = {
+                    "status": "FAIL", "reason": "Embedded ICC cannot be parsed",
+                }
+            elif embedded["color_space"] != "CMYK":
+                checks["cmyk_icc_consistency"] = {
+                    "status": "FAIL",
+                    "reason": "Embedded ICC colour space does not match CMYK raster",
+                }
+            else:
+                checks["cmyk_icc_consistency"] = {
+                    "status": "PASS", "reason": "Embedded ICC exists and has CMYK colour space",
+                }
+                name = embedded["name"].lower()
+                if any(token in name for token in ("gracol", "swop", "fogra", "iso coated")):
+                    details["icc_advisory"] = (
+                        "This is a generic coated/offset press profile; it does not "
+                        "establish calibration for a specific solvent printer, ink and vinyl"
+                    )
+        elif embedded is not None and embedded.get("error"):
+            checks["embedded_icc_readable"] = {
+                "status": "FAIL", "reason": "Raster contains an invalid embedded ICC",
+            }
+        checks["printer_ink_media_rip_match"] = {
+            "status": "NOT_TESTED",
+            "reason": "ICC embedding alone cannot prove printer, ink, media or RIP colour accuracy",
+        }
         # A readable header is not proof that the original pixels are intact.
         # Decode bounded inputs too; otherwise a truncated source could pass.
         if src.width * src.height <= MAX_FULL_DECODE_PIXELS:
@@ -62,7 +115,23 @@ def inspect(source, output, expect_same_size=False):
             checks["size_match"] = {"status": "NOT_TESTED",
                                     "reason": "Upscaling/resize permitted; specify --expect-same-size to enforce"}
         source_alpha = any(band.lower() == "a" for band in src.getbands()) or "transparency" in src.info
-        if source_alpha:
+        # CMYK and JPEG outputs are intentionally opaque export paths.  Do
+        # not incorrectly fail alpha retention when the operator selected an
+        # opaque format; still require a white-matte Photoshop check.
+        opaque_export = dst.mode == "CMYK" or dst.format in ("JPEG", "JPG")
+        if source_alpha and opaque_export:
+            details["source_alpha_export_policy"] = "flattened_for_opaque_format"
+            for name in ("alpha_channel", "alpha_partial_preserved",
+                         "alpha_nonopaque_preserved", "alpha_exact_same_size"):
+                checks[name] = {
+                    "status": "NOT_APPLICABLE",
+                    "reason": "CMYK/JPEG export deliberately flattens input alpha",
+                }
+            checks["alpha_edge_visual"] = {
+                "status": "NOT_TESTED",
+                "reason": "Verify white matte and transparent-edge compositing before printing",
+            }
+        elif source_alpha:
             output_alpha = any(band.lower() == "a" for band in dst.getbands()) or "transparency" in dst.info
             checks["alpha_channel"] = {"status": "PASS" if output_alpha else "FAIL",
                                         "reason": "source has transparency; output must retain it"}
