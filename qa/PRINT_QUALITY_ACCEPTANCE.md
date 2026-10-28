@@ -77,3 +77,31 @@ uses bounded pyvips patch reads when available, otherwise reports
 **NOT_TESTED** instead of loading the entire print into memory. The real
 18898×6299 CMYK customer sample revealed near-full CMYK ink in transparent input
 areas and is known-bad evidence requiring a new V2.1 exported comparison.
+
+
+## Verified private historical CMYK failure baseline — 2026-10-28
+
+The private customer original and historical V2 CMYK TIFF were inspected locally
+using their existing SHA-256 reference. **No customer images were committed to
+GitHub.** This is historical V2 evidence and is **not** V2.1 candidate output.
+
+- Transparent input: 2,172 × 724 RGBA; output: 18,898 × 6,299 CMYK TIFF, 200 DPI.
+- Embedded output ICC: *Coated GRACoL 2006 (ISO 12647-2:2004)*; not a calibrated
+  DX11/MainTop/Eco Solvent/vinyl printer profile.
+- 9×9 normalized positions were checked. After excluding positions whose
+  nearby source alpha was nonzero, **68 source-zero-alpha positions** remained.
+- **61 of 68** (89.7%) contained excessive ink in the prior output according
+  to checker thresholds (summed C+M+Y+K >80 or K >40 on 0–255 channels).
+  One failed corner held C223 M203 Y184 K249 while source Alpha was 0.
+- Historical result: **FAIL**. V2.1 replacement output at the same print size,
+  ICC and source remains **NOT_TESTED**.
+- A separate experiment converting correctly composited RGB white through
+  the *same* embedded profile yielded CMYK (0,0,0,0) at clear source pixels;
+  this supports the hidden-RGB hypothesis, but does not prove the updated
+  V2.1 installer fixed the original large-size workflow.
+
+Development gates (do not mark print-certified): the exact source must be
+re-exported with V2.1 candidate commit a50aceb or newer using the same ICC,
+DPI and dimensions; run qa/probe_cmyk_matte.py privately; verify TIFF and
+Thai lettering in Photoshop at 100/200/400%; then test on shop media/RIP.
+Core regression and packaged smoke success are not substitutes.
