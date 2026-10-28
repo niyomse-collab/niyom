@@ -570,3 +570,61 @@ def test_streaming_must_refuse_missing_alpha_decoder_for_opaque_export(tmp_path,
         large_image.prepare_source_alpha_for_export(
             None, src, (8, 8), EnhanceSettings(color_mode="CMYK"), tmp_path / "unsafe.tif"
         )
+
+
+
+def test_metadata_alpha_guard_handles_large_rgba_png_without_pillow_decode(tmp_path, monkeypatch):
+    """Even when Pillow would reject a 200 MP master, hidden alpha is checked."""
+    path = tmp_path / "huge_header.png"
+    Image.new("RGBA", (32, 32), (0, 0, 0, 0)).save(path)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    assert large_image.source_declares_alpha(path) is True
+
+    class NoAlpha:
+        def hasalpha(self):
+            return False
+    monkeypatch.setattr(large_image, "open_vips", lambda *args, **kwargs: NoAlpha())
+    with pytest.raises(RuntimeError, match="Alpha"):
+        large_image.prepare_source_alpha_for_export(
+            None, path, (32, 32), EnhanceSettings(color_mode="CMYK"),
+            tmp_path / "unsafe.tif",
+        )
+
+
+def test_metadata_alpha_guard_allows_opaque_large_rgb_png(tmp_path, monkeypatch):
+    path = tmp_path / "opaque_header.png"
+    Image.new("RGB", (32, 32), (10, 20, 30)).save(path)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    assert large_image.source_declares_alpha(path) is False
+
+    class NoAlpha:
+        def hasalpha(self):
+            return False
+    token = object()
+    monkeypatch.setattr(large_image, "open_vips", lambda *args, **kwargs: NoAlpha())
+    assert large_image.prepare_source_alpha_for_export(
+        token, path, (32, 32), EnhanceSettings(color_mode="CMYK"),
+        tmp_path / "opaque.tif",
+    ) is token
+
+
+def test_metadata_alpha_guard_detects_palette_png_trns_without_full_decode(tmp_path, monkeypatch):
+    path = tmp_path / "palette_header.png"
+    image = Image.new("P", (32, 32), 0)
+    image.putpalette([0, 0, 0, 20, 150, 210] + [0] * (256 * 3 - 6))
+    image.save(path, transparency=0)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    assert large_image.source_declares_alpha(path) is True
+    clean = tmp_path / "opaque_palette.png"
+    image.save(clean)
+    assert large_image.source_declares_alpha(clean) is False
+
+
+def test_metadata_alpha_guard_detects_tiff_extra_samples_without_pixel_decode(tmp_path, monkeypatch):
+    rgba_path = tmp_path / "rgba_master.tif"
+    opaque_path = tmp_path / "cmyk_master.tif"
+    Image.new("RGBA", (32, 32), (0, 0, 0, 0)).save(rgba_path)
+    Image.new("CMYK", (32, 32), (0, 0, 0, 0)).save(opaque_path)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    assert large_image.source_declares_alpha(rgba_path) is True
+    assert large_image.source_declares_alpha(opaque_path) is False

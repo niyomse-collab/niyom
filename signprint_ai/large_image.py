@@ -490,6 +490,62 @@ def preview_source(path):
         return composite_preview_rgba(ImageOps.exif_transpose(image))
 
 
+def source_declares_alpha(src):
+    """Read transparency from PNG/TIFF *headers*, never decode a print master.
+
+    Pillow's image-size bomb guard can reject legitimate 200+ MP vinyl files
+    even when only inspecting getbands(). Do not silently skip the alpha safety
+    check when that happens. PNG tRNS and TIFF ExtraSamples need checking too.
+    """
+    path = Path(src)
+    suffix = path.suffix.lower()
+    if suffix == ".png":
+        with path.open("rb") as stream:
+            if stream.read(8) != b"\\x89PNG\\r\\n\\x1a\\n":
+                raise ValueError("Invalid PNG signature")
+            if stream.read(4) != b"\\x00\\x00\\x00\\r" or stream.read(4) != b"IHDR":
+                raise ValueError("Invalid PNG IHDR")
+            ihdr = stream.read(13)
+            if len(ihdr) != 13:
+                raise ValueError("Incomplete PNG IHDR")
+            colour_type = ihdr[9]
+            if colour_type in (4, 6):
+                return True
+            if colour_type in (0, 2):
+                return False
+            if colour_type != 3:
+                raise ValueError("Unsupported PNG colour type")
+            stream.read(4)  # IHDR CRC
+            # Indexed transparency is stored in a tRNS chunk before IDAT.
+            # Scan only chunk *headers*, not the IDAT or compressed image.
+            for _ in range(1024):
+                header = stream.read(8)
+                if len(header) != 8:
+                    raise ValueError("Incomplete indexed PNG metadata")
+                length = int.from_bytes(header[:4], "big")
+                kind = header[4:]
+                if kind == b"tRNS":
+                    return True
+                if kind in (b"IDAT", b"IEND"):
+                    return False
+                stream.seek(length + 4, 1)  # data and CRC, no pixel decoding
+            raise ValueError("Indexed PNG has too many metadata chunks")
+    if suffix in (".tif", ".tiff"):
+        import tifffile  # Already required by the V2 large-image runtime.
+        with tifffile.TiffFile(path) as tiff:
+            page = tiff.pages[0]
+            return any(int(item) in (1, 2) for item in page.extrasamples)
+    try:
+        with Image.open(path) as header:
+            return "A" in header.getbands() or "transparency" in header.info
+    except Image.DecompressionBombError as exc:
+        # Unknown huge formats must fail safely instead of printing black.
+        raise RuntimeError(
+            "ไม่สามารถตรวจสอบ Alpha จากส่วนหัวไฟล์ภาพขนาดใหญ่ได้ "
+            "หยุดส่งออกเพื่อป้องกันพื้นดำ"
+        ) from exc
+
+
 def prepare_source_alpha_for_export(image, src, target_size, settings, dst):
     """Preserve RGB PNG/TIFF transparency; flatten other formats over white.
 
@@ -499,21 +555,14 @@ def prepare_source_alpha_for_export(image, src, target_size, settings, dst):
     """
     source = open_vips(src, access="random")
     if not source.hasalpha():
-        # Never silently use hidden black RGB if the decoder unexpectedly
-        # dropped an alpha band. Pillow reads header metadata only here.
-        # The decompression-bomb guard may reject a valid huge source; that
-        # is not a reason to allocate the full print master in memory.
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", Image.DecompressionBombWarning)
-                with Image.open(src) as header:
-                    if "A" in header.getbands() or "transparency" in header.info:
-                        raise RuntimeError(
-                            "ต้นฉบับมี Alpha แต่ตัวอ่านภาพใหญ่ไม่พบช่องโปร่งใส "
-                            "หยุดส่งออกเพื่อป้องกันพื้นดำใน CMYK"
-                        )
-        except Image.DecompressionBombError:
-            pass
+        # Fail closed if libvips ever misses source transparency. Read only
+        # file headers; a 200+ MP source must not bypass this check because
+        # Pillow's decompression-bomb limit rejects a metadata-only open.
+        if source_declares_alpha(src):
+            raise RuntimeError(
+                "ต้นฉบับมี Alpha แต่ตัวอ่านภาพใหญ่ไม่พบช่องโปร่งใส "
+                "หยุดส่งออกเพื่อป้องกันพื้นดำใน CMYK"
+            )
         return image
     alpha = source.extract_band(source.bands - 1).cast("uchar")
     alpha = resize_image(alpha, target_size, settings.resize_mode, background=[0])
