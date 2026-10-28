@@ -21,7 +21,10 @@ release workflow, installer identity and approved branch are not changed.
 A separately checksummed RealESRGAN_x4plus_anime_6B model supplies only bounded
 high-frequency detail differences near smooth dark/coloured lettering on a light
 background. The photo model retains low-frequency colour and shading. The feature
-is visible as an independent V2.1 checkbox; the text slider at zero disables it.
+is visible as an independent V2.1 checkbox and is **OFF by default** to preserve
+the previously preferred photo-model output. It must be explicitly enabled;
+the text slider at zero disables it even when checked. Packaged smoke tests
+explicitly enable this optional mode to verify its model is present.
 Selected face rectangles are excluded. This is a conservative heuristic, not OCR
 or guaranteed classification of text. Text on arbitrary dark or textured backgrounds
 is not covered by this blend rule. No claims of exact reconstruction of missing details.

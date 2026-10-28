@@ -87,6 +87,7 @@ def _run(folder):
             Image.fromarray(graphic_pixels).save(graphic_source)
             graphic_output = work / "graphic_v21.png"
             graphic_settings = V21Settings(ai_scale=4, device="cpu", text_graphic_boost=28,
+                graphic_ai=True,
                 print_width=2.08, print_height=1.66, print_unit="inch", dpi=100)
             result = adapter.process(graphic_source, graphic_output, graphic_settings)
             assert result["ai_scale"] == 4 and result["output_size"] == (208,166)

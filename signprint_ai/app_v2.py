@@ -656,7 +656,8 @@ class App(tk.Tk):
         self._slider(quality, "Anti-Halo Sharpen", self.sharp_var, 4)
         self._slider(quality, "Saturation", self.sat_var, 5, -30, 30)
 
-        self.graphic_ai_var = tk.BooleanVar(value=True)
+        # Keep the validated NiyomSilp image output unless the operator opts in.
+        self.graphic_ai_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(quality, text="AI เก็บขอบข้อความบนพื้นสว่าง (V2.1)",
                         variable=self.graphic_ai_var, command=self._settings_changed,
                         style="Dark.TCheckbutton").grid(row=6, column=0, columnspan=3, sticky="w")

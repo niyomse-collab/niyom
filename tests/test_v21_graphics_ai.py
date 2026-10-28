@@ -43,3 +43,29 @@ def test_padded_tile_detail_transfer_matches_full_image():
     a,b=fixture();out=blend_graphic_detail(a,b)
     tile=blend_graphic_detail(a[0:160,0:200],b[0:160,0:200])
     np.testing.assert_allclose(out[64:96,64:136],tile[64:96,64:136],atol=1)
+
+
+def test_graphic_ai_is_opt_in_to_preserve_approved_photo_core(monkeypatch):
+    from types import SimpleNamespace
+    from signprint_ai import v21_graphics_ai
+    from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
+    from signprint_ai.v21_graphics_ai import V21Settings
+
+    base_engine = object()
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    adapter.engine_manager = SimpleNamespace(create_engine=lambda device: base_engine)
+    default = V21Settings(text_graphic_boost=100)
+    assert default.graphic_ai is False
+    assert adapter.create_job_engine(default) is base_engine
+
+    calls = []
+    class StubGraphicEngine:
+        def __init__(self, engine, strength, protected_regions):
+            calls.append((engine, strength, protected_regions))
+    monkeypatch.setattr(v21_graphics_ai, 'GraphicDetailEngine', StubGraphicEngine)
+    assert adapter.create_job_engine(V21Settings(graphic_ai=True, text_graphic_boost=0)) is base_engine
+    regions = ((.1, .2, .5, .6),)
+    selected = V21Settings(graphic_ai=True, text_graphic_boost=60,
+                           face_protection=True, face_regions=regions)
+    assert isinstance(adapter.create_job_engine(selected), StubGraphicEngine)
+    assert calls == [(base_engine, .6, regions)]
