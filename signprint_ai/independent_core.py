@@ -87,10 +87,38 @@ class RealESRGANEngine:
     def device_name(self):
         return self.selected.name
 
+    def enhance_tile(self, pixels, scale=4, cancel_check=None):
+        """The same upstream model/precision, with only one tile in device RAM."""
+        if cancel_check and cancel_check():
+            raise InterruptedError("Processing stopped by user")
+        if scale not in (2, 4):
+            raise ValueError("AI Scale must be 2 or 4")
+
+        def after_tile(_module, _inputs, _result):
+            if cancel_check and cancel_check():
+                raise InterruptedError("Processing stopped by user")
+
+        hook = self.upsampler.model.register_forward_hook(after_tile)
+        original_tile_size = self.upsampler.tile_size
+        # The dispatcher already supplies the same tile and context padding.
+        # Avoid a second, shifted tiling grid inside this bounded tile.
+        self.upsampler.tile_size = 0
+        try:
+            output, _ = self.upsampler.enhance(pixels, outscale=scale)
+        finally:
+            hook.remove()
+            self.upsampler.tile_size = original_tile_size
+            # Upstream retains these tensors on the instance after enhance().
+            self.upsampler.img = None
+            self.upsampler.output = None
+        if cancel_check and cancel_check():
+            raise InterruptedError("Processing stopped by user")
+        return output
+
     def enhance(self, input_path, output_path, scale=4, progress_callback=None, cancel_check=None):
         import torch
         import numpy as np
-        from PIL import Image
+        from PIL import Image, ImageOps
 
         def check_cancel():
             if cancel_check and cancel_check():
@@ -100,6 +128,7 @@ class RealESRGANEngine:
         if scale not in (2, 4):
             raise ValueError("AI Scale must be 2 or 4")
         with Image.open(input_path) as source:
+            source = ImageOps.exif_transpose(source)
             original_size = source.size
             pixels = np.array(source if source.mode in ("RGB", "RGBA") else source.convert("RGB"))
         cuda = self.selected.backend == "CUDA"

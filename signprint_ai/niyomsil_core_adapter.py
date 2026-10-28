@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import math
 import tempfile
 from pathlib import Path
 from typing import Callable, Optional
@@ -10,7 +11,9 @@ from PIL import Image, ImageOps
 
 from .independent_core import EngineManager, model_path
 from .processing import EnhanceSettings, print_pixels, save_image
+from .large_image import image_size, needs_streaming, parse_scale, process_large, validate_export
 from .face_module import FaceProtectionModule
+from .v2_graphic_edges import refine_sign_edges
 
 ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
@@ -26,7 +29,7 @@ class NiyomSilpCoreAdapter:
       - RealESRGAN_x4plus.pth
       - CUDA tile=256 / FP32 when NVIDIA CUDA is available
       - 8x = 4x pass + 2x pass
-      - no extra denoise/contrast/sharpen filters
+      - V2-only, slider-controlled graphic finishing before face restoration
 
     This class only adapts the engine to the V2 UI API and preserves the
     existing RGB/CMYK/ICC export stage.
@@ -76,30 +79,46 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
-        with Image.open(src) as im:
-            source_size = im.size
-
-        if settings.print_width and settings.print_height:
-            target_size = print_pixels(
-                settings.print_width,
-                settings.print_height,
-                settings.print_unit,
-                settings.dpi,
-            )
+        source_size = image_size(src)
+        if settings.print_width is not None or settings.print_height is not None:
+            if (settings.print_width is None or settings.print_height is None or
+                    not all(math.isfinite(n) and n > 0 for n in
+                            (settings.print_width, settings.print_height, settings.dpi))):
+                raise ValueError("กรุณาใส่ความกว้าง ความสูง และ DPI เป็นค่าบวกที่มีขอบเขต")
+            try:
+                target_size = print_pixels(
+                    settings.print_width,
+                    settings.print_height,
+                    settings.print_unit,
+                    settings.dpi,
+                )
+            except OverflowError as exc:
+                raise ValueError("ขนาดงานเกินช่วงตัวเลขที่ระบบไฟล์ภาพรองรับ") from exc
             model_scale = self._model_scale_for_dimensions(
                 source_size[0], source_size[1], target_size
             )
         else:
-            model_scale = int(settings.ai_scale)
+            requested_scale = parse_scale(settings.ai_scale)
             target_size = (
-                source_size[0] * model_scale,
-                source_size[1] * model_scale,
+                source_size[0] * requested_scale,
+                source_size[1] * requested_scale,
             )
+            model_scale = (1 if requested_scale == 1 else
+                           self._model_scale_for_dimensions(*source_size, target_size))
 
-        if max(target_size) > 30000:
-            raise ValueError(
-                "ขนาดด้านใดด้านหนึ่งเกิน 30,000 px ตามข้อจำกัดของ NiyomSilp Design Engine"
-            )
+        validate_export(dst, target_size, settings)
+
+        if needs_streaming(source_size, target_size, model_scale if use_ai else 1):
+            return process_large(self, src, dst, settings, source_size, target_size,
+                                 model_scale, progress, cancel, use_ai)
+
+        # Only small images reach Pillow. Large masters must use libvips for
+        # RGB and alpha, without allocating a full RGBA canvas or triggering
+        # Pillow's decompression-bomb guard on legitimate print files.
+        with Image.open(src) as source_image:
+            oriented = ImageOps.exif_transpose(source_image)
+            has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
+            source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
 
         if progress:
             progress(2, "Prepare / Analyze")
@@ -113,13 +132,27 @@ class NiyomSilpCoreAdapter:
             with tempfile.TemporaryDirectory(prefix="niyomsil_core_") as td:
                 td = Path(td)
                 final_ai = td / "core_final.png"
+                src_for_ai = src
+                if source_alpha is not None:
+                    # Keep visible RGB and the entire source alpha pixel-identical.
+                    # Only replace the hidden RGB near zero-alpha cutout pixels
+                    # before AI, which otherwise interpolates dark matte halos.
+                    from .v2_alpha_edges import bleed_transparent_rgb
+                    with Image.open(src) as raw:
+                        oriented = ImageOps.exif_transpose(raw).convert("RGBA")
+                        rgba = np.asarray(oriented)
+                        clean = bleed_transparent_rgb(
+                            rgba[..., :3].copy(), rgba[..., 3].copy()
+                        )
+                    src_for_ai = td / "alpha_safe_source.png"
+                    Image.fromarray(clean, "RGB").save(src_for_ai)
 
                 if model_scale == 8:
                     stage4 = td / "core_4x.png"
                     if progress:
                         progress(10, "NiyomSilp Design Engine · pass 1/2 · 4x")
                     engine.enhance(
-                        src,
+                        src_for_ai,
                         stage4,
                         scale=4,
                         progress_callback=self._mapped_progress(
@@ -146,7 +179,7 @@ class NiyomSilpCoreAdapter:
                     if progress:
                         progress(10, f"NiyomSilp Design Engine · {model_scale}x")
                     engine.enhance(
-                        src,
+                        src_for_ai,
                         final_ai,
                         scale=model_scale,
                         progress_callback=self._mapped_progress(
@@ -158,8 +191,21 @@ class NiyomSilpCoreAdapter:
                 with Image.open(final_ai) as im:
                     output = im.convert("RGB").copy()
 
+        if source_alpha is not None:
+            output.putalpha(source_alpha.resize(output.size, Image.Resampling.LANCZOS))
+
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
+
+        # Finish graphics before face restoration so successful/failed automatic
+        # detection never disables text cleanup. Selected face ROIs are excluded.
+        if use_ai and model_scale > 1:
+            if progress:
+                progress(83, "Refine Text / Graphic Edges")
+            output = refine_sign_edges(
+                output, settings=settings,
+                protected_regions=(settings.face_regions if settings.face_protection else None),
+            )
 
         # Retouch before free resizing: detector and facial geometry see the
         # original aspect ratio. Final resizing transforms the whole image once.
@@ -199,6 +245,9 @@ class NiyomSilpCoreAdapter:
                     cancel=cancel,
                 )
                 output = protected
+                if source_alpha is not None:
+                    output = output.convert("RGBA")
+                    output.putalpha(source_alpha.resize(output.size, Image.Resampling.LANCZOS))
                 face_info = face_result.as_dict()
             except InterruptedError:
                 raise
@@ -224,7 +273,8 @@ class NiyomSilpCoreAdapter:
                     target_size,
                     method=Image.Resampling.LANCZOS,
                 )
-                canvas = Image.new("RGB", target_size, "white")
+                canvas = Image.new("RGBA" if source_alpha is not None else "RGB", target_size,
+                                   (0, 0, 0, 0) if source_alpha is not None else "white")
                 canvas.paste(
                     contained,
                     (
@@ -252,9 +302,20 @@ class NiyomSilpCoreAdapter:
                 compress_level=3,
             )
         else:
+            # Pass transparency as an explicit channel. Treating an RGBA
+            # ndarray as RGB silently dropped or misread alpha in TIFF export.
+            # save_image preserves it for RGB TIFF and composites it over
+            # white before CMYK ICC conversion, JPEG or PDF export.
+            if "A" in output.getbands():
+                export_pixels = np.asarray(output.convert("RGB"))
+                export_alpha = np.asarray(output.getchannel("A"))
+            else:
+                export_pixels = np.asarray(output.convert("RGB"))
+                export_alpha = None
             save_image(
-                np.asarray(output),
+                export_pixels,
                 dst,
+                alpha=export_alpha,
                 dpi=settings.dpi,
                 color_mode=settings.color_mode,
                 icc_profile_path=settings.icc_profile_path,
@@ -279,6 +340,8 @@ class NiyomSilpCoreAdapter:
             "output_size": output.size,
             "ai_available": True,
             "ai_scale": model_scale,
+            "requested_ai_scale": settings.ai_scale,
+            "processing_mode": "memory",
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",

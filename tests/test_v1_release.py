@@ -11,7 +11,8 @@ def read(relative):
 def test_v1_has_shop_brand_and_original_portrait_choices():
     app = read("signprint_ai/app_v2.py")
     assert 'APP_NAME = "NiyomSilp Design"' in app
-    assert 'APP_VERSION = "v1"' in app
+    assert 'APP_VERSION = release_label("v2")' in app
+    assert 'text=f" {APP_VERSION}"' in app
     assert 'text="NiyomSilp"' in app
     assert 'text="Design"' in app
     assert 'self.title(f"{APP_NAME} {APP_VERSION}")' in app
