@@ -56,9 +56,9 @@ def inspect(source, output, expect_same_size=False):
             output_alpha = "A" in dst.getbands() or "transparency" in dst.info
             checks["alpha_channel"] = {"status": "PASS" if output_alpha else "FAIL",
                                         "reason": "source has transparency; output must retain it"}
-            if output_alpha and dst.width * dst.height > MAX_FULL_DECODE_PIXELS:
+            if output_alpha and max(src.width * src.height, dst.width * dst.height) > MAX_FULL_DECODE_PIXELS:
                 checks["alpha_exact_same_size"] = {
-                    "status": "NOT_TESTED", "reason": "Large raster; full alpha comparison not run"}
+                    "status": "NOT_TESTED", "reason": "Source or output exceeds safe alpha-decode budget; exact alpha untested"}
                 checks["alpha_edge_visual"] = {
                     "status": "NOT_TESTED", "reason": "Requires Photoshop contrasting-background review"}
             elif output_alpha:

@@ -104,3 +104,26 @@ def test_large_output_decode_is_not_claimed_without_full_read(tmp_path, monkeypa
     Image.new("RGB", (8, 8), "white").save(dst)
     checks, _ = module.inspect(src, dst)
     assert checks["output_decodes"]["status"] == "NOT_TESTED"
+
+
+def test_large_source_alpha_does_not_allocate_full_source(tmp_path, monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("printqa", CHECKER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "MAX_FULL_DECODE_PIXELS", 64)
+    source = tmp_path / "large_source.png"
+    output = tmp_path / "small_output.png"
+    Image.new("RGBA", (100, 100), (5, 70, 120, 128)).save(source)
+    Image.new("RGBA", (4, 4), (5, 70, 120, 128)).save(output)
+
+    original_convert = Image.Image.convert
+    def prevent_full_conversion(image, *args, **kwargs):
+        if image.size == (100, 100):
+            raise AssertionError("Large source must never be decoded as a full RGBA raster")
+        return original_convert(image, *args, **kwargs)
+    monkeypatch.setattr(Image.Image, "convert", prevent_full_conversion)
+    checks, _ = module.inspect(source, output)
+    assert checks["alpha_channel"]["status"] == "PASS"
+    assert checks["alpha_exact_same_size"]["status"] == "NOT_TESTED"
+    assert checks["alpha_edge_visual"]["status"] == "NOT_TESTED"
