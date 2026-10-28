@@ -665,7 +665,7 @@ class App(tk.Tk):
         # Optional face module. OFF is the compatibility mode: the exact ARM
         # output path is unchanged and no GFPGAN/FaceXLib model is loaded.
         tk.Frame(quality, bg="#37414B", height=1).grid(
-            row=6, column=0, columnspan=3, sticky="ew", pady=(8, 7)
+            row=7, column=0, columnspan=3, sticky="ew", pady=(8, 7)
         )
         self.face_enabled_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -674,11 +674,11 @@ class App(tk.Tk):
             variable=self.face_enabled_var,
             command=self._settings_changed,
             style="Dark.TCheckbutton",
-        ).grid(row=7, column=0, columnspan=3, sticky="w")
+        ).grid(row=8, column=0, columnspan=3, sticky="w")
 
         tk.Label(
             quality, text="โหมด", bg="#111820", fg="#E8EDF2", anchor="w"
-        ).grid(row=8, column=0, sticky="w", pady=(5, 0))
+        ).grid(row=9, column=0, sticky="w", pady=(5, 0))
         self.face_mode_var = tk.StringVar(value="Protect")
         face_mode = ttk.Combobox(
             quality,
@@ -688,13 +688,13 @@ class App(tk.Tk):
             width=14,
             style="Dark.TCombobox",
         )
-        face_mode.grid(row=8, column=1, sticky="ew", padx=6, pady=(5, 0))
+        face_mode.grid(row=9, column=1, sticky="ew", padx=6, pady=(5, 0))
         face_mode.bind("<<ComboboxSelected>>", lambda _e: self._settings_changed())
 
         ttk.Button(quality, text="ตรวจจับใบหน้า / เลือกใหม่", command=self._rescan_current_faces).grid(
-            row=11, column=0, columnspan=3, sticky="ew", pady=(5, 0))
+            row=12, column=0, columnspan=3, sticky="ew", pady=(5, 0))
         self.face_strength_var = tk.IntVar(value=35)
-        self._slider(quality, "Face Strength", self.face_strength_var, 9, 10, 80)
+        self._slider(quality, "Face Strength", self.face_strength_var, 10, 10, 80)
         tk.Label(
             quality,
             text="Protect: รักษาใบหน้าต้นฉบับ • Recover: ฟื้นฟูใบหน้า • Studio AI: ฟื้นฟูและแต่งผิว",
@@ -703,7 +703,7 @@ class App(tk.Tk):
             anchor="w",
             justify="left",
             wraplength=285,
-        ).grid(row=10, column=0, columnspan=3, sticky="ew", pady=(5, 0))
+        ).grid(row=11, column=0, columnspan=3, sticky="ew", pady=(5, 0))
 
         # Persist a device ID in each queued job, independent of subsequent UI changes.
         device = self._section(parent, "4", "เลือกอุปกรณ์ประมวลผล")
