@@ -66,3 +66,41 @@ def test_resize_never_claims_exact_alpha_validation(tmp_path):
     assert p.returncode == 0
     assert result["checks"]["alpha_exact_same_size"]["status"] == "NOT_TESTED"
     assert result["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_truncated_rgb_output_fails_instead_of_claiming_decoded(tmp_path):
+    # PIL can read a PNG header without decoding the complete pixel stream.
+    a = np.random.default_rng(42).integers(0, 256, (256, 256, 3), dtype=np.uint8)
+    src, dst = tmp_path / "src.png", tmp_path / "damaged.png"
+    Image.fromarray(a).save(src)
+    data = src.read_bytes()
+    dst.write_bytes(data[:len(data) // 2])
+    p, result = invoke(tmp_path, src, dst)
+    assert p.returncode == 1
+    assert result["automated_checks"] == "FAIL"
+    assert "error" in result
+    assert result["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_missing_input_still_writes_failure_report(tmp_path):
+    src, dst = tmp_path / "missing.png", tmp_path / "output.png"
+    Image.new("RGB", (8, 8), "white").save(dst)
+    p, result = invoke(tmp_path, src, dst)
+    assert p.returncode == 1
+    assert result["automated_checks"] == "FAIL"
+    assert "error" in result
+    assert result["print_certification"] == "NOT_CERTIFIED"
+
+
+def test_large_output_decode_is_not_claimed_without_full_read(tmp_path, monkeypatch):
+    # Exercise memory guard without allocating a huge raster.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("printqa", CHECKER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "MAX_FULL_DECODE_PIXELS", 1)
+    src, dst = tmp_path / "src.png", tmp_path / "output.png"
+    Image.new("RGB", (8, 8), "white").save(src)
+    Image.new("RGB", (8, 8), "white").save(dst)
+    checks, _ = module.inspect(src, dst)
+    assert checks["output_decodes"]["status"] == "NOT_TESTED"
