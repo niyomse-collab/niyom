@@ -1,0 +1,31 @@
+name: V2 print QA checker (synthetic only)
+on:
+  push:
+    branches: [qa/v2-print-quality-acceptance]
+    paths:
+      - 'qa/**'
+      - 'tests/test_print_quality_checker.py'
+      - '.github/workflows/v2-print-qa.yml'
+  pull_request:
+    paths:
+      - 'qa/**'
+      - 'tests/test_print_quality_checker.py'
+      - '.github/workflows/v2-print-qa.yml'
+  workflow_dispatch:
+jobs:
+  qa-checker:
+    name: QA checker unit tests (not print certification)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install QA test dependencies
+        run: python -m pip install pytest numpy Pillow
+      - name: Test QA checker with synthetic fixtures
+        run: python -m pytest -q tests/test_print_quality_checker.py
