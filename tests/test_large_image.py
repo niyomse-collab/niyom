@@ -353,7 +353,7 @@ def test_streamed_ai_refines_padded_tiles_and_keeps_original_alpha(adapter, monk
     def marked_refinement(image, **kwargs):
         assert kwargs["settings"].text_graphic_boost == 58
         calls.append(image.size)
-        array = np.asarray(image).copy()
+        array = np.asarray(image.convert("RGB")).copy()
         array[:, :, 0] = np.minimum(255, array[:, :, 0].astype(np.uint16) + 1)
         return Image.fromarray(array.astype(np.uint8), "RGB")
 
