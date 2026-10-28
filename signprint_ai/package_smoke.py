@@ -139,6 +139,32 @@ def _run(folder):
                 "transparent_corner": "jpeg_white",
                 "partial_alpha": "png_128",
             })
+
+            # Validate the exact libvips RGB -> white matte stage that feeds
+            # CMYK icc_transform. Do not require a private printer profile in
+            # public CI; actual ICC conversion remains a separate print gate.
+            cmyk_input = large_image.prepare_source_alpha_for_export(
+                large_image.as_rgb(large_image.open_vips(transparent_source)),
+                transparent_source, (64, 48),
+                EnhanceSettings(ai_scale=1, device="cpu",
+                                resize_mode="stretch", color_mode="CMYK"),
+                work / "synthetic_cmyk_target.tif",
+            )
+            assert cmyk_input.bands == 3 and not cmyk_input.hasalpha()
+            cm = large_image.to_pillow(cmyk_input)
+            assert cm.getpixel((0, 0)) == (255, 255, 255)
+            assert cm.getpixel((63, 47)) == (255, 255, 255)
+            assert cm.getpixel((32, 24)) == (25, 105, 215)
+            expect_half = tuple(round((v * 128 + 255 * 127) / 255)
+                                for v in (210, 30, 40))
+            assert all(abs(a - b) <= 2 for a, b
+                       in zip(cm.getpixel((10, 10)), expect_half))
+            report["checks"].append({
+                "name": "installed_exe_libvips_pre_cmyk_icc_white_matte",
+                "transparent_corner": "rgb_white",
+                "half_alpha": list(cm.getpixel((10, 10))),
+                "note": "Pre-ICC stage only; actual CMYK printer profile untested",
+            })
         finally:
             large_image.IN_MEMORY_PIXELS = old_limit
 
