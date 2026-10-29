@@ -579,6 +579,53 @@ def prepare_source_alpha_for_export(image, src, target_size, settings, dst):
     ).copy(interpretation="srgb")
 
 
+def prepare_v21_alpha_safe_resize(image, src, target_size, settings, dst):
+    """V2.1: resize RGB *premultiplied* with source alpha to avoid dark cutout fringes.
+
+    Source alpha is still resized once directly to the requested output size:
+    this preserves the existing export alpha-plane contract. All operations
+    are lazy libvips rasters, safe for large vinyl masters.
+    """
+    source = open_vips(src, access="random")
+    if not source.hasalpha():
+        # Keep the V2 fail-closed rule for unsupported transparent formats.
+        return prepare_source_alpha_for_export(
+            resize_image(image, target_size, settings.resize_mode),
+            src, target_size, settings, dst,
+        )
+
+    alpha = source.extract_band(source.bands - 1).cast("uchar")
+    # AI output may be 2x/4x/8x the source. Match its dimensions before
+    # premultiplication so invisible black RGB cannot reach output edges.
+    working_alpha = resize_image(
+        alpha, (image.width, image.height), "stretch", background=[0],
+    )
+    premultiplied = image.bandjoin(working_alpha).copy(
+        interpretation="srgb"
+    ).premultiply()
+    resized = resize_image(
+        premultiplied, target_size, settings.resize_mode,
+        background=[0, 0, 0, 0],
+    )
+    clean_rgb = resized.unpremultiply().cast("uchar").extract_band(
+        0, n=3
+    ).copy(interpretation="srgb")
+    # Preserve the exact single-pass resampled source alpha, independent
+    # of the intermediate AI scale and its additional interpolation.
+    output_alpha = resize_image(
+        alpha, target_size, settings.resize_mode, background=[0],
+    )
+    suffix = Path(dst).suffix.lower()
+    if settings.color_mode.upper() == "RGB" and suffix in (".png", ".tif", ".tiff"):
+        return clean_rgb.bandjoin(output_alpha).copy(interpretation="srgb")
+
+    # Opaque formats and CMYK must be white-matted before the ICC transform.
+    opacity = output_alpha.cast("float") / 255.0
+    return ((clean_rgb.cast("float") - 255.0) * opacity + 255.0).cast(
+        "uchar"
+    ).copy(interpretation="srgb")
+
+
 def process_large(adapter, src, dst, settings, source_size, target_size,
                   model_scale, progress=None, cancel=None, use_ai=True):
     """Keep the master dimensions exact; temporary rasters live beside output."""
@@ -642,12 +689,19 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
             from .large_faces import apply_faces
             image, face_info = apply_faces(adapter, image, read_raster(source_raw, image_size(src)),
                                            settings, folder, progress, cancel)
-        image = resize_image(image, target_size, settings.resize_mode)
-        # Preserve RGB TIFF alpha as well as PNG. For CMYK/JPEG/PDF, blend
-        # source transparency onto white before export colour conversion.
-        image = prepare_source_alpha_for_export(
-            image, src, target_size, settings, dst
-        )
+        if getattr(settings, "v21_alpha_safe_resize", False):
+            # V2.1 only: interpolate cutout colours premultiplied with alpha.
+            # The legacy V2 path below is unchanged for EnhanceSettings.
+            image = prepare_v21_alpha_safe_resize(
+                image, src, target_size, settings, dst
+            )
+        else:
+            image = resize_image(image, target_size, settings.resize_mode)
+            # Preserve RGB TIFF alpha as well as PNG. For CMYK/JPEG/PDF, blend
+            # source transparency onto white before export colour conversion.
+            image = prepare_source_alpha_for_export(
+                image, src, target_size, settings, dst
+            )
         export_image(image, dst, settings, progress, cancel)
         return face_info
     finally:

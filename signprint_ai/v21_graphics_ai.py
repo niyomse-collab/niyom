@@ -21,6 +21,8 @@ class V21Settings(EnhanceSettings):
     graphic_ai: bool = False
     # V2.1-only experimental flat-fill cleanup. Legacy EnhanceSettings has no flag.
     v21_color_cleanup: bool = True
+    # V2.1 disk-tile RGBA resize: guard partially transparent print edges.
+    v21_alpha_safe_resize: bool = True
 
 
 def blend_graphic_detail(photo, graphic, strength=1., protected_regions=()):
