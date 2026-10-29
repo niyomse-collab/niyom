@@ -64,3 +64,19 @@ def test_recover_strength_capped_to_avoid_gan_dominating_face():
     assert FaceProtectionModule._blend_alpha("recover", 100) <= 0.5
     assert FaceProtectionModule._blend_alpha("recover", 35) == 0.35
     assert FaceProtectionModule._blend_alpha("protect", 100) <= 0.45
+
+
+def test_rejects_local_eye_erasure_even_when_other_face_detail_survives():
+    original = synthetic_face()
+    damaged = original.copy()
+    # Removing one eye leaves global detail energy high; a whole-face
+    # average alone can miss this catastrophic localized regression.
+    damaged[41:59, 35:53] = [112, 156, 191]
+    assert check_face_restoration(original, damaged)[1] == "local_face_detail_collapsed"
+
+
+def test_rejects_local_mouth_erasure_even_when_eyes_remain():
+    original = synthetic_face()
+    damaged = original.copy()
+    damaged[88:101, 41:87] = [112, 156, 191]
+    assert check_face_restoration(original, damaged)[1] == "local_face_detail_collapsed"
