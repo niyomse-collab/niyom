@@ -8,7 +8,7 @@ import threading
 import time
 import tempfile
 import subprocess
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 import sys
 import tkinter as tk
@@ -75,6 +75,9 @@ class App(tk.Tk):
         self._queued_indices: set[int] = set()
         self._reserved_output_paths: set[Path] = set()
         self._completed_indices: set[int] = set()
+        # This completion set is valid only for its exact UI/export settings.
+        # Otherwise moving a slider and pressing Process silently skips the file.
+        self._completed_signature = None
         self._active_index: int | None = None
         self._active_settings: EnhanceSettings | None = None
 
@@ -740,6 +743,7 @@ class App(tk.Tk):
             return
         self.files = []
         self._completed_indices.clear()
+        self._completed_signature = None
         self._queued_indices.clear()
         self._reserved_output_paths.clear()
         while True:
@@ -912,6 +916,7 @@ class App(tk.Tk):
         # Indices are rebuilt from zero, so completed-state indices from the
         # previous list must not survive and block unrelated files.
         self._completed_indices.clear()
+        self._completed_signature = None
         self._queued_indices.clear()
         self._reserved_output_paths.clear()
         self.add_files(old)
@@ -1183,6 +1188,19 @@ class App(tk.Tk):
         return v2_output_path(src, self.output_dir_var.get(), settings.export_format,
                               settings.color_mode, self._reserved_output_paths)
 
+    @staticmethod
+    def _settings_signature(settings, output_directory):
+        """Snapshot all UI/print settings used for one batch of completed files.
+
+        Never rely on the mutable Settings object itself: the user may move a
+        slider or choose a new format/ICC/output folder after the first export.
+        Keep this separate from per-file face rectangles assigned at enqueue.
+        """
+        return (type(settings).__qualname__,
+                tuple((field.name, repr(getattr(settings, field.name)))
+                      for field in fields(settings)),
+                str(output_directory))
+
     def _processing_active(self) -> bool:
         t = self._processing_thread
         return bool(t and t.is_alive())
@@ -1366,6 +1384,32 @@ class App(tk.Tk):
         except Exception as exc:
             messagebox.showerror(APP_NAME, f"ค่าการตั้งค่าไม่ถูกต้อง: {exc}")
             return
+
+        signature = self._settings_signature(settings, self.output_dir_var.get())
+        if self._processing_active() or self._queued_indices:
+            if self._completed_signature is not None and signature != self._completed_signature:
+                # Do not mix two independent slider configurations within one
+                # GPU/CPU batch. The user can rerun after the current job ends.
+                self._set_status(
+                    "กำลังประมวลผลด้วยค่าเดิมอยู่ กรุณารอให้เสร็จ แล้วกดประมวลผลอีกครั้งเพื่อใช้ค่าใหม่"
+                )
+                return
+        elif signature != self._completed_signature:
+            # New slider values, scale, DPI, ICC, format, face options or
+            # destination require a fresh output even for the same input.
+            # Keep previous output files intact; v2_output_path allocates a
+            # unique filename on the next run for comparison.
+            completed_before = tuple(self._completed_indices)
+            self._completed_indices.clear()
+            self._completed_signature = signature
+            for idx in completed_before:
+                if self.tree.exists(str(idx)):
+                    values = list(self.tree.item(str(idx), "values"))
+                    while len(values) < 6:
+                        values.append("")
+                    values[3:6] = ["รอประมวลผลค่าใหม่", "0%", "—"]
+                    self.tree.item(str(idx), values=values)
+
         if any(self._face_key(path) not in self._face_reviews for i,path in enumerate(self.files)
                if i not in self._completed_indices):
             self._resume_after_faces = True
