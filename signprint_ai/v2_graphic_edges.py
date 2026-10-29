@@ -103,7 +103,26 @@ def refine_sign_edges(
         # highlights. Keep a wide distance from text/graphic boundaries so the
         # large smoothing kernel cannot bleed background into lettering.
         flat = strength("flat_smoothing")
-        if flat:
+        if flat and getattr(settings, "v21_color_cleanup", False):
+            # V2.1: a 31px edge barrier excluded nearly every pixel in narrow
+            # Thai glyph strokes. Use a short, colour-guided filter instead:
+            # it smooths speckles *inside* solid ink without crossing the edge.
+            # The tiny neighbourhood gate is evaluated at each pixel so even
+            # narrow strokes can have eligible interiors. Existing alpha/face
+            # guards below still restore protected pixels exactly.
+            local_kernel = np.ones((3, 3), np.uint8)
+            colour_span = (
+                cv2.dilate(rgb, local_kernel).astype(np.int16)
+                - cv2.erode(rgb, local_kernel).astype(np.int16)
+            ).max(axis=2)
+            edge_barrier = cv2.dilate(
+                (gradient > 85).astype(np.uint8), local_kernel
+            ) != 0
+            safe_flat = (colour_span <= 44) & (~edge_barrier)
+            flat_reference = cv2.bilateralFilter(rgb, 9, 32, 2.5)
+            adjusted += (flat_reference.astype(np.float32) - base) * flat * 0.95 * safe_flat[..., None]
+        elif flat:
+            # Retain legacy V2 finishing for code paths using EnhanceSettings.
             barrier = cv2.dilate(
                 (gradient > 30).astype(np.uint8), np.ones((31, 31), np.uint8)
             ) != 0

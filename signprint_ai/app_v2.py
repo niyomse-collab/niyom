@@ -21,6 +21,7 @@ import numpy as np
 from .niyomsil_core_adapter import NiyomSilpCoreAdapter
 from .processing import print_pixels
 from .v21_graphics_ai import V21Settings as EnhanceSettings
+from .v21_preview import render_finishing_preview
 from .large_image import image_size, needs_streaming, output_size_summary, parse_scale, preview_source, thumbnail
 from .v2_output import output_folder as v2_output_folder, output_path as v2_output_path
 from .preview_viewport import PreviewViewport
@@ -1074,31 +1075,17 @@ class App(tk.Tk):
             settings = self._settings()
         except Exception:
             return
-        self.right_caption.configure(text="กำลังสร้าง Preview…")
+        self.right_caption.configure(text="กำลังสร้าง Preview การปรับสี/ขอบ…")
+
         def worker():
             try:
-                with tempfile.TemporaryDirectory(prefix="signprint_preview_") as td:
-                    td = Path(td)
-                    im = thumbnail(p, (1200, 800))
-                    preview_in = td / "preview_input.png"
-                    preview_out = td / "preview_output.png"
-                    im.save(preview_in)
-                    # Screen preview always stays RGB; ICC/CMYK is an export-only
-                    # stage so it cannot alter the proven V1 processing result.
-                    ps = replace(
-                        settings,
-                        ai_scale=1,
-                        print_width=None,
-                        print_height=None,
-                        dpi=96,
-                        color_mode="RGB",
-                        icc_profile_path=None,
-                    )
-                    self.pipeline.process(preview_in, preview_out, ps, use_ai=False)
-                    # Copy to a stable per-user temp path because TemporaryDirectory
-                    # is removed as soon as this worker exits.
-                    stable = Path(tempfile.gettempdir()) / f"SignPrintAI_preview_{generation}.png"
-                    Image.open(preview_out).save(stable)
+                # Preview only the same finishing filters used in real export.
+                # Do not run the costly AI model on every slider movement, and
+                # do not misrepresent this RGB thumbnail as final AI/CMYK.
+                source = thumbnail(p, (1200, 800))
+                preview = render_finishing_preview(source, settings)
+                stable = Path(tempfile.gettempdir()) / f"SignPrintAI_preview_{generation}.png"
+                preview.save(stable, format="PNG")
                 self._events.put(("preview_done", generation, preview_index, str(stable)))
             except Exception as exc:
                 self._events.put(("preview_error", generation, preview_index, str(exc)))
@@ -1476,7 +1463,7 @@ class App(tk.Tk):
                     _, generation, preview_index, path = ev
                     if generation == self._preview_generation and preview_index == self.current_index:
                         self._last_result = Path(path)
-                        self.right_caption.configure(text="ภาพตัวอย่างย่อ • ยังไม่ใช่ผล AI เต็ม")
+                        self.right_caption.configure(text="ตัวอย่างเกลี่ยสี/ขอบ • ยังไม่รวม AI หรือ CMYK")
                         self._refresh_preview_images()
                 elif kind == "preview_error":
                     _, generation, preview_index, error = ev

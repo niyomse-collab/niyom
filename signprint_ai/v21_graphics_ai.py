@@ -19,6 +19,8 @@ GRAPHIC_MODEL_SHA256 = 'f872d837d3c90ed2e05227bed711af5671a6fd1c9f7d7e91c911a61f
 class V21Settings(EnhanceSettings):
     # Experimental transfer is opt-in; preserve the established photo core by default.
     graphic_ai: bool = False
+    # V2.1-only experimental flat-fill cleanup. Legacy EnhanceSettings has no flag.
+    v21_color_cleanup: bool = True
 
 
 def blend_graphic_detail(photo, graphic, strength=1., protected_regions=()):
