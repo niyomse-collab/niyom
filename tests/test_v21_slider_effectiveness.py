@@ -12,7 +12,7 @@ from signprint_ai.v2_graphic_edges import refine_sign_edges
 
 
 def _controls(**kwargs):
-    options = dict(denoise=0, flat_smoothing=0, text_graphic_boost=0,
+    options = dict(v21_v2_quality_baseline=False, denoise=0, flat_smoothing=0, text_graphic_boost=0,
                    sharpness=0, contrast=0, saturation=0)
     options.update(kwargs)
     return V21Settings(**options)

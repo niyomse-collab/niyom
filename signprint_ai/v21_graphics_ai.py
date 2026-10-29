@@ -17,6 +17,9 @@ GRAPHIC_MODEL_SHA256 = 'f872d837d3c90ed2e05227bed711af5671a6fd1c9f7d7e91c911a61f
 
 @dataclass
 class V21Settings(EnhanceSettings):
+    # Restore accepted V2 print-pass and edge finishing semantics by default.
+    # Experimental V2.1 text reconstruction must be explicitly selected.
+    v21_v2_quality_baseline: bool = True
     # Experimental transfer is opt-in; preserve the established photo core by default.
     graphic_ai: bool = False
     # V2.1-only experimental flat-fill cleanup. Legacy EnhanceSettings has no flag.

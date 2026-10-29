@@ -636,7 +636,7 @@ class App(tk.Tk):
         self.v1_mode = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             ai,
-            text="NiyomSilp Design • โหมดคุณภาพเดิม (แนะนำ) — รักษารายละเอียดเดิม",
+            text="ใช้คุณภาพ V2 เดิม (แนะนำ) — อิงขนาดงานพิมพ์และเก็บขอบแบบ V2",
             variable=self.v1_mode,
             command=self._settings_changed,
             style="Dark.TCheckbutton",
@@ -662,7 +662,7 @@ class App(tk.Tk):
 
         # Keep the validated NiyomSilp image output unless the operator opts in.
         self.graphic_ai_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(quality, text="AI เก็บขอบข้อความบนพื้นสว่าง (V2.1)",
+        ttk.Checkbutton(quality, text="AI เก็บขอบ V2.1 (ใช้เมื่อปิดโหมดคุณภาพ V2)",
                         variable=self.graphic_ai_var, command=self._settings_changed,
                         style="Dark.TCheckbutton").grid(row=6, column=0, columnspan=3, sticky="w")
 
@@ -1011,7 +1011,14 @@ class App(tk.Tk):
             # A large *preview* is never allocated; this only reports the real
             # export dimensions and an informational per-image RGB buffer size.
             model_scale = self.pipeline.selected_model_scale(self.scale_var.get())
+            if (original and self.use_print_size.get() and self.v1_mode.get()
+                    and model_scale > 1):
+                model_scale = self.pipeline._model_scale_for_dimensions(
+                    original[0], original[1], px
+                )
             label = output_size_summary(original or px, px, model_scale)
+            if self.use_print_size.get() and self.v1_mode.get() and original:
+                label += f" • AI ตาม V2: {model_scale}x"
             if original and (px[0] < original[0] or px[1] < original[1]):
                 label += " • ลดจำนวนพิกเซลบางด้านตามขนาดที่ตั้ง"
             self.pixel_info.configure(text=label)
@@ -1057,6 +1064,7 @@ class App(tk.Tk):
             resize_mode="fit" if self.lock_ratio.get() else "stretch",
             export_format=self.format_var.get(),
             v1_baseline=self.v1_mode.get(),
+            v21_v2_quality_baseline=self.v1_mode.get(),
             color_mode=self.color_mode_var.get(),
             icc_profile_path=(self.icc_profile_path_var.get() or None),
             face_protection=self.face_enabled_var.get(),

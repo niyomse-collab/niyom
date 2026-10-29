@@ -21,6 +21,13 @@ def refine_sign_edges(
     No thresholding or erosion of rendered text shapes occurs; tiny Thai vowels
     and tone marks are retained, as is the exact source alpha plane.
     """
+    # The default V2.1 operator mode runs the exact edge finishing algorithm
+    # from the accepted V2. Unchecking it enables experimental V2.1 contours
+    # and flat-colour smoothing for controlled comparisons.
+    if getattr(settings, "v21_v2_quality_baseline", False):
+        from .v21_v2_quality_baseline import refine_sign_edges as v2_finish
+        return v2_finish(image, protected_regions=protected_regions, settings=settings)
+
     # None retains the standalone refinement API; V2 always passes UI settings.
     def strength(name):
         return float(np.clip(getattr(settings, name, 0), 0, 100)) / 100.0
