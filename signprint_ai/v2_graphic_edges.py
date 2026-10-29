@@ -26,7 +26,13 @@ def refine_sign_edges(
     # and flat-colour smoothing for controlled comparisons.
     if getattr(settings, "v21_v2_quality_baseline", False):
         from .v21_v2_quality_baseline import refine_sign_edges as v2_finish
-        return v2_finish(image, protected_regions=protected_regions, settings=settings)
+        finished = v2_finish(image, protected_regions=protected_regions, settings=settings)
+        if getattr(settings, "v21_precision_ink", False):
+            from .v21_precision_ink import precision_ink_finish
+            finished = precision_ink_finish(
+                finished, settings, protected_regions=protected_regions
+            )
+        return finished
 
     # None retains the standalone refinement API; V2 always passes UI settings.
     def strength(name):

@@ -643,6 +643,13 @@ class App(tk.Tk):
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(7, 2))
         tk.Label(ai, text="NiyomSilp Design Engine",
                  bg="#111820", fg="#84D8FF", anchor="w").grid(row=2, column=0, columnspan=2, sticky="ew")
+        self.precision_ink_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            ai, text="V2.1+ เกลี่ยสีตัวอักษร / เก็บขอบละเอียด (ทดลอง)",
+            variable=self.precision_ink_var,
+            command=self._settings_changed,
+            style="Dark.TCheckbutton",
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(5, 2))
         ai.columnconfigure(1, weight=1)
 
         # 3. V2 graphic finishing controls run before face restoration.
@@ -1065,6 +1072,7 @@ class App(tk.Tk):
             export_format=self.format_var.get(),
             v1_baseline=self.v1_mode.get(),
             v21_v2_quality_baseline=self.v1_mode.get(),
+            v21_precision_ink=(self.v1_mode.get() and self.precision_ink_var.get()),
             color_mode=self.color_mode_var.get(),
             icc_profile_path=(self.icc_profile_path_var.get() or None),
             face_protection=self.face_enabled_var.get(),

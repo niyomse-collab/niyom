@@ -20,6 +20,9 @@ class V21Settings(EnhanceSettings):
     # Restore accepted V2 print-pass and edge finishing semantics by default.
     # Experimental V2.1 text reconstruction must be explicitly selected.
     v21_v2_quality_baseline: bool = True
+    # Independent, operator-controlled improvement above the accepted V2
+    # edge path; off by default in scripts, on by default in the desktop UI.
+    v21_precision_ink: bool = False
     # Experimental transfer is opt-in; preserve the established photo core by default.
     graphic_ai: bool = False
     # V2.1-only experimental flat-fill cleanup. Legacy EnhanceSettings has no flag.
