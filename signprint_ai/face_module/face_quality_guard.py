@@ -41,6 +41,33 @@ def check_face_restoration(original_bgr, candidate_bgr):
     if old_energy > 35.0 and new_energy < old_energy * 0.20:
         return False, "face_detail_collapsed"
 
+    # Global detail energy can miss a destroyed eye or mouth when the rest of
+    # the face is still sharp. Fail closed on a *salient local* collapse, but
+    # require a substantial local pixel change to avoid rejecting small noise
+    # fluctuations. This is a safety heuristic, not landmark/identity QA.
+    tile_size = max(16, min(old_gray.shape) // 8)
+    salient_energy = max(1000.0, old_energy * 1.5)
+    height, width = old_gray.shape
+    for top in range(0, height, tile_size):
+        for left in range(0, width, tile_size):
+            area = np.s_[top:top + tile_size, left:left + tile_size]
+            old_patch = old_detail[area]
+            if old_patch.size < tile_size * tile_size // 2:
+                continue
+            patch_energy = float(np.mean(old_patch * old_patch))
+            if patch_energy < salient_energy:
+                continue
+            new_patch = new_detail[area]
+            new_energy = float(np.mean(new_patch * new_patch))
+            if new_energy >= patch_energy * 0.12:
+                continue
+            local_change = float(np.mean(np.abs(
+                original_bgr[area].astype(np.int16)
+                - candidate_bgr[area].astype(np.int16)
+            )))
+            if local_change > 8.0:
+                return False, "local_face_detail_collapsed"
+
     old_low = cv2.GaussianBlur(original_bgr, (0, 0), 5.0).astype(np.float32)
     new_low = cv2.GaussianBlur(candidate_bgr, (0, 0), 5.0).astype(np.float32)
     channel_shift = np.mean(new_low - old_low, axis=(0, 1))
