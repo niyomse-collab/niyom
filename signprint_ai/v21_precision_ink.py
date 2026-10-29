@@ -11,6 +11,59 @@ import numpy as np
 from PIL import Image
 
 
+
+def photo_preservation_weight(rgb: np.ndarray, gx: np.ndarray,
+                              gy: np.ndarray, gradient: np.ndarray) -> np.ndarray:
+    """Reduce finishing on photographic texture / skin, retaining coherent ink.
+
+    Pure 31x31 edge exclusion removes the entire interior of narrow Thai
+    strokes; instead use directional coherence to keep long graphic strokes
+    while suppressing dense, multidirectional photographic details.
+
+    All operators are translation-invariant with finite (<=32 px) context
+    so V2.1 disk-tiled exports match the in-memory finishing near tile seams.
+    """
+    # A local average gradient distinguishes dense food/photographic texture
+    # from smooth graphic ink. Parallel letter strokes have strong coherence,
+    # so they are not excluded solely for having nearby outlines.
+    regional_gradient = cv2.GaussianBlur(gradient, (0, 0), 6.0)
+    texture_confidence = np.clip(
+        (85.0 - regional_gradient) / 55.0, 0.0, 1.0
+    )
+    gx2 = cv2.GaussianBlur(np.sum(gx * gx, axis=2), (0, 0), 6.0)
+    gy2 = cv2.GaussianBlur(np.sum(gy * gy, axis=2), (0, 0), 6.0)
+    gxy = cv2.GaussianBlur(np.sum(gx * gy, axis=2), (0, 0), 6.0)
+    coherence = np.sqrt((gx2 - gy2) ** 2 + 4 * gxy ** 2) / (
+        gx2 + gy2 + 1e-4
+    )
+    coherent_stroke = np.clip((coherence - .60) / .30, 0, 1)
+    texture_confidence = np.maximum(texture_confidence, coherent_stroke)
+
+    # Suppress unwarranted skin retouching even when Face Protect was not
+    # selected. Require a reddish skin-like chroma *and* a meaningful R-G
+    # separation: pale cream sign backgrounds must NOT be mistaken for skin.
+    ycrcb = cv2.cvtColor(rgb, cv2.COLOR_RGB2YCrCb)
+    cr, cb = ycrcb[..., 1], ycrcb[..., 2]
+    red, green, blue = (
+        rgb[..., 0].astype(np.int16),
+        rgb[..., 1].astype(np.int16),
+        rgb[..., 2].astype(np.int16),
+    )
+    saturation = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)[..., 1]
+    skin_like = (
+        (cr >= 135) & (cr <= 180) & (cb >= 80) & (cb <= 140)
+        & (red > green) & (green > blue)
+        & (red - green > 22) & (green < 215)
+        & (red > 90) & (saturation < 125)
+    )
+    skin_presence = cv2.GaussianBlur(
+        skin_like.astype(np.float32), (0, 0), 6.0
+    )
+    skin_confidence = np.clip(
+        (.24 - skin_presence) / .16, 0.0, 1.0
+    )
+    return (texture_confidence * skin_confidence).astype(np.float32)
+
 def precision_ink_finish(image: Image.Image, settings, protected_regions=None) -> Image.Image:
     """Stabilize tiny ink speckles without crossing strong colour outlines."""
     flat = float(np.clip(getattr(settings, "flat_smoothing", 0), 0, 100)) / 100.0
@@ -51,6 +104,9 @@ def precision_ink_finish(image: Image.Image, settings, protected_regions=None) -
             0, 255,
         ).astype(np.uint8)
     weight = np.clip((flat*.95 + denoise*.20) * confidence, 0.0, 1.0)
+    # Old V2.1+ at slider 100 also smoothed face/food photographic texture.
+    # Protect those regions; keep coherent narrow Thai ink strokes eligible.
+    weight *= photo_preservation_weight(rgb, gx, gy, grad)
     result_f = (
         base * (1.0 - weight[..., None])
         + stable.astype(np.float32) * weight[..., None]
