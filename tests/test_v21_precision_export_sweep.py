@@ -64,7 +64,7 @@ def test_ink_slider_levels_reach_real_png_export(tmp_path, monkeypatch, disk_til
     for level in (0, 25, 50, 75, 100):
         dest = tmp_path / f"level_{level}.png"
         result = adapter.process(inp, dest, settings(level, advanced=True))
-        assert result["processing_mode"] == ("disk_tiles" if disk_tiles else "in_memory")
+        assert result["processing_mode"] == ("disk_tiles" if disk_tiles else "memory")
         with Image.open(dest) as img:
             assert img.size == (288, 288)
             output.append(np.asarray(img).copy())
