@@ -85,16 +85,50 @@ def _run(folder):
             graphic_pixels = np.full((32, 40, 3), 245, np.uint8)
             graphic_pixels[8:24, 8:32] = (180, 20, 110)
             Image.fromarray(graphic_pixels).save(graphic_source)
-            graphic_output = work / "graphic_v21.png"
-            graphic_settings = V21Settings(ai_scale=4, device="cpu", text_graphic_boost=28,
-                graphic_ai=True,
-                print_width=2.08, print_height=1.66, print_unit="inch", dpi=100)
+            # A 40x32 source requesting 208x166 print pixels needs >4x.
+            # Accepted V2 used two real AI passes (4x then 2x), not one 4x
+            # inference and a non-neural 5.2x resize. Both paths must work
+            # inside the installed EXE, not only in source-level regression.
+            graphic_output = work / "v2_quality_baseline_print.png"
+            graphic_settings = V21Settings(
+                ai_scale=4, device="cpu", text_graphic_boost=28,
+                graphic_ai=True, v21_v2_quality_baseline=True,
+                v21_precision_ink=True, flat_smoothing=80,
+                print_width=2.08, print_height=1.66,
+                print_unit="inch", dpi=100,
+            )
             result = adapter.process(graphic_source, graphic_output, graphic_settings)
-            assert result["ai_scale"] == 4 and result["output_size"] == (208,166)
+            assert result["ai_scale"] == 8 and result["output_size"] == (208, 166)
+            assert result.get("graphic_ai_model") is None
             with Image.open(graphic_output) as image:
-                assert image.size == (208,166) and np.asarray(image).std() > 0
-            report["checks"].append({"name": "v21_real_graphic_model_selected_4x_print_target",
-                                      "size": [208,166]})
+                assert image.size == (208, 166) and np.asarray(image).std() > 0
+            report["checks"].append({
+                "name": "installed_exe_v21_v2_quality_two_real_ai_passes",
+                "inference": "4x_then_2x", "ai_scale": 8,
+                "precision_ink": True, "size": [208, 166],
+            })
+
+            # Experimental V2.1 graphics model must load separately and must
+            # *not* change the approved V2-mode neural pass strategy.
+            experimental_output = work / "graphic_v21_anime_4x.png"
+            experiment_settings = V21Settings(
+                ai_scale=4, device="cpu", text_graphic_boost=28,
+                graphic_ai=True, v21_v2_quality_baseline=False,
+                print_width=2.08, print_height=1.66,
+                print_unit="inch", dpi=100,
+            )
+            experiment = adapter.process(
+                graphic_source, experimental_output, experiment_settings
+            )
+            assert experiment["ai_scale"] == 4
+            assert experiment["output_size"] == (208, 166)
+            assert experiment.get("graphic_ai_model") == "RealESRGAN_x4plus_anime_6B"
+            with Image.open(experimental_output) as image:
+                assert image.size == (208, 166) and np.asarray(image).std() > 0
+            report["checks"].append({
+                "name": "installed_exe_v21_experimental_anime_model",
+                "ai_scale": 4, "size": [208, 166],
+            })
 
         # Verify transparent print artwork through the *packaged EXE*
         # (not only source-level mocked ICC tests). The zero-alpha RGB
