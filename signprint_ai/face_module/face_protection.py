@@ -184,7 +184,9 @@ class FaceProtectionModule:
         normalized = max(0.0, min(1.0, float(strength) / 100.0))
         if str(mode).lower() == "recover":
             # Recovery may be stronger but is still capped to preserve identity.
-            return min(0.75, normalized)
+            # V2.1 safety: do not let a high slider replace most of the
+            # original eyes, mouth and facial structure with GAN guesses.
+            return min(0.50, normalized)
         # Protect is deliberately conservative: it should stabilize facial
         # structure, not invent a new face.
         return min(0.45, normalized)
@@ -313,6 +315,9 @@ class FaceProtectionModule:
 
         helper.get_inverse_affine()
         alpha = self._blend_alpha(mode, strength)
+        from .face_quality_guard import check_face_restoration
+        accepted_count = 0
+        rejected_reasons = []
 
         for index, crop in enumerate(list(helper.cropped_faces)):
             if cancel and cancel():
@@ -337,8 +342,17 @@ class FaceProtectionModule:
                 min_max=(-1, 1),
             ).astype(np.uint8)
 
-            # Blend the restored crop with the ARM crop before paste-back.  This
-            # is the identity-preservation guard that keeps Protect mode mild.
+            # Fail closed if GFPGAN loses facial structure/detail or invents a
+            # strongly different complexion. This is NOT biometric recognition;
+            # preserving the original crop is safer than a damaged portrait.
+            accepted, reason = check_face_restoration(crop, restored_face)
+            if not accepted:
+                rejected_reasons.append(reason)
+                restored_face = crop
+            else:
+                accepted_count += 1
+
+            # Blend the accepted face gently with the original AI crop.
             if alpha < 1.0:
                 restored_face = cv2.addWeighted(
                     crop,
@@ -354,6 +368,16 @@ class FaceProtectionModule:
                 done = 20 + round(65 * (index + 1) / max(1, face_count))
                 progress(done, f"Face Protect · ใบหน้า {index + 1}/{face_count}")
 
+        if accepted_count == 0:
+            # Never call paste on entirely rejected crops: even an unchanged
+            # crop goes through an inverse affine warp and can blur a face.
+            helper.clean_all()
+            return rgb_image, FaceProtectionResult(
+                enabled=True, applied=False, face_count=0, mode=mode,
+                strength=strength,
+                skipped_reason="Face AI ไม่ผ่านการตรวจคุณภาพใบหน้า ใช้ภาพเดิม",
+            )
+
         result_bgr = helper.paste_faces_to_input_image()
         helper.clean_all()
         result_rgb = cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB)
@@ -364,8 +388,9 @@ class FaceProtectionModule:
         return Image.fromarray(result_rgb), FaceProtectionResult(
             enabled=True,
             applied=True,
-            face_count=face_count,
+            face_count=accepted_count,
             mode=mode,
             strength=strength,
-            skipped_reason=None,
+            skipped_reason=("บางใบหน้าไม่ผ่านการตรวจคุณภาพและใช้ภาพเดิม"
+                            if rejected_reasons else None),
         )
