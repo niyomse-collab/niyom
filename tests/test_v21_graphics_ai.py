@@ -65,7 +65,15 @@ def test_graphic_ai_is_opt_in_to_preserve_approved_photo_core(monkeypatch):
     monkeypatch.setattr(v21_graphics_ai, 'GraphicDetailEngine', StubGraphicEngine)
     assert adapter.create_job_engine(V21Settings(graphic_ai=True, text_graphic_boost=0)) is base_engine
     regions = ((.1, .2, .5, .6),)
-    selected = V21Settings(graphic_ai=True, text_graphic_boost=60,
+    # V2 quality mode intentionally blocks the *experimental* anime 6B
+    # model even when its old checkbox remains ticked.
+    approved = V21Settings(graphic_ai=True, text_graphic_boost=60,
                            face_protection=True, face_regions=regions)
+    assert adapter.create_job_engine(approved) is base_engine
+
+    # Only V2.1 experimental mode permits the optional graphic model.
+    selected = V21Settings(graphic_ai=True, text_graphic_boost=60,
+                           face_protection=True, face_regions=regions,
+                           v21_v2_quality_baseline=False)
     assert isinstance(adapter.create_job_engine(selected), StubGraphicEngine)
     assert calls == [(base_engine, .6, regions)]
