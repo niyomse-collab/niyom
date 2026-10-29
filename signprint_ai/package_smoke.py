@@ -130,6 +130,41 @@ def _run(folder):
                 "ai_scale": 4, "size": [208, 166],
             })
 
+            # Verify the full 0/25/50/75/100 finishing controls with native
+            # OpenCV/Pillow from the *packaged executable*. Source-only pytest
+            # cannot detect a missing bundled OpenCV filter or V2.1 module.
+            # This is downstream of real AI inference, but deliberately uses
+            # controlled ink so that a grain threshold is meaningful.
+            from .v2_graphic_edges import refine_sign_edges
+            ink = np.full((220, 320, 3), (235, 218, 196), dtype=np.int16)
+            ink[25:190, 80:93] = (22, 40, 151)
+            ink[20:25, 84:88] = (22, 40, 151)  # detached tone mark
+            ink[33:175, 130:220] = (194, 38, 70)
+            ink = np.clip(
+                ink + np.random.default_rng(33).integers(-18, 19, ink.shape),
+                0, 255,
+            ).astype(np.uint8)
+            preview_input = Image.fromarray(ink, "RGB")
+            trial = []
+            for level in (0, 25, 50, 75, 100):
+                controls = V21Settings(
+                    ai_scale=2, device="cpu", v21_v2_quality_baseline=True,
+                    v21_precision_ink=True, flat_smoothing=level,
+                    denoise=0, text_graphic_boost=0, sharpness=0,
+                    contrast=0, saturation=0,
+                )
+                finished = refine_sign_edges(preview_input, settings=controls)
+                solid = np.asarray(finished)[40:170, 83:90].astype(np.float32)
+                trial.append(round(float(solid.std(axis=(0, 1)).mean()), 4))
+            assert all(a > b for a, b in zip(trial, trial[1:])), trial
+            assert trial[-1] < trial[0] * 0.25, trial
+            report["checks"].append({
+                "name": "installed_exe_v21_precision_ink_slider_sweep",
+                "levels": [0, 25, 50, 75, 100],
+                "ink_grain_std": trial,
+                "limitation": "Controlled ink test after packaging; not real print certification",
+            })
+
         # Verify transparent print artwork through the *packaged EXE*
         # (not only source-level mocked ICC tests). The zero-alpha RGB
         # deliberately contains hidden black: a black JPEG background is
