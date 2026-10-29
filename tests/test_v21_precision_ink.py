@@ -70,7 +70,13 @@ def test_rgb_chromatic_edge_and_detached_mark_remain_distinct():
     arr = np.asarray(new)
     assert arr[22, 85, 2] > arr[22, 85, 0]
     assert arr[12, 85, 0] > arr[12, 85, 2]
-    assert np.all(arr[95, 86] != arr[95, 150])
+    # Different inks may legitimately share one channel (e.g. green=39),
+    # so require chromatic separation, not all three channels unequal.
+    assert arr[95, 86, 2] > arr[95, 86, 0]
+    assert arr[95, 150, 0] > arr[95, 150, 2]
+    assert np.linalg.norm(
+        arr[95, 86].astype(float) - arr[95, 150].astype(float)
+    ) > 100
 
 
 def test_transparency_and_face_roi_are_pixel_identical():
