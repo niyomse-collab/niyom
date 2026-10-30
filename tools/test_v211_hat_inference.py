@@ -112,7 +112,6 @@ def main():
         # This catches missing cv2, alpha flattening and ICC/DPI loss that
         # synthetic stub-engine regressions alone cannot detect.
         rgba_input = Path(temporary) / "input_rgba.png"
-        rgba_output = output_dir / "HAT_x2_rgba_synthetic.png"
         rgba = np.zeros((11, 13, 4), dtype=np.uint8)
         rgba[2:9, 3:10, :3] = (210, 65, 20)
         rgba[2:9, 3:10, 3] = 255
@@ -122,29 +121,32 @@ def main():
         Image.fromarray(rgba, "RGBA").save(
             rgba_input, dpi=(300, 300), icc_profile=icc
         )
-        rgba_result = engine.enhance(rgba_input, rgba_output, scale=2)
-        with Image.open(rgba_output) as actual:
-            expected_alpha = Image.fromarray(rgba[:, :, 3], "L").resize(
-                (26, 22), Image.Resampling.LANCZOS
-            )
-            if actual.mode != "RGBA" or actual.size != (26, 22):
-                raise AssertionError("Real HAT RGBA output lost mode/dimensions")
-            if actual.getchannel("A").tobytes() != expected_alpha.tobytes():
-                raise AssertionError("Real HAT RGBA output changed alpha values")
-            if actual.info.get("icc_profile") != icc:
-                raise AssertionError("Real HAT RGBA output lost the sRGB ICC")
-            actual_dpi = actual.info.get("dpi")
-            if not actual_dpi or any(abs(v - 300) > 1 for v in actual_dpi):
-                raise AssertionError("Real HAT RGBA output lost 300 DPI")
-            rgba_diagnostic = {
-                "mode": actual.mode,
-                "output_size": list(actual.size),
-                "alpha_extrema": list(actual.getchannel("A").getextrema()),
-                "icc_preserved": True,
-                "dpi": list(actual_dpi),
-                "model": rgba_result["model"],
-                "quality_certified": False,
-            }
+        rgba_diagnostics = {}
+        for extension in (".png", ".tiff"):
+            rgba_output = output_dir / ("HAT_x2_rgba_synthetic" + extension)
+            rgba_result = engine.enhance(rgba_input, rgba_output, scale=2)
+            with Image.open(rgba_output) as actual:
+                expected_alpha = Image.fromarray(rgba[:, :, 3], "L").resize(
+                    (26, 22), Image.Resampling.LANCZOS
+                )
+                if actual.mode != "RGBA" or actual.size != (26, 22):
+                    raise AssertionError("Real HAT RGBA output lost mode/dimensions")
+                if actual.getchannel("A").tobytes() != expected_alpha.tobytes():
+                    raise AssertionError("Real HAT RGBA output changed alpha values")
+                if actual.info.get("icc_profile") != icc:
+                    raise AssertionError("Real HAT RGBA output lost the sRGB ICC")
+                actual_dpi = actual.info.get("dpi")
+                if not actual_dpi or any(abs(v - 300) > 1 for v in actual_dpi):
+                    raise AssertionError("Real HAT RGBA output lost 300 DPI")
+                rgba_diagnostics[extension.lstrip(".")] = {
+                    "mode": actual.mode,
+                    "output_size": list(actual.size),
+                    "alpha_extrema": list(actual.getchannel("A").getextrema()),
+                    "icc_preserved": True,
+                    "dpi": list(actual_dpi),
+                    "model": rgba_result["model"],
+                    "quality_certified": False,
+                }
 
     Image.fromarray(crop, "RGB").save(output_dir / "HAT_x4_synthetic.png")
     details = {
@@ -161,7 +163,7 @@ def main():
             "output_std": tiled_std,
         },
         "full_vs_tiled_seam_diagnostic": seam_diagnostic,
-        "real_checkpoint_rgba_export": rgba_diagnostic,
+        "real_checkpoint_rgba_export": rgba_diagnostics,
         "gpu_inference_tested": False,
         "alpha_end_to_end_tested": True,
         "tile_seam_quality_certified": False,
