@@ -52,7 +52,18 @@ class NiyomSilpCoreAdapter:
         return self.engine_manager.device_manager.get_default_device()
 
     def create_job_engine(self, settings):
-        engine = self.engine_manager.create_engine(settings.device)
+        selected_model = getattr(settings, "v211_photo_model", "real_esrgan")
+        if selected_model == "hat":
+            from .v211_hat_engine import HATModelEngine
+            device_manager = self.engine_manager.device_manager
+            selected = (device_manager.get_default_device() if settings.device == "AUTO"
+                        else device_manager.get_device(settings.device))
+            engine = HATModelEngine(selected)
+            self.engine_manager.engine = engine
+        elif selected_model == "real_esrgan":
+            engine = self.engine_manager.create_engine(settings.device)
+        else:
+            raise ValueError("V2.1.1: unknown photo model: " + str(selected_model))
         if (getattr(settings, "graphic_ai", False)
                 and settings.text_graphic_boost > 0):
             from .v21_graphics_ai import GraphicDetailEngine
@@ -368,7 +379,7 @@ class NiyomSilpCoreAdapter:
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",
-            "model": "RealESRGAN_x4plus",
+            "model": ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus"),
             "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
