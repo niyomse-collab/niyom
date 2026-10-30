@@ -29,6 +29,8 @@ class V21Settings(EnhanceSettings):
     v21_color_cleanup: bool = True
     # V2.1 disk-tile RGBA resize: guard partially transparent print edges.
     v21_alpha_safe_resize: bool = True
+    # V2.1.1: do not silently export when a requested face pass was skipped.
+    v211_require_face_restore: bool = True
 
 
 def blend_graphic_detail(photo, graphic, strength=1., protected_regions=()):
