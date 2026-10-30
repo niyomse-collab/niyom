@@ -276,6 +276,11 @@ class NiyomSilpCoreAdapter:
                 if progress:
                     progress(94, "Face Protect ข้าม — ใช้ผลจาก NiyomSilp Design Engine เดิม")
 
+        from .v211_face_contract import enforce_requested_face_restoration
+        enforce_requested_face_restoration(
+            settings, face_info, use_ai=use_ai, model_scale=model_scale
+        )
+
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
