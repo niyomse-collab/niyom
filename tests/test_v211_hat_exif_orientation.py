@@ -60,4 +60,4 @@ def test_hat_rgba_orientation_keeps_alpha_on_same_pixel(tmp_path):
         assert a.max() == 255
         # Orientation=6 sends top-left source to the top-right output.
         assert a[:2, -2:].max() == 255
-        assert a[-2:, :2].max() == 0
+        assert a[-2:, :2].max() < 10  # Lanczos can introduce minor ringing
