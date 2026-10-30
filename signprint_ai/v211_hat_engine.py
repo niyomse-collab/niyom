@@ -154,7 +154,23 @@ class HATModelEngine:
                 progress_callback=None, cancel_check=None):
         _require_scale(scale)
         with Image.open(input_path) as original:
-            source = np.asarray(original.convert("RGB"))
+            # A direct HAT export must not silently flatten transparent PNG/TIFF.
+            # Propagate visible colours into hidden RGB before AI upscaling to
+            # reduce dark fringes; the actual opacity is resized separately.
+            has_alpha = ("A" in original.getbands()
+                         or "transparency" in original.info)
+            if has_alpha:
+                from .v2_alpha_edges import bleed_transparent_rgb
+                rgba = original.convert("RGBA")
+                alpha = np.asarray(rgba.getchannel("A")).copy()
+                source = bleed_transparent_rgb(
+                    np.asarray(rgba.convert("RGB")), alpha
+                )
+            else:
+                alpha = None
+                source = np.asarray(original.convert("RGB"))
+            icc = original.info.get("icc_profile")
+            dpi = original.info.get("dpi")
         h, w = source.shape[:2]
         out = np.empty((h * scale, w * scale, 3), dtype=np.uint8)
         step, pad = self.upsampler.tile_size, self.upsampler.tile_pad
@@ -176,8 +192,24 @@ class HATModelEngine:
                 if progress_callback:
                     progress_callback(round(100 * completed / total))
         destination = Path(output_path)
+        if alpha is not None and destination.suffix.lower() not in (
+                ".png", ".tif", ".tiff"):
+            raise ValueError(
+                "V2.1.1 HAT: ภาพโปร่งใสต้องส่งออกเป็น PNG/TIFF เพื่อรักษา alpha"
+            )
         destination.parent.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(out, "RGB").save(destination)
+        result_image = Image.fromarray(out, "RGB")
+        if alpha is not None:
+            upscaled_alpha = Image.fromarray(alpha, "L").resize(
+                (w * scale, h * scale), Image.Resampling.LANCZOS
+            )
+            result_image.putalpha(upscaled_alpha)
+        save_options = {}
+        if icc:
+            save_options["icc_profile"] = icc
+        if dpi:
+            save_options["dpi"] = dpi
+        result_image.save(destination, **save_options)
         return {
             "model": "HAT_SRx4_ImageNet-pretrain",
             "device": self.device_name(), "scale": scale,
