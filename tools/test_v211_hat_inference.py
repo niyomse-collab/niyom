@@ -143,7 +143,7 @@ def main():
                     "output_size": list(actual.size),
                     "alpha_extrema": list(actual.getchannel("A").getextrema()),
                     "icc_preserved": True,
-                    "dpi": list(actual_dpi),
+                    "dpi": [float(value) for value in actual_dpi],
                     "model": rgba_result["model"],
                     "quality_certified": False,
                 }
