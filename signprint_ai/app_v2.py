@@ -669,7 +669,7 @@ class App(tk.Tk):
 
         # Keep the validated NiyomSilp image output unless the operator opts in.
         self.graphic_ai_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(quality, text="AI เก็บขอบ V2.1 (ใช้เมื่อปิดโหมดคุณภาพ V2)",
+        ttk.Checkbutton(quality, text="AI เก็บขอบกราฟิก V2.1 (ทดลอง • เปิดใช้ร่วมกับคุณภาพ V2 ได้)",
                         variable=self.graphic_ai_var, command=self._settings_changed,
                         style="Dark.TCheckbutton").grid(row=6, column=0, columnspan=3, sticky="w")
 
@@ -690,7 +690,7 @@ class App(tk.Tk):
         tk.Label(
             quality, text="โหมด", bg="#111820", fg="#E8EDF2", anchor="w"
         ).grid(row=9, column=0, sticky="w", pady=(5, 0))
-        self.face_mode_var = tk.StringVar(value="Protect")
+        self.face_mode_var = tk.StringVar(value="Recover")
         face_mode = ttk.Combobox(
             quality,
             textvariable=self.face_mode_var,
@@ -704,11 +704,11 @@ class App(tk.Tk):
 
         ttk.Button(quality, text="ตรวจจับใบหน้า / เลือกใหม่", command=self._rescan_current_faces).grid(
             row=12, column=0, columnspan=3, sticky="ew", pady=(5, 0))
-        self.face_strength_var = tk.IntVar(value=35)
+        self.face_strength_var = tk.IntVar(value=65)
         self._slider(quality, "Face Strength", self.face_strength_var, 10, 10, 80)
         tk.Label(
             quality,
-            text="Protect: รักษาใบหน้าต้นฉบับ • Recover: ฟื้นฟูใบหน้า • Studio AI: ฟื้นฟูและแต่งผิว",
+            text="Recover: ฟื้นฟูใบหน้า (แนะนำ) • Protect: ใช้ใบหน้าต้นฉบับ ไม่ฟื้นฟู • Studio AI: ฟื้นฟูและแต่งผิว",
             bg="#111820",
             fg="#84D8FF",
             anchor="w",
