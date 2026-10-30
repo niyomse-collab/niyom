@@ -123,11 +123,12 @@ def test_tiled_ai_keeps_passes_exact_size_and_bounded_tiles(adapter, monkeypatch
     engine = SimpleNamespace(upsampler=SimpleNamespace(tile_size=8,tile_pad=3),
                              enhance_tile=enhance_tile, device_name=lambda: "CPU")
     adapter.engine_manager.create_engine = lambda device: engine
-    result = adapter.process(src, tmp_path/"ai.png", EnhanceSettings(ai_scale=scale))
+    result = adapter.process(src, tmp_path/"ai.png", EnhanceSettings(ai_scale=scale, denoise=0, flat_smoothing=0, text_graphic_boost=0, sharpness=0, contrast=0, saturation=0))
     assert result["output_size"] == (19*scale,13*scale)
     assert result["requested_ai_scale"] == scale
     assert {n for n,_ in calls} == ({4,2} if scale >= 8 else {scale})
-    assert max(max(shape[:2]) for _,shape in calls) <= 14
+    # Final finishing requires 32 output pixels of context, at most 16 source pixels at 2x.
+    assert max(max(shape[:2]) for _,shape in calls) <= 8 + 2 * 16
     if scale <= 8:
         with Image.open(result["output"]) as output:
             np.testing.assert_array_equal(np.asarray(output), np.repeat(np.repeat(pixels,scale,axis=0),scale,axis=1))
@@ -352,7 +353,7 @@ def test_streamed_ai_refines_padded_tiles_and_keeps_original_alpha(adapter, monk
     def marked_refinement(image, **kwargs):
         assert kwargs["settings"].text_graphic_boost == 58
         calls.append(image.size)
-        array = np.asarray(image).copy()
+        array = np.asarray(image.convert("RGB")).copy()
         array[:, :, 0] = np.minimum(255, array[:, :, 0].astype(np.uint16) + 1)
         return Image.fromarray(array.astype(np.uint8), "RGB")
 
@@ -429,3 +430,232 @@ def test_tiled_graphic_refinement_receives_selected_face_roi(monkeypatch, tmp_pa
         assert exported.size == result
         # Normalized selected face center is preserved as real source content.
         assert exported.getpixel((48, 48)) == (27, 48, 125)
+
+
+def test_large_rgba_preview_composites_alpha_without_hidden_rgb_fringe(monkeypatch, tmp_path):
+    """The lazy viewport, not just exported PNGs, must respect transparency."""
+    from signprint_ai.preview_viewport import PreviewViewport
+
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    path = tmp_path / "alpha_preview.png"
+    image = Image.new("RGBA", (80, 80), (255, 0, 0, 0))
+    for y in range(20, 60):
+        for x in range(20, 60):
+            image.putpixel((x, y), (10, 80, 220, 255))
+    image.putpixel((10, 10), (210, 30, 40, 128))
+    image.save(path)
+
+    preview = large_image.preview_source(path)
+    assert isinstance(preview, large_image.LazyPreviewSource)
+    view = PreviewViewport(actual=True)
+    rendered = view.render(preview, (80, 80))
+    assert rendered.mode == "RGB"
+    assert rendered.getpixel((0, 0)) == (23, 23, 23)
+    assert rendered.getpixel((40, 40)) == (10, 80, 220)
+    expected = tuple(round((foreground * 128 + 23 * 127) / 255)
+                     for foreground in (210, 30, 40))
+    assert max(abs(actual - reference) for actual, reference in
+               zip(rendered.getpixel((10, 10)), expected)) <= 3
+    fringe = rendered.getpixel((19, 40))
+    assert fringe[0] <= 25
+    assert view.render(preview, (160, 160)).size == (160, 160)
+
+
+def test_large_rgb_preview_retains_existing_pixel_values(monkeypatch, tmp_path):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    path = tmp_path / "rgb_preview.png"
+    Image.new("RGB", (72, 72), (15, 90, 200)).save(path)
+    preview = large_image.preview_source(path)
+    result = PreviewViewport(actual=True).render(preview, (72, 72))
+    assert result.getpixel((36, 36)) == (15, 90, 200)
+
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_transparent_preview_and_thumbnail_share_neutral_matte(tmp_path, monkeypatch, streaming):
+    """The quick preview and full viewport must show the same visible colours."""
+    from signprint_ai.preview_viewport import PreviewViewport
+
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1 if streaming else 10**9)
+    path = tmp_path / "cutout.png"
+    pixels = np.zeros((80, 80, 4), dtype="uint8")
+    pixels[:, :, :3] = (255, 0, 0)  # Hidden red must not tint transparent black.
+    pixels[20:60, 20:60, :3] = (30, 70, 220)
+    pixels[20:60, 20:60, 3] = 255
+    pixels[10, 10] = (210, 30, 40, 128)
+    Image.fromarray(pixels, "RGBA").save(path)
+
+    preview = large_image.preview_source(path)
+    rendered = PreviewViewport(actual=True).render(preview, (80, 80))
+    thumb = large_image.thumbnail(path, (80, 80))
+    assert rendered.mode == thumb.mode == "RGB"
+    for image in (rendered, thumb):
+        assert image.getpixel((0, 0)) == (23, 23, 23)
+        assert image.getpixel((40, 40)) == (30, 70, 220)
+        expected = tuple(round((c * 128 + 23 * 127) / 255) for c in (210, 30, 40))
+        assert max(abs(a - b) for a, b in zip(image.getpixel((10, 10)), expected)) <= 3
+        # No red from the completely transparent pixels beside the blue cutout.
+        assert image.getpixel((19, 40))[0] <= 25
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_palette_transparency_preview_has_no_solid_background(tmp_path, monkeypatch, streaming):
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1 if streaming else 10**9)
+    path = tmp_path / "palette_cutout.png"
+    image = Image.new("P", (64, 64), 0)
+    image.putpalette([255, 0, 0, 0, 155, 240] + [0] * (256 * 3 - 6))
+    for y in range(20, 44):
+        for x in range(20, 44):
+            image.putpixel((x, y), 1)
+    image.save(path, transparency=0)
+    preview = large_image.preview_source(path)
+    visible = PreviewViewport(actual=True).render(preview, (64, 64))
+    assert visible.getpixel((0, 0)) == (23, 23, 23)
+    assert visible.getpixel((32, 32)) == (0, 155, 240)
+
+
+
+def test_explicit_white_matte_for_cmyk_before_icc(tmp_path):
+    """Real customer evidence: zero-alpha hidden black must not print black."""
+    pixels = np.zeros((48, 64, 4), dtype=np.uint8)
+    pixels[12:36, 16:48, :3] = (25, 110, 210)
+    pixels[12:36, 16:48, 3] = 255
+    pixels[8, 8, :3] = (210, 30, 40)
+    pixels[8, 8, 3] = 128
+    src = tmp_path / "cutout.png"
+    Image.fromarray(pixels, "RGBA").save(src)
+    rgb = large_image.as_rgb(large_image.open_vips(src))
+    rendered = large_image.prepare_source_alpha_for_export(
+        rgb, src, (64, 48),
+        EnhanceSettings(color_mode="CMYK", resize_mode="stretch"),
+        tmp_path / "converted.tif",
+    )
+    assert rendered.bands == 3
+    result = large_image.to_pillow(rendered)
+    assert result.getpixel((0, 0)) == (255, 255, 255)
+    assert result.getpixel((63, 47)) == (255, 255, 255)
+    assert result.getpixel((32, 24)) == (25, 110, 210)
+    expected = tuple(round((component * 128 + 255 * 127) / 255)
+                     for component in (210, 30, 40))
+    assert max(abs(actual - reference) for actual, reference
+               in zip(result.getpixel((8, 8)), expected)) <= 2
+
+
+def test_rgba_jpeg_disk_export_uses_white_matte(adapter, monkeypatch, tmp_path):
+    """Test actual streaming export path, not only the compositing helper."""
+    monkeypatch.setattr(large_image, "IN_MEMORY_PIXELS", 1)
+    rgba = np.zeros((40, 60, 4), dtype=np.uint8)
+    rgba[10:30, 15:45, :3] = (25, 110, 210)
+    rgba[10:30, 15:45, 3] = 255
+    src, dst = tmp_path / "transparent.png", tmp_path / "print.jpg"
+    Image.fromarray(rgba, "RGBA").save(src)
+    adapter.process(src, dst, settings_for((120, 80), "stretch"), use_ai=False)
+    with Image.open(dst) as result:
+        assert result.mode == "RGB"
+        assert min(result.getpixel((2, 2))) > 245
+        assert min(result.getpixel((117, 77))) > 245
+        red, green, blue = result.getpixel((60, 40))
+        assert blue > green > red
+
+
+def test_streaming_must_refuse_missing_alpha_decoder_for_opaque_export(tmp_path, monkeypatch):
+    """If the large-image decoder loses alpha, fail instead of creating black CMYK."""
+    src = tmp_path / "alpha.png"
+    Image.new("RGBA", (8, 8), (0, 0, 0, 0)).save(src)
+    class MissingAlpha:
+        def hasalpha(self):
+            return False
+    monkeypatch.setattr(large_image, "open_vips", lambda *args, **kwargs: MissingAlpha())
+    with pytest.raises(RuntimeError, match="Alpha"):
+        large_image.prepare_source_alpha_for_export(
+            None, src, (8, 8), EnhanceSettings(color_mode="CMYK"), tmp_path / "unsafe.tif"
+        )
+
+
+
+def test_metadata_alpha_guard_handles_large_rgba_png_without_pillow_decode(tmp_path, monkeypatch):
+    """Even when Pillow would reject a 200 MP master, hidden alpha is checked."""
+    path = tmp_path / "huge_header.png"
+    Image.new("RGBA", (32, 32), (0, 0, 0, 0)).save(path)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    assert large_image.source_declares_alpha(path) is True
+
+    class NoAlpha:
+        def hasalpha(self):
+            return False
+    monkeypatch.setattr(large_image, "open_vips", lambda *args, **kwargs: NoAlpha())
+    with pytest.raises(RuntimeError, match="Alpha"):
+        large_image.prepare_source_alpha_for_export(
+            None, path, (32, 32), EnhanceSettings(color_mode="CMYK"),
+            tmp_path / "unsafe.tif",
+        )
+
+
+def test_metadata_alpha_guard_allows_opaque_large_rgb_png(tmp_path, monkeypatch):
+    path = tmp_path / "opaque_header.png"
+    Image.new("RGB", (32, 32), (10, 20, 30)).save(path)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    assert large_image.source_declares_alpha(path) is False
+
+    class NoAlpha:
+        def hasalpha(self):
+            return False
+    token = object()
+    monkeypatch.setattr(large_image, "open_vips", lambda *args, **kwargs: NoAlpha())
+    assert large_image.prepare_source_alpha_for_export(
+        token, path, (32, 32), EnhanceSettings(color_mode="CMYK"),
+        tmp_path / "opaque.tif",
+    ) is token
+
+
+def test_metadata_alpha_guard_detects_palette_png_trns_without_full_decode(tmp_path, monkeypatch):
+    path = tmp_path / "palette_header.png"
+    image = Image.new("P", (32, 32), 0)
+    image.putpalette([0, 0, 0, 20, 150, 210] + [0] * (256 * 3 - 6))
+    image.save(path, transparency=0)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    assert large_image.source_declares_alpha(path) is True
+    clean = tmp_path / "opaque_palette.png"
+    image.save(clean)
+    assert large_image.source_declares_alpha(clean) is False
+
+
+def test_metadata_alpha_guard_detects_tiff_extra_samples_without_pixel_decode(tmp_path, monkeypatch):
+    rgba_path = tmp_path / "rgba_master.tif"
+    opaque_path = tmp_path / "cmyk_master.tif"
+    Image.new("RGBA", (32, 32), (0, 0, 0, 0)).save(rgba_path)
+    Image.new("CMYK", (32, 32), (0, 0, 0, 0)).save(opaque_path)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    assert large_image.source_declares_alpha(rgba_path) is True
+    assert large_image.source_declares_alpha(opaque_path) is False
+
+
+@pytest.mark.parametrize(
+    "mode,pixel,transparent",
+    [
+        ("L", 128, 128),
+        ("RGB", (10, 20, 30), (10, 20, 30)),
+    ],
+)
+def test_metadata_alpha_guard_detects_grayscale_and_rgb_png_trns(
+    tmp_path, monkeypatch, mode, pixel, transparent
+):
+    """tRNS transparency also exists on grayscale and truecolor PNGs."""
+    src = tmp_path / f"{mode.lower()}_trns.png"
+    Image.new(mode, (32, 32), pixel).save(src, transparency=transparent)
+    opaque = tmp_path / f"{mode.lower()}_opaque.png"
+    Image.new(mode, (32, 32), pixel).save(opaque)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+    assert large_image.source_declares_alpha(src) is True
+    assert large_image.source_declares_alpha(opaque) is False
+
+    class NoAlpha:
+        def hasalpha(self):
+            return False
+
+    monkeypatch.setattr(large_image, "open_vips", lambda *args, **kwargs: NoAlpha())
+    with pytest.raises(RuntimeError, match="Alpha"):
+        large_image.prepare_source_alpha_for_export(
+            None, src, (32, 32), EnhanceSettings(color_mode="CMYK"),
+            tmp_path / f"{mode.lower()}_unsafe.tif",
+        )

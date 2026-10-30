@@ -80,8 +80,8 @@ def test_face_processing_precedes_whole_image_stretch(tmp_path, monkeypatch):
     settings = EnhanceSettings(print_width=30, print_height=60, print_unit='inch', dpi=1,
         resize_mode='stretch', face_protection=True, face_mode='studio',
         face_regions=((.2,.2,.7,.8),))
-    # The target is below model scale threshold, so no GPU model is required.
-    adapter._model_scale_for_dimensions = lambda *a: 1
+    # Explicitly disable AI scaling; print size must not override this choice.
+    settings.ai_scale = 1
     adapter.process(source, dest, settings)
     assert seen == [(80,40)]
     assert Image.open(dest).size == (30,60)

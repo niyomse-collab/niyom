@@ -8,7 +8,7 @@ import threading
 import time
 import tempfile
 import subprocess
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 import sys
 import tkinter as tk
@@ -19,7 +19,9 @@ from PIL import Image, ImageOps, ImageTk, ImageChops, ImageCms
 import numpy as np
 
 from .niyomsil_core_adapter import NiyomSilpCoreAdapter
-from .processing import EnhanceSettings, print_pixels
+from .processing import print_pixels
+from .v21_graphics_ai import V21Settings as EnhanceSettings
+from .v21_preview import render_finishing_preview
 from .large_image import image_size, needs_streaming, output_size_summary, parse_scale, preview_source, thumbnail
 from .v2_output import output_folder as v2_output_folder, output_path as v2_output_path
 from .preview_viewport import PreviewViewport
@@ -27,7 +29,7 @@ from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
 
 APP_NAME = "NiyomSilp Design"
-from .release_info import release_label
+from .v21_brand import release_label
 APP_VERSION = release_label("v2")
 BRAND_THAI = "นิยมศิลป์ดีไซน์"
 BRAND_EN = "NIYOMSIL DESIGN"
@@ -73,6 +75,9 @@ class App(tk.Tk):
         self._queued_indices: set[int] = set()
         self._reserved_output_paths: set[Path] = set()
         self._completed_indices: set[int] = set()
+        # This completion set is valid only for its exact UI/export settings.
+        # Otherwise moving a slider and pressing Process silently skips the file.
+        self._completed_signature = None
         self._active_index: int | None = None
         self._active_settings: EnhanceSettings | None = None
 
@@ -631,13 +636,20 @@ class App(tk.Tk):
         self.v1_mode = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             ai,
-            text="NiyomSilp Design • โหมดคุณภาพเดิม (แนะนำ) — รักษารายละเอียดเดิม",
+            text="ใช้คุณภาพ V2 เดิม (แนะนำ) — อิงขนาดงานพิมพ์และเก็บขอบแบบ V2",
             variable=self.v1_mode,
             command=self._settings_changed,
             style="Dark.TCheckbutton",
         ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(7, 2))
         tk.Label(ai, text="NiyomSilp Design Engine",
                  bg="#111820", fg="#84D8FF", anchor="w").grid(row=2, column=0, columnspan=2, sticky="ew")
+        self.precision_ink_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            ai, text="V2.1+ เกลี่ยสีตัวอักษร / เก็บขอบละเอียด (ทดลอง)",
+            variable=self.precision_ink_var,
+            command=self._settings_changed,
+            style="Dark.TCheckbutton",
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(5, 2))
         ai.columnconfigure(1, weight=1)
 
         # 3. V2 graphic finishing controls run before face restoration.
@@ -655,10 +667,16 @@ class App(tk.Tk):
         self._slider(quality, "Anti-Halo Sharpen", self.sharp_var, 4)
         self._slider(quality, "Saturation", self.sat_var, 5, -30, 30)
 
+        # Keep the validated NiyomSilp image output unless the operator opts in.
+        self.graphic_ai_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(quality, text="AI เก็บขอบกราฟิก V2.1 (ทดลอง • เปิดใช้ร่วมกับคุณภาพ V2 ได้)",
+                        variable=self.graphic_ai_var, command=self._settings_changed,
+                        style="Dark.TCheckbutton").grid(row=6, column=0, columnspan=3, sticky="w")
+
         # Optional face module. OFF is the compatibility mode: the exact ARM
         # output path is unchanged and no GFPGAN/FaceXLib model is loaded.
         tk.Frame(quality, bg="#37414B", height=1).grid(
-            row=6, column=0, columnspan=3, sticky="ew", pady=(8, 7)
+            row=7, column=0, columnspan=3, sticky="ew", pady=(8, 7)
         )
         self.face_enabled_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -667,12 +685,12 @@ class App(tk.Tk):
             variable=self.face_enabled_var,
             command=self._settings_changed,
             style="Dark.TCheckbutton",
-        ).grid(row=7, column=0, columnspan=3, sticky="w")
+        ).grid(row=8, column=0, columnspan=3, sticky="w")
 
         tk.Label(
             quality, text="โหมด", bg="#111820", fg="#E8EDF2", anchor="w"
-        ).grid(row=8, column=0, sticky="w", pady=(5, 0))
-        self.face_mode_var = tk.StringVar(value="Protect")
+        ).grid(row=9, column=0, sticky="w", pady=(5, 0))
+        self.face_mode_var = tk.StringVar(value="Recover")
         face_mode = ttk.Combobox(
             quality,
             textvariable=self.face_mode_var,
@@ -681,22 +699,22 @@ class App(tk.Tk):
             width=14,
             style="Dark.TCombobox",
         )
-        face_mode.grid(row=8, column=1, sticky="ew", padx=6, pady=(5, 0))
+        face_mode.grid(row=9, column=1, sticky="ew", padx=6, pady=(5, 0))
         face_mode.bind("<<ComboboxSelected>>", lambda _e: self._settings_changed())
 
         ttk.Button(quality, text="ตรวจจับใบหน้า / เลือกใหม่", command=self._rescan_current_faces).grid(
-            row=11, column=0, columnspan=3, sticky="ew", pady=(5, 0))
-        self.face_strength_var = tk.IntVar(value=35)
-        self._slider(quality, "Face Strength", self.face_strength_var, 9, 10, 80)
+            row=12, column=0, columnspan=3, sticky="ew", pady=(5, 0))
+        self.face_strength_var = tk.IntVar(value=65)
+        self._slider(quality, "Face Strength", self.face_strength_var, 10, 10, 80)
         tk.Label(
             quality,
-            text="Protect: รักษาใบหน้าต้นฉบับ • Recover: ฟื้นฟูใบหน้า • Studio AI: ฟื้นฟูและแต่งผิว",
+            text="Recover: ฟื้นฟูใบหน้า (แนะนำ) • Protect: ใช้ใบหน้าต้นฉบับ ไม่ฟื้นฟู • Studio AI: ฟื้นฟูและแต่งผิว",
             bg="#111820",
             fg="#84D8FF",
             anchor="w",
             justify="left",
             wraplength=285,
-        ).grid(row=10, column=0, columnspan=3, sticky="ew", pady=(5, 0))
+        ).grid(row=11, column=0, columnspan=3, sticky="ew", pady=(5, 0))
 
         # Persist a device ID in each queued job, independent of subsequent UI changes.
         device = self._section(parent, "4", "เลือกอุปกรณ์ประมวลผล")
@@ -732,6 +750,7 @@ class App(tk.Tk):
             return
         self.files = []
         self._completed_indices.clear()
+        self._completed_signature = None
         self._queued_indices.clear()
         self._reserved_output_paths.clear()
         while True:
@@ -904,6 +923,7 @@ class App(tk.Tk):
         # Indices are rebuilt from zero, so completed-state indices from the
         # previous list must not survive and block unrelated files.
         self._completed_indices.clear()
+        self._completed_signature = None
         self._queued_indices.clear()
         self._reserved_output_paths.clear()
         self.add_files(old)
@@ -997,9 +1017,15 @@ class App(tk.Tk):
 
             # A large *preview* is never allocated; this only reports the real
             # export dimensions and an informational per-image RGB buffer size.
-            model_scale = (self.pipeline._model_scale_for_dimensions(*original, px)
-                           if original else 1)
+            model_scale = self.pipeline.selected_model_scale(self.scale_var.get())
+            if (original and self.use_print_size.get() and self.v1_mode.get()
+                    and model_scale > 1):
+                model_scale = self.pipeline._model_scale_for_dimensions(
+                    original[0], original[1], px
+                )
             label = output_size_summary(original or px, px, model_scale)
+            if self.use_print_size.get() and self.v1_mode.get() and original:
+                label += f" • AI ตาม V2: {model_scale}x"
             if original and (px[0] < original[0] or px[1] < original[1]):
                 label += " • ลดจำนวนพิกเซลบางด้านตามขนาดที่ตั้ง"
             self.pixel_info.configure(text=label)
@@ -1031,6 +1057,7 @@ class App(tk.Tk):
 
     def _settings(self) -> EnhanceSettings:
         s = EnhanceSettings(
+            graphic_ai=self.graphic_ai_var.get(),
             denoise=round(self.denoise_var.get()),
             flat_smoothing=round(self.flat_var.get()),
             text_graphic_boost=round(self.text_var.get()),
@@ -1044,6 +1071,8 @@ class App(tk.Tk):
             resize_mode="fit" if self.lock_ratio.get() else "stretch",
             export_format=self.format_var.get(),
             v1_baseline=self.v1_mode.get(),
+            v21_v2_quality_baseline=self.v1_mode.get(),
+            v21_precision_ink=(self.v1_mode.get() and self.precision_ink_var.get()),
             color_mode=self.color_mode_var.get(),
             icc_profile_path=(self.icc_profile_path_var.get() or None),
             face_protection=self.face_enabled_var.get(),
@@ -1067,31 +1096,17 @@ class App(tk.Tk):
             settings = self._settings()
         except Exception:
             return
-        self.right_caption.configure(text="กำลังสร้าง Preview…")
+        self.right_caption.configure(text="กำลังสร้าง Preview การปรับสี/ขอบ…")
+
         def worker():
             try:
-                with tempfile.TemporaryDirectory(prefix="signprint_preview_") as td:
-                    td = Path(td)
-                    im = thumbnail(p, (1200, 800))
-                    preview_in = td / "preview_input.png"
-                    preview_out = td / "preview_output.png"
-                    im.save(preview_in)
-                    # Screen preview always stays RGB; ICC/CMYK is an export-only
-                    # stage so it cannot alter the proven V1 processing result.
-                    ps = replace(
-                        settings,
-                        ai_scale=1,
-                        print_width=None,
-                        print_height=None,
-                        dpi=96,
-                        color_mode="RGB",
-                        icc_profile_path=None,
-                    )
-                    self.pipeline.process(preview_in, preview_out, ps, use_ai=False)
-                    # Copy to a stable per-user temp path because TemporaryDirectory
-                    # is removed as soon as this worker exits.
-                    stable = Path(tempfile.gettempdir()) / f"SignPrintAI_preview_{generation}.png"
-                    Image.open(preview_out).save(stable)
+                # Preview only the same finishing filters used in real export.
+                # Do not run the costly AI model on every slider movement, and
+                # do not misrepresent this RGB thumbnail as final AI/CMYK.
+                source = thumbnail(p, (1200, 800))
+                preview = render_finishing_preview(source, settings)
+                stable = Path(tempfile.gettempdir()) / f"SignPrintAI_preview_{generation}.png"
+                preview.save(stable, format="PNG")
                 self._events.put(("preview_done", generation, preview_index, str(stable)))
             except Exception as exc:
                 self._events.put(("preview_error", generation, preview_index, str(exc)))
@@ -1188,6 +1203,19 @@ class App(tk.Tk):
     def _output_path(self, src: Path, settings: EnhanceSettings) -> Path:
         return v2_output_path(src, self.output_dir_var.get(), settings.export_format,
                               settings.color_mode, self._reserved_output_paths)
+
+    @staticmethod
+    def _settings_signature(settings, output_directory):
+        """Snapshot all UI/print settings used for one batch of completed files.
+
+        Never rely on the mutable Settings object itself: the user may move a
+        slider or choose a new format/ICC/output folder after the first export.
+        Keep this separate from per-file face rectangles assigned at enqueue.
+        """
+        return (type(settings).__qualname__,
+                tuple((field.name, repr(getattr(settings, field.name)))
+                      for field in fields(settings)),
+                str(output_directory))
 
     def _processing_active(self) -> bool:
         t = self._processing_thread
@@ -1372,6 +1400,32 @@ class App(tk.Tk):
         except Exception as exc:
             messagebox.showerror(APP_NAME, f"ค่าการตั้งค่าไม่ถูกต้อง: {exc}")
             return
+
+        signature = self._settings_signature(settings, self.output_dir_var.get())
+        if self._processing_active() or self._queued_indices:
+            if self._completed_signature is not None and signature != self._completed_signature:
+                # Do not mix two independent slider configurations within one
+                # GPU/CPU batch. The user can rerun after the current job ends.
+                self._set_status(
+                    "กำลังประมวลผลด้วยค่าเดิมอยู่ กรุณารอให้เสร็จ แล้วกดประมวลผลอีกครั้งเพื่อใช้ค่าใหม่"
+                )
+                return
+        elif signature != self._completed_signature:
+            # New slider values, scale, DPI, ICC, format, face options or
+            # destination require a fresh output even for the same input.
+            # Keep previous output files intact; v2_output_path allocates a
+            # unique filename on the next run for comparison.
+            completed_before = tuple(self._completed_indices)
+            self._completed_indices.clear()
+            self._completed_signature = signature
+            for idx in completed_before:
+                if self.tree.exists(str(idx)):
+                    values = list(self.tree.item(str(idx), "values"))
+                    while len(values) < 6:
+                        values.append("")
+                    values[3:6] = ["รอประมวลผลค่าใหม่", "0%", "—"]
+                    self.tree.item(str(idx), values=values)
+
         if any(self._face_key(path) not in self._face_reviews for i,path in enumerate(self.files)
                if i not in self._completed_indices):
             self._resume_after_faces = True
@@ -1469,7 +1523,7 @@ class App(tk.Tk):
                     _, generation, preview_index, path = ev
                     if generation == self._preview_generation and preview_index == self.current_index:
                         self._last_result = Path(path)
-                        self.right_caption.configure(text="ภาพตัวอย่างย่อ • ยังไม่ใช่ผล AI เต็ม")
+                        self.right_caption.configure(text="ตัวอย่างเกลี่ยสี/ขอบ • ยังไม่รวม AI หรือ CMYK")
                         self._refresh_preview_images()
                 elif kind == "preview_error":
                     _, generation, preview_index, error = ev
@@ -1479,6 +1533,10 @@ class App(tk.Tk):
                     _, idx, path, result = ev
                     face = result.get("face_protection") or {}
                     face_text = ""
+                    face_warnings = [
+                        item for item in face.get("face_audit", [])
+                        if not item.get("heuristic_pass", True)
+                    ]
                     if face.get("enabled"):
                         if face.get("applied"):
                             face_text = f" • Face {face.get('face_count', 0)}"
@@ -1486,6 +1544,8 @@ class App(tk.Tk):
                             face_text = " • Face ข้าม"
                         else:
                             face_text = " • ไม่พบใบหน้า"
+                    if face_warnings:
+                        face_text = f" • Face QA เตือน {len(face_warnings)}"
 
                     if self.tree.exists(str(idx)):
                         vals = list(self.tree.item(str(idx), "values"))
@@ -1506,6 +1566,11 @@ class App(tk.Tk):
                                 caption += f" • {face.get('skipped_reason')}"
                             else:
                                 caption += " • ไม่พบใบหน้า"
+                        if face_warnings:
+                            caption += (
+                                f" • Face QA เตือน {len(face_warnings)} ใบหน้า"
+                                " ตรวจตา/ปาก/ตัวบุคคล และลองปรับความแรงแล้วประมวลผลซ้ำ"
+                            )
                         self.right_caption.configure(text=caption)
                         self._refresh_preview_images()
                 elif kind == "all_done":

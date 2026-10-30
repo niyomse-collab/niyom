@@ -23,7 +23,7 @@ def run(layout_only=False):
             check_branding(child)
     check_branding(app)
     assert app.title() == f"{APP_NAME} {APP_VERSION}", "Wrong release window title"
-    assert app.face_mode_var.get() == "Protect", "Face default must be Protect"
+    assert app.face_mode_var.get() == "Recover", "Face default must be Recover for enhancement"
     # The queue must not take most of the workspace before any image is loaded.
     for geometry in ('1180x720', '1366x768', '1600x920'):
         app.geometry(geometry)

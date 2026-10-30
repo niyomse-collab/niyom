@@ -66,7 +66,7 @@ def _run(folder):
             for scale in (2, 4, 8, 16):
                 destination = work / f"ai_{scale}.png"
                 started = time.monotonic()
-                result = adapter.process(source, destination, EnhanceSettings(ai_scale=scale, device="cpu"))
+                result = adapter.process(source, destination, EnhanceSettings(ai_scale=scale, device="cpu", denoise=0, flat_smoothing=0, text_graphic_boost=0, sharpness=0, contrast=0, saturation=0))
                 with Image.open(destination) as image:
                     assert image.size == (17*scale, 13*scale)
                     assert np.asarray(image).std() > 0
@@ -78,6 +78,167 @@ def _run(folder):
                                           "seconds": round(time.monotonic()-started, 3)})
         finally:
             large_image.IN_MEMORY_PIXELS = limit
+
+        if info.get("version", "").startswith("2.1."):
+            from .v21_graphics_ai import V21Settings
+            graphic_source = work / "graphic_source.png"
+            graphic_pixels = np.full((32, 40, 3), 245, np.uint8)
+            graphic_pixels[8:24, 8:32] = (180, 20, 110)
+            Image.fromarray(graphic_pixels).save(graphic_source)
+            # A 40x32 source requesting 208x166 print pixels needs >4x.
+            # Accepted V2 used two real AI passes (4x then 2x), not one 4x
+            # inference and a non-neural 5.2x resize. Both paths must work
+            # inside the installed EXE, not only in source-level regression.
+            graphic_output = work / "v2_quality_baseline_print.png"
+            graphic_settings = V21Settings(
+                ai_scale=4, device="cpu", text_graphic_boost=28,
+                graphic_ai=True, v21_v2_quality_baseline=True,
+                v21_precision_ink=True, flat_smoothing=80,
+                print_width=2.08, print_height=1.66,
+                print_unit="inch", dpi=100,
+            )
+            result = adapter.process(graphic_source, graphic_output, graphic_settings)
+            assert result["ai_scale"] == 8 and result["output_size"] == (208, 166)
+            # V2.1 opted-in graphic AI must actually be registered even when
+            # the approved V2 print-pass scale strategy is preserved.
+            assert result.get("graphic_ai_model") == "RealESRGAN_x4plus_anime_6B"
+            with Image.open(graphic_output) as image:
+                assert image.size == (208, 166) and np.asarray(image).std() > 0
+            report["checks"].append({
+                "name": "installed_exe_v21_v2_quality_two_real_ai_passes",
+                "inference": "4x_then_2x", "ai_scale": 8,
+                "precision_ink": True, "size": [208, 166],
+                "graphic_model": result.get("graphic_ai_model"),
+            })
+
+            # Experimental V2.1 graphics model must load separately and must
+            # *not* change the approved V2-mode neural pass strategy.
+            experimental_output = work / "graphic_v21_anime_4x.png"
+            experiment_settings = V21Settings(
+                ai_scale=4, device="cpu", text_graphic_boost=28,
+                graphic_ai=True, v21_v2_quality_baseline=False,
+                print_width=2.08, print_height=1.66,
+                print_unit="inch", dpi=100,
+            )
+            experiment = adapter.process(
+                graphic_source, experimental_output, experiment_settings
+            )
+            assert experiment["ai_scale"] == 4
+            assert experiment["output_size"] == (208, 166)
+            assert experiment.get("graphic_ai_model") == "RealESRGAN_x4plus_anime_6B"
+            with Image.open(experimental_output) as image:
+                assert image.size == (208, 166) and np.asarray(image).std() > 0
+            report["checks"].append({
+                "name": "installed_exe_v21_experimental_anime_model",
+                "ai_scale": 4, "size": [208, 166],
+            })
+
+            # Verify the full 0/25/50/75/100 finishing controls with native
+            # OpenCV/Pillow from the *packaged executable*. Source-only pytest
+            # cannot detect a missing bundled OpenCV filter or V2.1 module.
+            # This is downstream of real AI inference, but deliberately uses
+            # controlled ink so that a grain threshold is meaningful.
+            from .v2_graphic_edges import refine_sign_edges
+            ink = np.full((220, 320, 3), (235, 218, 196), dtype=np.int16)
+            ink[25:190, 80:93] = (22, 40, 151)
+            ink[20:25, 84:88] = (22, 40, 151)  # detached tone mark
+            ink[33:175, 130:220] = (194, 38, 70)
+            ink = np.clip(
+                ink + np.random.default_rng(33).integers(-18, 19, ink.shape),
+                0, 255,
+            ).astype(np.uint8)
+            preview_input = Image.fromarray(ink, "RGB")
+            trial = []
+            for level in (0, 25, 50, 75, 100):
+                controls = V21Settings(
+                    ai_scale=2, device="cpu", v21_v2_quality_baseline=True,
+                    v21_precision_ink=True, flat_smoothing=level,
+                    denoise=0, text_graphic_boost=0, sharpness=0,
+                    contrast=0, saturation=0,
+                )
+                finished = refine_sign_edges(preview_input, settings=controls)
+                solid = np.asarray(finished)[40:170, 83:90].astype(np.float32)
+                trial.append(round(float(solid.std(axis=(0, 1)).mean()), 4))
+            assert all(a > b for a, b in zip(trial, trial[1:])), trial
+            assert trial[-1] < trial[0] * 0.25, trial
+            report["checks"].append({
+                "name": "installed_exe_v21_precision_ink_slider_sweep",
+                "levels": [0, 25, 50, 75, 100],
+                "ink_grain_std": trial,
+                "limitation": "Controlled ink test after packaging; not real print certification",
+            })
+
+        # Verify transparent print artwork through the *packaged EXE*
+        # (not only source-level mocked ICC tests). The zero-alpha RGB
+        # deliberately contains hidden black: a black JPEG background is
+        # always a failure, even if the rest of the image looks sharp.
+        transparent_source = work / "transparent_test.png"
+        rgba = np.zeros((48, 64, 4), dtype=np.uint8)
+        rgba[14:34, 20:44, :3] = (25, 105, 215)
+        rgba[14:34, 20:44, 3] = 255
+        rgba[10, 10, :3] = (210, 30, 40)
+        rgba[10, 10, 3] = 128
+        Image.fromarray(rgba, "RGBA").save(transparent_source)
+        old_limit = large_image.IN_MEMORY_PIXELS
+        try:
+            large_image.IN_MEMORY_PIXELS = 1
+            no_effects = EnhanceSettings(
+                ai_scale=1, device="cpu", denoise=0, flat_smoothing=0,
+                text_graphic_boost=0, sharpness=0, contrast=0, saturation=0,
+                resize_mode="stretch",
+            )
+            transparent_png = work / "transparent_roundtrip.png"
+            png_result = adapter.process(transparent_source, transparent_png, no_effects, use_ai=False)
+            with Image.open(transparent_png) as result_image:
+                assert result_image.mode == "RGBA"
+                assert result_image.size == (64, 48)
+                assert result_image.getpixel((0, 0))[3] == 0
+                assert result_image.getpixel((10, 10))[3] == 128
+                assert result_image.getpixel((32, 24))[3] == 255
+
+            white_jpeg = work / "transparent_to_white.jpg"
+            jpeg_result = adapter.process(transparent_source, white_jpeg, no_effects, use_ai=False)
+            with Image.open(white_jpeg) as result_image:
+                assert result_image.mode == "RGB"
+                assert min(result_image.getpixel((0, 0))) >= 245
+                assert min(result_image.getpixel((63, 47))) >= 245
+                middle = result_image.getpixel((32, 24))
+                assert middle[2] > middle[1] > middle[0], middle
+            report["checks"].append({
+                "name": "installed_exe_disk_rgba_png_alpha_and_jpeg_white_matte",
+                "mode": [png_result["processing_mode"], jpeg_result["processing_mode"]],
+                "size": [64, 48],
+                "transparent_corner": "jpeg_white",
+                "partial_alpha": "png_128",
+            })
+
+            # Validate the exact libvips RGB -> white matte stage that feeds
+            # CMYK icc_transform. Do not require a private printer profile in
+            # public CI; actual ICC conversion remains a separate print gate.
+            cmyk_input = large_image.prepare_source_alpha_for_export(
+                large_image.as_rgb(large_image.open_vips(transparent_source)),
+                transparent_source, (64, 48),
+                EnhanceSettings(ai_scale=1, device="cpu",
+                                resize_mode="stretch", color_mode="CMYK"),
+                work / "synthetic_cmyk_target.tif",
+            )
+            assert cmyk_input.bands == 3 and not cmyk_input.hasalpha()
+            cm = large_image.to_pillow(cmyk_input)
+            assert cm.getpixel((0, 0)) == (255, 255, 255)
+            assert cm.getpixel((63, 47)) == (255, 255, 255)
+            assert cm.getpixel((32, 24)) == (25, 105, 215)
+            expect_half = tuple(round((v * 128 + 255 * 127) / 255)
+                                for v in (210, 30, 40))
+            assert all(abs(a - b) <= 2 for a, b
+                       in zip(cm.getpixel((10, 10)), expect_half))
+            report["checks"].append({
+                "name": "installed_exe_libvips_pre_cmyk_icc_white_matte",
+                "transparent_corner": "rgb_white",
+                "half_alpha": list(cm.getpixel((10, 10))),
+                "note": "Pre-ICC stage only; actual CMYK printer profile untested",
+            })
+        finally:
+            large_image.IN_MEMORY_PIXELS = old_limit
 
         Image.new("RGB", (60,40), (41,123,207)).save(source)
         destination = work / "large_banner.png"

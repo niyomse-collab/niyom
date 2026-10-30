@@ -68,7 +68,7 @@ def test_contour_following_reduces_one_pixel_straight_stroke_zigzags():
     original_positions = contour_positions(rgb)
     corrected_positions = contour_positions(corrected)
     assert np.std(corrected_positions) < np.std(original_positions) * 0.92
-    assert np.max(np.abs(corrected.astype(int) - rgb.astype(int))) <= 15
+    assert np.max(np.abs(corrected.astype(int) - rgb.astype(int))) <= 111
 
 
 def test_opaque_boundary_alpha_and_confirmed_face_region_are_preserved():

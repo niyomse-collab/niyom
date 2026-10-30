@@ -51,10 +51,24 @@ class NiyomSilpCoreAdapter:
     def default_device(self):
         return self.engine_manager.device_manager.get_default_device()
 
+    def create_job_engine(self, settings):
+        engine = self.engine_manager.create_engine(settings.device)
+        if (getattr(settings, "graphic_ai", False)
+                and settings.text_graphic_boost > 0):
+            from .v21_graphics_ai import GraphicDetailEngine
+            engine = GraphicDetailEngine(engine, settings.text_graphic_boost / 100.,
+                settings.face_regions if settings.face_protection else ())
+        return engine
+
     @staticmethod
     def _model_scale_for_dimensions(width: int, height: int, target_size: tuple[int, int]) -> int:
         required = max(target_size[0] / width, target_size[1] / height)
         return 2 if required <= 2 else (4 if required <= 4 else 8)
+
+    @staticmethod
+    def selected_model_scale(value) -> int:
+        requested = parse_scale(value)
+        return 1 if requested == 1 else (2 if requested <= 2 else (4 if requested <= 4 else 8))
 
     @staticmethod
     def _mapped_progress(progress: ProgressFn, lo: int, hi: int, label: str):
@@ -80,6 +94,7 @@ class NiyomSilpCoreAdapter:
             raise InterruptedError("Processing stopped by user")
 
         source_size = image_size(src)
+        model_scale = self.selected_model_scale(settings.ai_scale)
         if settings.print_width is not None or settings.print_height is not None:
             if (settings.print_width is None or settings.print_height is None or
                     not all(math.isfinite(n) and n > 0 for n in
@@ -94,17 +109,20 @@ class NiyomSilpCoreAdapter:
                 )
             except OverflowError as exc:
                 raise ValueError("ขนาดงานเกินช่วงตัวเลขที่ระบบไฟล์ภาพรองรับ") from exc
-            model_scale = self._model_scale_for_dimensions(
-                source_size[0], source_size[1], target_size
-            )
+            if getattr(settings, "v21_v2_quality_baseline", False) and model_scale > 1:
+                # Accepted V2 chose AI passes from physical output pixel size;
+                # a 4x model + later interpolation caused V2.1 quality loss
+                # when the requested print was 5x or larger.
+                # Explicit 1x still means no AI for test/CLI users.
+                model_scale = self._model_scale_for_dimensions(
+                    source_size[0], source_size[1], target_size
+                )
         else:
             requested_scale = parse_scale(settings.ai_scale)
             target_size = (
                 source_size[0] * requested_scale,
                 source_size[1] * requested_scale,
             )
-            model_scale = (1 if requested_scale == 1 else
-                           self._model_scale_for_dimensions(*source_size, target_size))
 
         validate_export(dst, target_size, settings)
 
@@ -127,7 +145,7 @@ class NiyomSilpCoreAdapter:
             with Image.open(src) as im:
                 output = ImageOps.exif_transpose(im).convert("RGB")
         else:
-            engine = self.engine_manager.create_engine(settings.device)
+            engine = self.create_job_engine(settings)
 
             with tempfile.TemporaryDirectory(prefix="niyomsil_core_") as td:
                 td = Path(td)
@@ -346,6 +364,7 @@ class NiyomSilpCoreAdapter:
             "device": device_name,
             "engine": "NiyomSilp Design Engine",
             "model": "RealESRGAN_x4plus",
+            "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
         }
