@@ -117,3 +117,41 @@ def test_direct_hat_successful_atomic_export_replaces_previous_output(tmp_path):
         assert result.size == (6, 6)
         assert result.getpixel((0, 0)) == (220, 30, 10)
     assert set(tmp_path.iterdir()) == {source, target}
+
+
+def test_direct_hat_cancel_after_last_tile_preserves_master(tmp_path):
+    source, target = tmp_path / "input.png", tmp_path / "output.png"
+    Image.new("RGB", (3, 3), (220, 30, 10)).save(source)
+    Image.new("RGB", (6, 6), (10, 20, 30)).save(target)
+    previous = target.read_bytes()
+    state = {"cancel": False}
+
+    def progress(percent):
+        if percent == 100:
+            state["cancel"] = True
+
+    with pytest.raises(InterruptedError, match="Processing stopped"):
+        fake_engine().enhance(
+            source, target, scale=2, progress_callback=progress,
+            cancel_check=lambda: state["cancel"],
+        )
+    assert target.read_bytes() == previous
+    assert set(tmp_path.iterdir()) == {source, target}
+
+
+def test_direct_hat_replace_failure_preserves_master(tmp_path, monkeypatch):
+    import os
+
+    source, target = tmp_path / "input.png", tmp_path / "output.png"
+    Image.new("RGB", (3, 3), (220, 30, 10)).save(source)
+    Image.new("RGB", (6, 6), (10, 20, 30)).save(target)
+    previous = target.read_bytes()
+
+    def fail_replace(src, dst):
+        raise PermissionError("simulated Windows file lock")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(PermissionError, match="Windows file lock"):
+        fake_engine().enhance(source, target, scale=2)
+    assert target.read_bytes() == previous
+    assert set(tmp_path.iterdir()) == {source, target}
