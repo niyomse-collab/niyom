@@ -650,6 +650,18 @@ class App(tk.Tk):
             command=self._settings_changed,
             style="Dark.TCheckbutton",
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(5, 2))
+        # Optional V2.1.1 external model; V2 baseline remains the default.
+        self.v211_photo_model_var = tk.StringVar(value="V2 Real-ESRGAN (เดิม)")
+        ttk.Label(ai, text="Super AI ภาพถ่าย V2.1.1 (ทดลอง)").grid(
+            row=4, column=0, sticky="w", pady=(5, 2)
+        )
+        selection = ttk.Combobox(
+            ai, textvariable=self.v211_photo_model_var,
+            values=("V2 Real-ESRGAN (เดิม)", "HAT x4 (ทดลอง • ต้องติดตั้งโมเดล)"),
+            state="readonly", width=39, style="Dark.TCombobox",
+        )
+        selection.grid(row=4, column=1, sticky="ew", pady=(5, 2))
+        selection.bind("<<ComboboxSelected>>", lambda e: self._settings_changed())
         ai.columnconfigure(1, weight=1)
 
         # 3. V2 graphic finishing controls run before face restoration.
@@ -1058,6 +1070,7 @@ class App(tk.Tk):
     def _settings(self) -> EnhanceSettings:
         s = EnhanceSettings(
             graphic_ai=self.graphic_ai_var.get(),
+            v211_photo_model=("hat" if self.v211_photo_model_var.get().startswith("HAT ") else "real_esrgan"),
             denoise=round(self.denoise_var.get()),
             flat_smoothing=round(self.flat_var.get()),
             text_graphic_boost=round(self.text_var.get()),
