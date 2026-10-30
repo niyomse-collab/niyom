@@ -27,4 +27,4 @@ jobs:
       - name: Compile V2.1.1 source
         run: python -m compileall -q signprint_ai tests
       - name: Verify V2.1.1 face safety and HAT export regressions
-        run: python -m pytest tests/test_v211_face_contract.py tests/test_v211_hat_engine.py tests/test_v211_hat_border_tiles.py tests/test_v211_hat_alpha_export.py tests/test_v211_hat_exif_orientation.py tests/test_v211_model_preflight.py tests/test_v21_face_quality_guard.py tests/test_face_mode_ui.py -q
+        run: python -m pytest tests/test_v211_face_contract.py tests/test_v211_hat_engine.py tests/test_v211_hat_border_tiles.py tests/test_v211_hat_alpha_export.py tests/test_v211_hat_exif_orientation.py tests/test_v211_model_preflight.py tests/test_v211_hat_assist.py tests/test_v21_face_quality_guard.py tests/test_face_mode_ui.py -q
