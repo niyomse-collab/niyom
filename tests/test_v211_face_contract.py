@@ -67,3 +67,35 @@ def test_v211_ui_label_and_old_v21_version_are_distinct(monkeypatch):
     monkeypatch.setattr(v21_brand, "load_release_info",
                         lambda: {"channel": "v2", "version": "2.1.0-beta.7"})
     assert v21_brand.release_label() == "v2.1"
+
+@pytest.mark.parametrize("mode", ["recover", "studio ai"])
+def test_selected_multiple_faces_must_all_restore(mode):
+    selected = ((0.05, 0.05, 0.40, 0.40), (0.55, 0.55, 0.95, 0.95))
+    selected_settings = settings(face_mode=mode, face_regions=selected)
+    with pytest.raises(RuntimeError, match="1/2"):
+        enforce_requested_face_restoration(
+            selected_settings, {"applied": True, "face_count": 1,
+                                "skipped_reason": "second face failed"})
+    enforce_requested_face_restoration(
+        selected_settings, {"applied": True, "face_count": 2,
+                            "skipped_reason": None})
+
+
+def test_partial_face_skip_reason_is_never_ignored():
+    selected = ((0.05, 0.05, 0.40, 0.40), (0.55, 0.55, 0.95, 0.95))
+    with pytest.raises(RuntimeError, match="second face failed"):
+        enforce_requested_face_restoration(
+            settings(face_regions=selected),
+            {"applied": True, "face_count": 2,
+             "skipped_reason": "second face failed"})
+
+
+def test_empty_explicit_face_selection_does_not_require_restoration():
+    enforce_requested_face_restoration(
+        settings(face_regions=()), None, use_ai=False)
+
+
+def test_auto_detect_still_requires_one_successful_face():
+    with pytest.raises(RuntimeError, match="ฟื้นฟูใบหน้าไม่สำเร็จ"):
+        enforce_requested_face_restoration(
+            settings(face_regions=None), {"applied": False, "face_count": 0})
