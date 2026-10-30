@@ -652,7 +652,7 @@ def process_large(adapter, src, dst, settings, source_size, target_size,
         "output_size": target_size, "ai_available": adapter.available,
         "ai_scale": model_scale if engine else 1, "requested_ai_scale": settings.ai_scale,
         "dpi": settings.dpi, "device": engine.device_name() if engine else "CPU",
-        "engine": "NiyomSilp Design Engine", "model": (("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" else "RealESRGAN_x4plus") if engine else None),
+        "engine": "NiyomSilp Design Engine", "model": (("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" else "RealESRGAN_x4plus")) if engine else None),
         "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch", "processing_mode": "disk_tiles", "face_protection": face_info,
     }
