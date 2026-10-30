@@ -48,6 +48,23 @@ class NiyomSilpCoreAdapter:
         except Exception:
             return False
 
+    def selected_model_available(self, model_name: str = "real_esrgan") -> bool:
+        """Check the chosen model, not an unrelated mandatory ESRGAN weight.
+
+        This is a lightweight presence preflight for the desktop UI. HAT still
+        verifies SHA-256, architecture and runtime dependencies when loaded;
+        a file on disk does not imply a working or licensed model.
+        """
+        if model_name == "real_esrgan":
+            return self.available
+        if model_name == "hat":
+            try:
+                from .v211_hat_engine import checkpoint_path
+                return checkpoint_path().is_file()
+            except (OSError, RuntimeError):
+                return False
+        raise ValueError("V2.1.1: unknown photo model: " + str(model_name))
+
     def default_device(self):
         return self.engine_manager.device_manager.get_default_device()
 
