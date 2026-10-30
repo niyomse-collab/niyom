@@ -53,8 +53,7 @@ class NiyomSilpCoreAdapter:
 
     def create_job_engine(self, settings):
         engine = self.engine_manager.create_engine(settings.device)
-        if (not getattr(settings, "v21_v2_quality_baseline", False)
-                and getattr(settings, "graphic_ai", False)
+        if (getattr(settings, "graphic_ai", False)
                 and settings.text_graphic_boost > 0):
             from .v21_graphics_ai import GraphicDetailEngine
             engine = GraphicDetailEngine(engine, settings.text_graphic_boost / 100.,
@@ -365,7 +364,7 @@ class NiyomSilpCoreAdapter:
             "device": device_name,
             "engine": "NiyomSilp Design Engine",
             "model": "RealESRGAN_x4plus",
-            "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and not getattr(settings, "v21_v2_quality_baseline", False) and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
+            "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
         }
