@@ -43,3 +43,20 @@ def test_ui_preflight_uses_selected_backend():
     source = inspect.getsource(App.start_processing)
     assert "self.pipeline.selected_model_available(chosen_model)" in source
     assert "self.pipeline.ai.available" not in source
+
+
+
+def test_combined_mode_requires_both_models(tmp_path, monkeypatch):
+    from signprint_ai import v211_hat_engine
+    hat = tmp_path / "HAT.pth"
+    v2 = tmp_path / "RealESRGAN.pth"
+    monkeypatch.setattr(v211_hat_engine, "checkpoint_path", lambda: hat)
+    monkeypatch.setattr(niyomsil_core_adapter, "model_path", lambda: v2)
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    assert adapter.selected_model_available("v2_hat_assist") is False
+    hat.write_bytes(b"presence only")
+    assert adapter.selected_model_available("v2_hat_assist") is False
+    v2.write_bytes(b"presence only")
+    assert adapter.selected_model_available("v2_hat_assist") is True
+    hat.unlink()
+    assert adapter.selected_model_available("v2_hat_assist") is False
