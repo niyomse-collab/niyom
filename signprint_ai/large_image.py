@@ -689,6 +689,10 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
             from .large_faces import apply_faces
             image, face_info = apply_faces(adapter, image, read_raster(source_raw, image_size(src)),
                                            settings, folder, progress, cancel)
+        from .v211_face_contract import enforce_requested_face_restoration
+        enforce_requested_face_restoration(
+            settings, face_info, use_ai=use_ai, model_scale=model_scale
+        )
         if getattr(settings, "v21_alpha_safe_resize", False):
             # V2.1 only: interpolate cutout colours premultiplied with alpha.
             # The legacy V2 path below is unchanged for EnhanceSettings.
