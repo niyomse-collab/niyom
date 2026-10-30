@@ -31,8 +31,10 @@ class V21Settings(EnhanceSettings):
     v21_alpha_safe_resize: bool = True
     # V2.1.1: do not silently export when a requested face pass was skipped.
     v211_require_face_restore: bool = True
-    # Separate upstream model; never auto-download or silently fall back.
-    v211_photo_model: str = "real_esrgan"  # real_esrgan | hat
+    # V2 is the accepted baseline; optional HAT can ASSIST V2 rather than
+    # replacing it. A stand-alone HAT mode is reserved for QA comparisons.
+    v211_photo_model: str = "real_esrgan"  # real_esrgan | v2_hat_assist | hat
+    v211_hat_assist_strength: float = 0.85
 
 
 def blend_graphic_detail(photo, graphic, strength=1., protected_regions=()):
