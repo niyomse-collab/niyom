@@ -26,5 +26,5 @@ jobs:
         run: python -m pip install pytest numpy Pillow opencv-python-headless "pyvips[binary]>=3.2,<4" tifffile pypdf
       - name: Compile V2.1.1 source
         run: python -m compileall -q signprint_ai tests
-      - name: Verify that skipped face recovery blocks export
-        run: python -m pytest tests/test_v211_face_contract.py tests/test_v211_hat_engine.py tests/test_v211_hat_border_tiles.py tests/test_v21_face_quality_guard.py tests/test_face_mode_ui.py -q
+      - name: Verify V2.1.1 face safety and HAT export regressions
+        run: python -m pytest tests/test_v211_face_contract.py tests/test_v211_hat_engine.py tests/test_v211_hat_border_tiles.py tests/test_v211_hat_alpha_export.py tests/test_v21_face_quality_guard.py tests/test_face_mode_ui.py -q
