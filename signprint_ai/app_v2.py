@@ -1533,6 +1533,10 @@ class App(tk.Tk):
                     _, idx, path, result = ev
                     face = result.get("face_protection") or {}
                     face_text = ""
+                    face_warnings = [
+                        item for item in face.get("face_audit", [])
+                        if not item.get("heuristic_pass", True)
+                    ]
                     if face.get("enabled"):
                         if face.get("applied"):
                             face_text = f" • Face {face.get('face_count', 0)}"
@@ -1540,6 +1544,8 @@ class App(tk.Tk):
                             face_text = " • Face ข้าม"
                         else:
                             face_text = " • ไม่พบใบหน้า"
+                    if face_warnings:
+                        face_text = f" • Face QA เตือน {len(face_warnings)}"
 
                     if self.tree.exists(str(idx)):
                         vals = list(self.tree.item(str(idx), "values"))
@@ -1560,6 +1566,11 @@ class App(tk.Tk):
                                 caption += f" • {face.get('skipped_reason')}"
                             else:
                                 caption += " • ไม่พบใบหน้า"
+                        if face_warnings:
+                            caption += (
+                                f" • Face QA เตือน {len(face_warnings)} ใบหน้า"
+                                " ตรวจตา/ปาก/ตัวบุคคล และลองปรับความแรงแล้วประมวลผลซ้ำ"
+                            )
                         self.right_caption.configure(text=caption)
                         self._refresh_preview_images()
                 elif kind == "all_done":

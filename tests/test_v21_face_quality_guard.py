@@ -93,3 +93,37 @@ def test_rejects_local_mouth_erasure_even_when_eyes_remain():
     damaged = original.copy()
     damaged[88:101, 41:87] = [112, 156, 191]
     assert check_face_restoration(original, damaged)[1] == "local_face_detail_collapsed"
+
+
+def test_v21_face_audit_warns_without_vetoing_recover_output():
+    from signprint_ai.face_module.face_protection import _audit_restored_face
+    original = synthetic_face()
+    ruined = cv2.GaussianBlur(original, (0, 0), 22)
+    before = ruined.copy()
+    audit = _audit_restored_face(original, ruined, 1)
+    assert audit["index"] == 1
+    assert audit["model"] == "GFPGANv1.4"
+    assert audit["applied"] is True
+    assert audit["heuristic_pass"] is False
+    assert audit["reason"] in {"face_detail_collapsed", "local_face_detail_collapsed"}
+    assert audit["retry"] == "adjust_face_strength_and_reprocess"
+    np.testing.assert_array_equal(ruined, before)
+
+
+def test_v21_face_audit_serializes_warning_and_accepted_pass():
+    from signprint_ai.face_module.face_protection import FaceProtectionResult, _audit_restored_face
+    original = synthetic_face()
+    accepted = _audit_restored_face(original, original.copy(), 2)
+    assert accepted["heuristic_pass"] is True
+    assert accepted["retry"] is None
+    warning = _audit_restored_face(original, np.full_like(original, 128), 3)
+    result = FaceProtectionResult(
+        enabled=True, applied=True, face_count=2, mode="recover",
+        strength=75, face_audit=(accepted, warning),
+    )
+    exported = result.as_dict()
+    assert exported["applied"] is True
+    assert len(exported["face_audit"]) == 2
+    assert exported["face_audit"][1]["reason"] == "collapsed_face_content"
+    exported["face_audit"][0]["reason"] = "modified"
+    assert result.face_audit[0]["reason"] == "accepted"

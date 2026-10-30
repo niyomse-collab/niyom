@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import sys
 import threading
 from dataclasses import dataclass, replace
@@ -26,6 +27,7 @@ class FaceProtectionResult:
     mode: str = "protect"
     strength: int = 35
     skipped_reason: str | None = None
+    face_audit: tuple[dict, ...] = ()
 
     def as_dict(self) -> dict:
         return {
@@ -35,6 +37,7 @@ class FaceProtectionResult:
             "mode": self.mode,
             "strength": self.strength,
             "skipped_reason": self.skipped_reason,
+            "face_audit": [dict(item) for item in self.face_audit],
         }
 
 
@@ -44,6 +47,31 @@ def resource_root() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[2]
+
+
+_FACE_LOG = logging.getLogger(__name__)
+
+
+def _audit_restored_face(original_bgr, candidate_bgr, face_index: int) -> dict:
+    """Non-vetoing V2.1 diagnostic for the actual blended GFPGAN crop.
+
+    This heuristic cannot establish identity. A warning is surfaced instead
+    of silently discarding an improvement to a blurred source face. Users can
+    adjust Face Strength and reprocess after visual inspection.
+    """
+    try:
+        from .face_quality_guard import check_face_restoration
+        heuristic_pass, reason = check_face_restoration(original_bgr, candidate_bgr)
+    except Exception as exc:
+        heuristic_pass, reason = False, "audit_error_" + type(exc).__name__
+    return {
+        "index": int(face_index),
+        "model": "GFPGANv1.4",
+        "applied": True,
+        "heuristic_pass": bool(heuristic_pass),
+        "reason": str(reason),
+        "retry": None if heuristic_pass else "adjust_face_strength_and_reprocess",
+    }
 
 
 class FaceProtectionModule:
@@ -313,6 +341,7 @@ class FaceProtectionModule:
 
         helper.get_inverse_affine()
         alpha = self._blend_alpha(mode, strength)
+        face_audit = []
 
         for index, crop in enumerate(list(helper.cropped_faces)):
             if cancel and cancel():
@@ -348,6 +377,17 @@ class FaceProtectionModule:
                     0.0,
                 )
 
+            audit = _audit_restored_face(crop, restored_face, index + 1)
+            face_audit.append(audit)
+            if audit["heuristic_pass"]:
+                _FACE_LOG.info("V2.1 face %d GFPGAN applied; heuristic=%s",
+                               index + 1, audit["reason"])
+            else:
+                _FACE_LOG.warning(
+                    "V2.1 face %d GFPGAN applied with QA warning=%s; "
+                    "inspect identity/eyes/mouth; adjust Face Strength and reprocess",
+                    index + 1, audit["reason"],
+                )
             helper.add_restored_face(restored_face)
 
             if progress:
@@ -368,4 +408,5 @@ class FaceProtectionModule:
             mode=mode,
             strength=strength,
             skipped_reason=None,
+            face_audit=tuple(face_audit),
         )
