@@ -41,6 +41,15 @@ def validate_checkpoint(path: Path) -> None:
         )
 
 
+def _window_padding(height: int, width: int, window: int = 16) -> tuple[int, int, str]:
+    """Return bottom/right padding and a safe mode for a HAT border crop."""
+    if height < 1 or width < 1 or window < 1:
+        raise ValueError("HAT tile/window dimensions must be positive")
+    bottom, right = (-height) % window, (-width) % window
+    mode = "reflect" if bottom < height and right < width else "replicate"
+    return bottom, right, mode
+
+
 def _require_scale(scale: int) -> None:
     if scale not in (2, 4):
         raise ValueError("HAT SRx4 ใช้สำหรับ AI Scale 2x หรือ 4x เท่านั้น")
@@ -104,14 +113,11 @@ class HATModelEngine:
         # Pad the *source* tensor, then crop the 4x prediction before optional
         # 2x resampling. Reflection requires padding < the source dimension;
         # use replicate for tiny edge crops instead of crashing.
-        window = 16
-        pad_h = (-h) % window
-        pad_w = (-w) % window
+        pad_h, pad_w, mode = _window_padding(h, w)
         tensor = self.torch.from_numpy(np.ascontiguousarray(pixels)).permute(2, 0, 1)
         tensor = tensor.unsqueeze(0).to(device=self.device, dtype=self.torch.float32) / 255.0
         if pad_h or pad_w:
             import torch.nn.functional as functional
-            mode = "reflect" if pad_h < h and pad_w < w else "replicate"
             tensor = functional.pad(tensor, (0, pad_w, 0, pad_h), mode=mode)
         with self.torch.inference_mode():
             prediction = self.model(tensor)
