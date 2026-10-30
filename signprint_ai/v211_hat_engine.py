@@ -1,0 +1,145 @@
+"""V2.1.1 experimental HAT super-resolution engine.
+
+This is a genuinely separate, pretrained HAT image model, not a slider on
+the existing Real-ESRGAN model. It requires an explicitly provided and
+SHA-256 verified checkpoint and optional Spandrel dependency. It does not
+download weights automatically, modify V1, or silently fall back to ESRGAN.
+V2 remains the default until quality/rights/packaging acceptance.
+"""
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+from PIL import Image
+
+# Specific test checkpoint (upstream name; mirrored checkpoint provenance
+# needs independent commercial release clearance before a production installer).
+HAT_FILE = "HAT_SRx4_ImageNet-pretrain.pth"
+HAT_SHA256 = "4ee053c42461187846dc0e93aa5abd34591c0725a8e044a59000e92ee215e833"
+
+
+def checkpoint_path() -> Path:
+    from .face_module.face_protection import resource_root
+    return resource_root() / "models" / "experimental" / HAT_FILE
+
+
+def validate_checkpoint(path: Path) -> None:
+    if not path.is_file():
+        raise FileNotFoundError(
+            "V2.1.1 HAT: ไม่พบโมเดล HAT ที่ยืนยันแล้วใน models/experimental/ "
+            "โปรดติดตั้งชุดโมเดลทดลองที่ตรวจสอบสิทธิ์แล้วก่อนเลือก HAT"
+        )
+    with path.open("rb") as stream:
+        actual = hashlib.file_digest(stream, "sha256").hexdigest()
+    if actual != HAT_SHA256:
+        raise RuntimeError(
+            "V2.1.1 HAT: SHA256 ไม่ตรงกับ checkpoint ที่รับรองสำหรับการทดลอง "
+            "(ปฏิเสธการโหลดเพื่อความปลอดภัย)"
+        )
+
+
+def _require_scale(scale: int) -> None:
+    if scale not in (2, 4):
+        raise ValueError("HAT SRx4 ใช้สำหรับ AI Scale 2x หรือ 4x เท่านั้น")
+
+
+def _downsample_4x(pixels: np.ndarray, scale: int, width: int, height: int):
+    _require_scale(scale)
+    if pixels.shape[:2] != (height * 4, width * 4):
+        raise RuntimeError("HAT returned unexpected 4x dimensions")
+    if scale == 4:
+        return pixels
+    return np.asarray(
+        Image.fromarray(pixels, "RGB").resize(
+            (width * 2, height * 2), Image.Resampling.LANCZOS
+        )
+    )
+
+
+class HATModelEngine:
+    """Alternative 4x image engine with bounded padded tile inference."""
+
+    def __init__(self, selected):
+        path = checkpoint_path()
+        validate_checkpoint(path)
+        try:
+            import torch
+            from spandrel import ImageModelDescriptor, ModelLoader
+        except ImportError as exc:
+            raise RuntimeError(
+                "V2.1.1 HAT: ไม่พบ spandrel/PyTorch ในโปรแกรม กรุณาติดตั้งชุด Super AI ให้ครบ"
+            ) from exc
+        if str(selected.backend).upper() == "DIRECTML":
+            raise RuntimeError("V2.1.1 HAT ยังไม่ยืนยันการทำงานกับ DirectML โปรดเลือก CUDA/CPU")
+        self.selected = selected
+        self.device = torch.device(selected.device_id)
+        self.torch = torch
+        self.upsampler = SimpleNamespace(tile_size=96, tile_pad=32)
+        self.model = ModelLoader().load_from_file(str(path))
+        if not isinstance(self.model, ImageModelDescriptor):
+            raise RuntimeError("HAT checkpoint is not an image model")
+        if (self.model.scale != 4 or self.model.input_channels != 3
+                or self.model.output_channels != 3):
+            raise RuntimeError("HAT checkpoint must have scale=4 and RGB channels")
+        # Check the detected architecture, rather than trusting a filename.
+        if str(self.model.architecture.id).upper() != "HAT":
+            raise RuntimeError("Expected HAT architecture in checkpoint")
+        self.model = self.model.to(self.device).eval()
+
+    def device_name(self):
+        return self.selected.name
+
+    def enhance_tile(self, pixels, scale=4, cancel_check=None):
+        _require_scale(scale)
+        if cancel_check and cancel_check():
+            raise InterruptedError("Processing stopped by user")
+        if pixels.ndim != 3 or pixels.shape[2] != 3 or pixels.dtype != np.uint8:
+            raise ValueError("HAT expects uint8 RGB tiles")
+        h, w = pixels.shape[:2]
+        tensor = self.torch.from_numpy(np.ascontiguousarray(pixels)).permute(2, 0, 1)
+        tensor = tensor.unsqueeze(0).to(device=self.device, dtype=self.torch.float32) / 255.0
+        with self.torch.inference_mode():
+            prediction = self.model(tensor)
+        out = prediction.squeeze(0).permute(1, 2, 0).detach().float().cpu().numpy()
+        result = np.rint(np.clip(out, 0, 1) * 255).astype(np.uint8)
+        del prediction, tensor
+        if cancel_check and cancel_check():
+            raise InterruptedError("Processing stopped by user")
+        return _downsample_4x(result, scale, w, h)
+
+    def enhance(self, input_path, output_path, scale=4,
+                progress_callback=None, cancel_check=None):
+        _require_scale(scale)
+        with Image.open(input_path) as original:
+            source = np.asarray(original.convert("RGB"))
+        h, w = source.shape[:2]
+        out = np.empty((h * scale, w * scale, 3), dtype=np.uint8)
+        step, pad = self.upsampler.tile_size, self.upsampler.tile_pad
+        total = ((h + step - 1) // step) * ((w + step - 1) // step)
+        completed = 0
+        for top in range(0, h, step):
+            for left in range(0, w, step):
+                if cancel_check and cancel_check():
+                    raise InterruptedError("Processing stopped by user")
+                bottom, right = min(h, top + step), min(w, left + step)
+                y0, x0 = max(0, top - pad), max(0, left - pad)
+                y1, x1 = min(h, bottom + pad), min(w, right + pad)
+                crop = self.enhance_tile(source[y0:y1, x0:x1], scale, cancel_check)
+                dy, dx = (top - y0) * scale, (left - x0) * scale
+                out[top*scale:bottom*scale, left*scale:right*scale] = crop[
+                    dy:dy + (bottom-top)*scale, dx:dx + (right-left)*scale
+                ]
+                completed += 1
+                if progress_callback:
+                    progress_callback(round(100 * completed / total))
+        destination = Path(output_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(out, "RGB").save(destination)
+        return {
+            "model": "HAT_SRx4_ImageNet-pretrain",
+            "device": self.device_name(), "scale": scale,
+            "output_size": (w*scale, h*scale), "tiles": completed,
+        }
