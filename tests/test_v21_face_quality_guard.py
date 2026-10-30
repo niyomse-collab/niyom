@@ -60,10 +60,23 @@ def test_guard_never_mutates_original_or_candidate():
     np.testing.assert_array_equal(edited, new)
 
 
-def test_recover_strength_capped_to_avoid_gan_dominating_face():
-    assert FaceProtectionModule._blend_alpha("recover", 100) <= 0.5
+def test_recover_preserves_proven_v2_gfpgan_strength():
+    # V2's recover blend is the user-approved portrait baseline.
+    assert FaceProtectionModule._blend_alpha("recover", 100) == 0.75
+    assert FaceProtectionModule._blend_alpha("recover", 65) == 0.65
     assert FaceProtectionModule._blend_alpha("recover", 35) == 0.35
     assert FaceProtectionModule._blend_alpha("protect", 100) <= 0.45
+
+
+def test_v21_face_recover_uses_v2_gfpgan_without_quality_veto():
+    # Regression: a candidate face must not be replaced with the blurred
+    # source merely because a heuristic quality guard vetoed GFPGAN.
+    import inspect
+
+    apply_source = inspect.getsource(FaceProtectionModule.apply)
+    assert "network(face_tensor, return_rgb=False, weight=0.5)" in apply_source
+    assert "helper.add_restored_face(restored_face)" in apply_source
+    assert "check_face_restoration(" not in apply_source
 
 
 def test_rejects_local_eye_erasure_even_when_other_face_detail_survives():
