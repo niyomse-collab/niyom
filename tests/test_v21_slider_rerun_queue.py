@@ -144,7 +144,7 @@ def test_changed_dpi_scale_and_format_each_invalidate_completion(tmp_path):
 
 def test_start_processing_checks_selected_super_ai_backend(tmp_path):
     app = fake_app(tmp_path)
-    app.v211_photo_model_var.value = "HAT x4 (ทดลอง • ต้องติดตั้งโมเดล)"
+    app.v211_photo_model_var.value = "V2 + HAT Assist (Super AI ทดลอง)"
     App.start_processing(app)
-    assert app._model_preflight_calls == ["hat"]
+    assert app._model_preflight_calls == ["v2_hat_assist"]
     assert app._job_calls == [(0,)]
