@@ -27,4 +27,4 @@ jobs:
       - name: Compile V2.1.1 source
         run: python -m compileall -q signprint_ai tests
       - name: Verify that skipped face recovery blocks export
-        run: python -m pytest tests/test_v211_face_contract.py tests/test_v21_face_quality_guard.py tests/test_face_mode_ui.py -q
+        run: python -m pytest tests/test_v211_face_contract.py tests/test_v211_hat_engine.py tests/test_v21_face_quality_guard.py tests/test_face_mode_ui.py -q
