@@ -1385,13 +1385,20 @@ class App(tk.Tk):
             requested_scale = parse_scale(self.scale_var.get())
         except Exception:
             requested_scale = 1
-        if requested_scale > 1 and not self.pipeline.ai.available:
-            messagebox.showerror(
-                APP_NAME,
-                "ไม่พบโมเดลหรือส่วนประมวลผลของ NiyomSilp Design Engine\n\n"
-                "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน "
-                "กรุณาใช้ NiyomSilp Build ที่แพ็กโมเดลครบ"
+        # Check the selected backend independently. HAT is a separate model:
+        # do not require the original ESRGAN weight just to start HAT.
+        chosen_model = ("hat" if self.v211_photo_model_var.get().startswith("HAT ")
+                        else "real_esrgan")
+        if requested_scale > 1 and not self.pipeline.selected_model_available(chosen_model):
+            guidance = (
+                "ไม่พบโมเดล HAT สำหรับ V2.1.1\n\n"
+                "ต้องติดตั้ง HAT ที่ตรวจสอบสิทธิ์และ SHA-256 แล้วก่อนใช้งาน "
+                "ไม่จำเป็นต้องติดตั้ง Real-ESRGAN เพื่อเลือก HAT"
+                if chosen_model == "hat" else
+                "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\n\n"
+                "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน"
             )
+            messagebox.showerror(APP_NAME, guidance)
             return
         if self.color_mode_var.get() == "CMYK":
             if self.format_var.get() == "PNG":
