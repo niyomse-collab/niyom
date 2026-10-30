@@ -57,10 +57,11 @@ class NiyomSilpCoreAdapter:
         """
         if model_name == "real_esrgan":
             return self.available
-        if model_name == "hat":
+        if model_name in ("hat", "v2_hat_assist"):
             try:
                 from .v211_hat_engine import checkpoint_path
-                return checkpoint_path().is_file()
+                hat_ready = checkpoint_path().is_file()
+                return hat_ready and (self.available if model_name == "v2_hat_assist" else True)
             except (OSError, RuntimeError):
                 return False
         raise ValueError("V2.1.1: unknown photo model: " + str(model_name))
@@ -77,6 +78,27 @@ class NiyomSilpCoreAdapter:
                         else device_manager.get_device(settings.device))
             engine = HATModelEngine(selected)
             self.engine_manager.engine = engine
+        elif selected_model == "v2_hat_assist":
+            # V2 remains the *primary* neural processor. HAT sees the same
+            # input, and its bounded detail augments the V2 output; it never
+            # replaces V2 image geometry, colour, or the GFPGAN face pass.
+            from .v211_hat_engine import HATModelEngine
+            from .v211_hat_assist import HATAssistEngine
+            v2_engine = self.engine_manager.create_engine(settings.device)
+            base = v2_engine
+            if getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0:
+                from .v21_graphics_ai import GraphicDetailEngine
+                base = GraphicDetailEngine(
+                    base, settings.text_graphic_boost / 100.,
+                    settings.face_regions if settings.face_protection else ()
+                )
+            assist = HATModelEngine(v2_engine.selected)
+            engine = HATAssistEngine(
+                base, assist,
+                strength=float(getattr(settings, "v211_hat_assist_strength", 0.85)),
+                protected_regions=(settings.face_regions if settings.face_protection else ())
+            )
+            return engine
         elif selected_model == "real_esrgan":
             engine = self.engine_manager.create_engine(settings.device)
         else:
@@ -396,7 +418,7 @@ class NiyomSilpCoreAdapter:
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",
-            "model": ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus"),
+            "model": ("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1 else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus")),
             "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
