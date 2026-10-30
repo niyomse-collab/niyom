@@ -51,3 +51,69 @@ def test_direct_hat_export_rejects_alpha_to_jpeg(tmp_path):
     with pytest.raises(ValueError, match="PNG/TIFF"):
         fake_engine().enhance(source, target, scale=2)
     assert not target.exists()
+
+
+def test_direct_hat_export_rejects_cmyk_icc_before_inference(tmp_path):
+    """Never attach a CMYK source ICC to the RGB output of the HAT model."""
+    source = tmp_path / "source_cmyk.tiff"
+    target = tmp_path / "invalid_rgb_with_cmyk_icc.tiff"
+    Image.new("CMYK", (3, 3), (10, 20, 30, 40)).save(
+        source, icc_profile=b"cmyk-source-profile"
+    )
+    engine = fake_engine()
+    engine.enhance_tile = lambda *args, **kwargs: pytest.fail(
+        "CMYK colour preflight must run before AI inference"
+    )
+    with pytest.raises(ValueError, match="CMYK"):
+        engine.enhance(source, target, scale=2)
+    assert not target.exists()
+
+
+def test_direct_hat_alpha_to_jpeg_rejects_before_inference(tmp_path):
+    source = tmp_path / "alpha.png"
+    target = tmp_path / "flattened.jpg"
+    Image.new("RGBA", (3, 3), (255, 0, 0, 128)).save(source)
+    engine = fake_engine()
+    engine.enhance_tile = lambda *args, **kwargs: pytest.fail(
+        "Alpha/JPEG preflight must run before AI inference"
+    )
+    with pytest.raises(ValueError, match="PNG/TIFF"):
+        engine.enhance(source, target, scale=2)
+    assert not target.exists()
+
+
+def test_direct_hat_failed_encoder_preserves_previous_output(tmp_path, monkeypatch):
+    """A failed save must not corrupt an existing print file or leak temp files."""
+    source = tmp_path / "input.png"
+    target = tmp_path / "output.png"
+    Image.new("RGB", (3, 3), (200, 40, 20)).save(source)
+    Image.new("RGB", (6, 6), (10, 20, 30)).save(target)
+    previous = target.read_bytes()
+    real_save = Image.Image.save
+
+    def fail_after_partial_write(self, fp, *args, **kwargs):
+        # Source and destination are already created before the monkeypatch.
+        fp = str(fp)
+        if fp != str(source) and fp != str(target):
+            from pathlib import Path
+            Path(fp).write_bytes(b"partial PNG, simulated disk full")
+            raise OSError("simulated disk full")
+        return real_save(self, fp, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "save", fail_after_partial_write)
+    with pytest.raises(OSError, match="simulated disk full"):
+        fake_engine().enhance(source, target, scale=2)
+    assert target.read_bytes() == previous
+    assert set(tmp_path.iterdir()) == {source, target}
+
+
+def test_direct_hat_successful_atomic_export_replaces_previous_output(tmp_path):
+    source = tmp_path / "input.png"
+    target = tmp_path / "output.png"
+    Image.new("RGB", (3, 3), (220, 30, 10)).save(source)
+    Image.new("RGB", (6, 6), (10, 20, 30)).save(target)
+    fake_engine().enhance(source, target, scale=2)
+    with Image.open(target) as result:
+        assert result.size == (6, 6)
+        assert result.getpixel((0, 0)) == (220, 30, 10)
+    assert set(tmp_path.iterdir()) == {source, target}
