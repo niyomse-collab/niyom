@@ -68,6 +68,16 @@ def _downsample_4x(pixels: np.ndarray, scale: int, width: int, height: int):
     )
 
 
+def _validate_prediction_shape(shape, height: int, width: int) -> None:
+    """Reject truncated or malformed model output before exporting any pixels."""
+    expected = (1, 3, height * 4, width * 4)
+    if tuple(shape) != expected:
+        raise RuntimeError(
+            f"HAT returned tensor shape {tuple(shape)}, expected {expected}; "
+            "refusing to export an incomplete image"
+        )
+
+
 class HATModelEngine:
     """Alternative 4x image engine with bounded padded tile inference."""
 
@@ -119,8 +129,19 @@ class HATModelEngine:
         if pad_h or pad_w:
             import torch.nn.functional as functional
             tensor = functional.pad(tensor, (0, pad_w, 0, pad_h), mode=mode)
-        with self.torch.inference_mode():
-            prediction = self.model(tensor)
+        try:
+            with self.torch.inference_mode():
+                prediction = self.model(tensor)
+        except RuntimeError as exc:
+            if "out of memory" in str(exc).lower():
+                raise RuntimeError(
+                    "V2.1.1 HAT: หน่วยความจำไม่พอ; ลด tile_size หรือเลือก GPU "
+                    "ที่มี VRAM มากขึ้น (ไม่มีการลดคุณภาพหรือสลับโมเดลอัตโนมัติ)"
+                ) from exc
+            raise
+        _validate_prediction_shape(prediction.shape, h + pad_h, w + pad_w)
+        if not bool(self.torch.isfinite(prediction).all()):
+            raise RuntimeError("V2.1.1 HAT: โมเดลสร้างค่า NaN/Inf; หยุดส่งออกภาพ")
         prediction = prediction[..., :h * 4, :w * 4]
         out = prediction.squeeze(0).permute(1, 2, 0).detach().float().cpu().numpy()
         result = np.rint(np.clip(out, 0, 1) * 255).astype(np.uint8)
