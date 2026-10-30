@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 # Specific test checkpoint (upstream name; mirrored checkpoint provenance
 # needs independent commercial release clearance before a production installer).
@@ -156,7 +156,12 @@ class HATModelEngine:
                 progress_callback=None, cancel_check=None):
         _require_scale(scale)
         destination = Path(output_path)
-        with Image.open(input_path) as original:
+        with Image.open(input_path) as raw:
+            # Apply EXIF orientation before AI and alpha extraction. A phone
+            # photo with Orientation=6 otherwise has wrong portrait geometry.
+            # The exported raster is already oriented, so do not copy the
+            # source EXIF orientation tag into the destination.
+            original = ImageOps.exif_transpose(raw)
             # This direct RGB engine must not copy a CMYK ICC profile onto RGB
             # output. The colour-managed CMYK print pipeline is separate.
             if original.mode == "CMYK":
