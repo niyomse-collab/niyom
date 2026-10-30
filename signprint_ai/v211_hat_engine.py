@@ -99,10 +99,23 @@ class HATModelEngine:
         if pixels.ndim != 3 or pixels.shape[2] != 3 or pixels.dtype != np.uint8:
             raise ValueError("HAT expects uint8 RGB tiles")
         h, w = pixels.shape[:2]
+        # HAT uses windowed attention: source dimensions must be multiples of
+        # the model window size. Border tiles are frequently not multiples.
+        # Pad the *source* tensor, then crop the 4x prediction before optional
+        # 2x resampling. Reflection requires padding < the source dimension;
+        # use replicate for tiny edge crops instead of crashing.
+        window = 16
+        pad_h = (-h) % window
+        pad_w = (-w) % window
         tensor = self.torch.from_numpy(np.ascontiguousarray(pixels)).permute(2, 0, 1)
         tensor = tensor.unsqueeze(0).to(device=self.device, dtype=self.torch.float32) / 255.0
+        if pad_h or pad_w:
+            import torch.nn.functional as functional
+            mode = "reflect" if pad_h < h and pad_w < w else "replicate"
+            tensor = functional.pad(tensor, (0, pad_w, 0, pad_h), mode=mode)
         with self.torch.inference_mode():
             prediction = self.model(tensor)
+        prediction = prediction[..., :h * 4, :w * 4]
         out = prediction.squeeze(0).permute(1, 2, 0).detach().float().cpu().numpy()
         result = np.rint(np.clip(out, 0, 1) * 255).astype(np.uint8)
         del prediction, tensor
