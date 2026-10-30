@@ -9,6 +9,8 @@ V2 remains the default until quality/rights/packaging acceptance.
 from __future__ import annotations
 
 import hashlib
+import os
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -153,12 +155,26 @@ class HATModelEngine:
     def enhance(self, input_path, output_path, scale=4,
                 progress_callback=None, cancel_check=None):
         _require_scale(scale)
+        destination = Path(output_path)
         with Image.open(input_path) as original:
+            # This direct RGB engine must not copy a CMYK ICC profile onto RGB
+            # output. The colour-managed CMYK print pipeline is separate.
+            if original.mode == "CMYK":
+                raise ValueError(
+                    "V2.1.1 HAT: CMYK ต้องแปลงสีผ่าน ICC เป็น RGB ก่อนใช้ HAT "
+                    "ห้ามคัดลอก CMYK ICC ไปยังผลลัพธ์ RGB"
+                )
             # A direct HAT export must not silently flatten transparent PNG/TIFF.
             # Propagate visible colours into hidden RGB before AI upscaling to
             # reduce dark fringes; the actual opacity is resized separately.
             has_alpha = ("A" in original.getbands()
                          or "transparency" in original.info)
+            # Reject unsupported alpha output *before* expensive AI inference.
+            if has_alpha and destination.suffix.lower() not in (
+                    ".png", ".tif", ".tiff"):
+                raise ValueError(
+                    "V2.1.1 HAT: ภาพโปร่งใสต้องส่งออกเป็น PNG/TIFF เพื่อรักษา alpha"
+                )
             if has_alpha:
                 from .v2_alpha_edges import bleed_transparent_rgb
                 rgba = original.convert("RGBA")
@@ -191,12 +207,6 @@ class HATModelEngine:
                 completed += 1
                 if progress_callback:
                     progress_callback(round(100 * completed / total))
-        destination = Path(output_path)
-        if alpha is not None and destination.suffix.lower() not in (
-                ".png", ".tif", ".tiff"):
-            raise ValueError(
-                "V2.1.1 HAT: ภาพโปร่งใสต้องส่งออกเป็น PNG/TIFF เพื่อรักษา alpha"
-            )
         destination.parent.mkdir(parents=True, exist_ok=True)
         result_image = Image.fromarray(out, "RGB")
         if alpha is not None:
@@ -209,7 +219,20 @@ class HATModelEngine:
             save_options["icc_profile"] = icc
         if dpi:
             save_options["dpi"] = dpi
-        result_image.save(destination, **save_options)
+        # Do not destroy an existing print master or leave a half-written file
+        # if Pillow, the disk, or a TIFF/PNG encoder fails during final export.
+        # A same-directory temporary file permits an atomic replacement.
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{destination.stem}-", suffix=destination.suffix,
+            dir=destination.parent,
+        )
+        os.close(descriptor)
+        try:
+            result_image.save(temporary, **save_options)
+            os.replace(temporary, destination)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
         return {
             "model": "HAT_SRx4_ImageNet-pretrain",
             "device": self.device_name(), "scale": scale,
