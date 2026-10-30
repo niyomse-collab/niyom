@@ -5,7 +5,7 @@ import pytest
 from PIL import Image
 
 from signprint_ai.v211_hat_engine import (
-    HAT_SHA256, HAT_FILE, _downsample_4x, validate_checkpoint,
+    HAT_SHA256, HAT_FILE, _downsample_4x, _validate_prediction_shape, validate_checkpoint,
 )
 
 
@@ -62,3 +62,18 @@ def test_unknown_super_model_does_not_silently_use_old_core():
     settings = SimpleNamespace(device="AUTO", v211_photo_model="not-installed")
     with pytest.raises(ValueError, match="unknown photo model"):
         adapter.create_job_engine(settings)
+
+
+@pytest.mark.parametrize("shape", [
+    (1, 3, 128, 128),  # correct 32x32 padded source
+    (1, 3, 128, 124),  # truncated right edge
+    (1, 3, 124, 128),  # truncated bottom edge
+    (1, 1, 128, 128),  # unexpected channel count
+    (2, 3, 128, 128),  # unexpected batch count
+])
+def test_hat_prediction_shape_fails_closed(shape):
+    if shape == (1, 3, 128, 128):
+        _validate_prediction_shape(shape, 32, 32)
+    else:
+        with pytest.raises(RuntimeError, match="refusing to export"):
+            _validate_prediction_shape(shape, 32, 32)
