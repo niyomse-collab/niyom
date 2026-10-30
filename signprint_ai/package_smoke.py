@@ -99,13 +99,16 @@ def _run(folder):
             )
             result = adapter.process(graphic_source, graphic_output, graphic_settings)
             assert result["ai_scale"] == 8 and result["output_size"] == (208, 166)
-            assert result.get("graphic_ai_model") is None
+            # V2.1 opted-in graphic AI must actually be registered even when
+            # the approved V2 print-pass scale strategy is preserved.
+            assert result.get("graphic_ai_model") == "RealESRGAN_x4plus_anime_6B"
             with Image.open(graphic_output) as image:
                 assert image.size == (208, 166) and np.asarray(image).std() > 0
             report["checks"].append({
                 "name": "installed_exe_v21_v2_quality_two_real_ai_passes",
                 "inference": "4x_then_2x", "ai_scale": 8,
                 "precision_ink": True, "size": [208, 166],
+                "graphic_model": result.get("graphic_ai_model"),
             })
 
             # Experimental V2.1 graphics model must load separately and must
