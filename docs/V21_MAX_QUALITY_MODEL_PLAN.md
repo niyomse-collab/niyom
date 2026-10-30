@@ -26,7 +26,7 @@ This document records the user's acceptance requirements and research candidates
 
 | Candidate | Role | Upstream | Repository license status / restrictions |
 |---|---|---|---|
-| HAT, incl. Real-HAT-GAN | strong image super-resolution / details | https://github.com/XPixelGroup/HAT | inspect MIT license and weights/dependencies before redistribution |
+| HAT, incl. Real-HAT-GAN | strong image super-resolution / details | https://github.com/XPixelGroup/HAT | upstream LICENSE is Apache-2.0 (not MIT); setup.py has conflicting `license='MIT License'` metadata; verify exact checkpoint/weights and dependency terms before commercial redistribution |
 | DiffBIR | heavily degraded photographs and blind image restoration; face candidate | https://github.com/XPixelGroup/DiffBIR | repository Apache-2.0, audit all weight licenses |
 | RestoreFormer++ | portrait face-restoration comparison against GFPGAN | https://github.com/wzhouxiff/RestoreFormerPlusPlus | upstream reports Apache-2.0; audit checkpoints/dependencies |
 | NAFNet | photograph noise/artifact reduction prior to SR | https://github.com/megvii-research/NAFNet | repository MIT; weight provenance to verify |
@@ -36,6 +36,8 @@ This document records the user's acceptance requirements and research candidates
 | CodeFormer | portrait quality/fidelity research comparison only | https://github.com/sczhou/CodeFormer | **NTU S-Lab license; commercial permission required** |
 
 Use upstream repository licensing plus exact downloadable weight terms, not aggregator listings. Commercial deployment needs legal review of all weights, base models and dependencies.
+
+HAT licensing audit (2026-10-30): upstream [LICENSE](https://github.com/XPixelGroup/HAT/blob/main/LICENSE) contains Apache License 2.0, while [setup.py](https://github.com/XPixelGroup/HAT/blob/main/setup.py) contains a conflicting MIT license field. Treat repository code and any downloaded weights as **separate clearance items**; do not ship HAT checkpoints until the checkpoint provenance, applicable license, and transitive components are documented. This is a documentation correction only; HAT has not been integrated or packaged.
 
 ## Engineering and test gates
 
