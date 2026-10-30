@@ -99,3 +99,53 @@ def test_auto_detect_still_requires_one_successful_face():
     with pytest.raises(RuntimeError, match="ฟื้นฟูใบหน้าไม่สำเร็จ"):
         enforce_requested_face_restoration(
             settings(face_regions=None), {"applied": False, "face_count": 0})
+
+
+@pytest.mark.parametrize("studio_completed", [0, 1, 2])
+def test_studio_ai_reports_actual_completed_faces(monkeypatch, studio_completed):
+    """Recover success must not mask a partially skipped Studio AI ROI."""
+    from PIL import Image
+    from signprint_ai.face_module import studio
+    from signprint_ai.face_module.face_protection import (
+        FaceProtectionModule, FaceProtectionResult,
+    )
+
+    regions = ((0.05, 0.05, 0.40, 0.40),
+               (0.55, 0.55, 0.95, 0.95))
+    original_apply = FaceProtectionModule.apply
+
+    def recover_stub(self, image, **kwargs):
+        if kwargs.get("mode") == "recover":
+            return image, FaceProtectionResult(
+                enabled=True, applied=True, face_count=2,
+                mode="recover", strength=35,
+            )
+        return original_apply(self, image, **kwargs)
+
+    def studio_stub(output, source_path, selected, strength, resize_mode,
+                    cancel, progress, source_image=None):
+        assert len(selected) == 2
+        assert source_image is not None
+        return output, studio_completed
+
+    monkeypatch.setattr(FaceProtectionModule, "apply", recover_stub)
+    monkeypatch.setattr(studio, "apply_studio", studio_stub)
+    _, info = FaceProtectionModule().apply(
+        Image.new("RGB", (32, 32)), device_name="cpu",
+        mode="studio ai", strength=35, regions=regions,
+    )
+    assert info.face_count == studio_completed
+    assert info.applied is (studio_completed > 0)
+    if studio_completed < 2:
+        assert f"{studio_completed}/2" in info.skipped_reason
+        with pytest.raises(RuntimeError, match="หยุดก่อนส่งออก"):
+            enforce_requested_face_restoration(
+                settings(face_mode="studio ai", face_regions=regions),
+                info.as_dict(),
+            )
+    else:
+        assert info.skipped_reason is None
+        enforce_requested_face_restoration(
+            settings(face_mode="studio ai", face_regions=regions),
+            info.as_dict(),
+        )
