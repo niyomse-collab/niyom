@@ -229,6 +229,10 @@ class HATModelEngine:
         os.close(descriptor)
         try:
             result_image.save(temporary, **save_options)
+            # A cancellation during the final encode must not replace an
+            # existing print master. Keep the temporary file disposable.
+            if cancel_check and cancel_check():
+                raise InterruptedError("Processing stopped by user")
             os.replace(temporary, destination)
         finally:
             if os.path.exists(temporary):
