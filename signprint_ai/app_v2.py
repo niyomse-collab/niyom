@@ -657,7 +657,7 @@ class App(tk.Tk):
         )
         selection = ttk.Combobox(
             ai, textvariable=self.v211_photo_model_var,
-            values=("V2 Real-ESRGAN (เดิม)", "HAT x4 (ทดลอง • ต้องติดตั้งโมเดล)"),
+            values=("V2 Real-ESRGAN (เดิม)", "V2 + HAT Assist (Super AI ทดลอง)"),
             state="readonly", width=39, style="Dark.TCombobox",
         )
         selection.grid(row=4, column=1, sticky="ew", pady=(5, 2))
@@ -1070,7 +1070,7 @@ class App(tk.Tk):
     def _settings(self) -> EnhanceSettings:
         s = EnhanceSettings(
             graphic_ai=self.graphic_ai_var.get(),
-            v211_photo_model=("hat" if self.v211_photo_model_var.get().startswith("HAT ") else "real_esrgan"),
+            v211_photo_model=("v2_hat_assist" if self.v211_photo_model_var.get().startswith("V2 + HAT ") else "real_esrgan"),
             denoise=round(self.denoise_var.get()),
             flat_smoothing=round(self.flat_var.get()),
             text_graphic_boost=round(self.text_var.get()),
@@ -1387,14 +1387,13 @@ class App(tk.Tk):
             requested_scale = 1
         # Check the selected backend independently. HAT is a separate model:
         # do not require the original ESRGAN weight just to start HAT.
-        chosen_model = ("hat" if self.v211_photo_model_var.get().startswith("HAT ")
+        chosen_model = ("v2_hat_assist" if self.v211_photo_model_var.get().startswith("V2 + HAT ")
                         else "real_esrgan")
         if requested_scale > 1 and not self.pipeline.selected_model_available(chosen_model):
             guidance = (
-                "ไม่พบโมเดล HAT สำหรับ V2.1.1\n\n"
-                "ต้องติดตั้ง HAT ที่ตรวจสอบสิทธิ์และ SHA-256 แล้วก่อนใช้งาน "
-                "ไม่จำเป็นต้องติดตั้ง Real-ESRGAN เพื่อเลือก HAT"
-                if chosen_model == "hat" else
+                "V2 + HAT Assist ต้องมีทั้ง Real-ESRGAN ของ V2 และ HAT\n\n"
+                "ติดตั้งเฉพาะโมเดลเสริมที่ยังขาด ไม่ต้องติดตั้งโมเดลอื่นโดยไม่จำเป็น"
+                if chosen_model == "v2_hat_assist" else
                 "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\n\n"
                 "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน"
             )
