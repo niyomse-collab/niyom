@@ -70,6 +70,18 @@ def assess_explicit_photo_blur(image: np.ndarray) -> PhotoBlurDecision:
     gradient = cv2.magnitude(gx, gy)
     edge_mean = float(gradient.mean())
     edge_fraction = float(np.mean(gradient > 160))
+    # Large, coherent flat high-saturation patches are usually sign/logo
+    # ink rather than photographic material. Do not run a photo-trained
+    # deblurrer across a poster, even when the raster itself is blurry.
+    rgb_int = image.astype(np.int16)
+    high_chroma = (rgb_int.max(axis=2) - rgb_int.min(axis=2)) > 105
+    local_span = (
+        cv2.dilate(image, np.ones((3, 3), np.uint8)).astype(np.int16)
+        - cv2.erode(image, np.ones((3, 3), np.uint8)).astype(np.int16)
+    ).max(axis=2)
+    flat_vivid_ink = float(np.mean(high_chroma & (local_span <= 25)))
+    if flat_vivid_ink > .42:
+        return PhotoBlurDecision(False, "mostly_flat_saturated_graphic")
     highpass = grey - cv2.GaussianBlur(grey, (0, 0), 1.0)
     highpass_fraction = float(highpass.std() / max(contrast, 1.0))
     lap_std = float(lap.std())
@@ -80,7 +92,7 @@ def assess_explicit_photo_blur(image: np.ndarray) -> PhotoBlurDecision:
     # Both a weak fine-detail spectrum AND remaining recognizable edges are
     # required. Mildly smooth, already-sharp photos should bypass NAFNet.
     if (lap_std < 75.0 and ratio < .95 and highpass_fraction < .12
-            and edge_fraction > .025 and edge_mean > 17.0):
+            and edge_fraction > .008 and edge_mean > 12.0):
         return PhotoBlurDecision(True, "motion_blur_evidence", lap_std,
                                  edge_mean, highpass_fraction, edge_fraction)
     return PhotoBlurDecision(False, "not_confidently_motion_blurred",
