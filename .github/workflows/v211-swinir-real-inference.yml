@@ -9,6 +9,7 @@ on:
       - 'signprint_ai/large_image.py'
       - 'tools/v211_swinir_real_qa.py'
       - 'tools/v211_generate_ab.py'
+      - 'tools/v211_true_hr_benchmark.py'
       - '.github/workflows/v211-swinir-real-inference.yml'
   # Keep expensive checkpoint research on explicit changes or manual dispatch.
   # PR diff filters would redownload weights on unrelated commits.
@@ -56,11 +57,15 @@ jobs:
             print("Pinned", path.name, path.stat().st_size, "bytes SHA256 OK")
       - name: Actual SwinIR 1x inference, known-reference PSNR and V2-assisted A-B
         run: python -m tools.v211_swinir_real_qa
+      - name: Independent native high-resolution reference vs both REAL model pipelines
+        run: python -m tools.v211_true_hr_benchmark
       - name: Upload synthetic samples/metrics, NEVER checkpoint weights
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: V211-Real-SwinIR-PreRestore-V2-CPU-QA
-          path: v211-swinir-proof/*
+          path: |
+            v211-swinir-proof/*
+            v211-true-hr-proof/*
           if-no-files-found: error
           retention-days: 14
