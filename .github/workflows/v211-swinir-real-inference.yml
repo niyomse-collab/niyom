@@ -1,0 +1,70 @@
+name: V2.1.1 SwinIR real pre-restoration CPU A-B (research only)
+
+on:
+  push:
+    branches: [feature/v2.1.1-super-ai]
+    paths:
+      - 'signprint_ai/v211_swinir_preprocess.py'
+      - 'signprint_ai/niyomsil_core_adapter.py'
+      - 'signprint_ai/large_image.py'
+      - 'tools/v211_swinir_real_qa.py'
+      - 'tools/v211_generate_ab.py'
+      - '.github/workflows/v211-swinir-real-inference.yml'
+  pull_request:
+    branches: [fix/v21-real-quality]
+    paths:
+      - 'signprint_ai/v211_swinir_preprocess.py'
+      - 'tools/v211_swinir_real_qa.py'
+      - '.github/workflows/v211-swinir-real-inference.yml'
+  workflow_dispatch:
+
+jobs:
+  real-swinir-before-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned research CPU runtime
+        run: |
+          python -m pip install 'torch==2.5.1+cpu' 'torchvision==0.20.1+cpu' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'spandrel==0.4.2' 'basicsr==1.4.2' 'realesrgan==0.3.0' --no-deps
+          python -m pip install 'numpy==2.2.6' 'opencv-python-headless==4.12.0.88' 'Pillow==12.3.0' 'einops==0.8.1' 'safetensors==0.5.3' addict future lmdb pyyaml requests scipy tqdm yapf
+      - name: Obtain pinned official V2 Real-ESRGAN and SwinIR weights (no redistribution)
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, urllib.request
+          sources = [
+            ("https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+             Path("models/RealESRGAN_x4plus.pth"),
+             "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"),
+            ("https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/005_colorDN_DFWB_s128w8_SwinIR-M_noise15.pth",
+             Path("models/experimental/005_colorDN_DFWB_s128w8_SwinIR-M_noise15.pth"),
+             "917cd972f7ba80786871add249ad43e4477ce2db59b4ad63e2fa446f7221d013"),
+          ]
+          for url, path, expected in sources:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            digest = hashlib.sha256()
+            with urllib.request.urlopen(url, timeout=180) as src, path.open("wb") as out:
+              while data := src.read(1024 * 1024):
+                digest.update(data)
+                out.write(data)
+            if digest.hexdigest() != expected:
+              path.unlink(missing_ok=True)
+              raise RuntimeError("Wrong model SHA256: " + path.name)
+            print("Pinned", path.name, path.stat().st_size, "bytes SHA256 OK")
+      - name: Actual SwinIR 1x inference, known-reference PSNR and V2-assisted A-B
+        run: python -m tools.v211_swinir_real_qa
+      - name: Upload synthetic samples/metrics, NEVER checkpoint weights
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: V211-Real-SwinIR-PreRestore-V2-CPU-QA
+          path: v211-swinir-proof/*
+          if-no-files-found: error
+          retention-days: 14
