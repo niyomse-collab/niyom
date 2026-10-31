@@ -31,6 +31,9 @@ class V21Settings(EnhanceSettings):
     v21_alpha_safe_resize: bool = True
     # V2.1.1: do not silently export when a requested face pass was skipped.
     v211_require_face_restore: bool = True
+    # Stop V2.1.1 export if the actual GFPGAN face audit reports damage
+    # (eye/mouth collapse, face colour drift); never veto to blurred V2 face.
+    v211_reject_failed_face_audit: bool = True
     # V2 is the accepted baseline; optional HAT can ASSIST V2 rather than
     # replacing it. A stand-alone HAT mode is reserved for QA comparisons.
     v211_photo_model: str = "real_esrgan"  # real_esrgan | v2_hat_assist | v2_swinir_pre | hat
