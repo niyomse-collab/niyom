@@ -131,6 +131,8 @@ def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path)
     pixels = np.zeros((32, 32, 4), dtype=np.uint8)
     pixels[:, :, :3] = (180, 40, 70)
     pixels[8:24, 8:24, 3] = 255
+    # Semi-transparent ink must remain semi-transparent after both passes.
+    pixels[12:20, 12:20, 3] = 128
     Image.fromarray(pixels, "RGBA").save(source)
     settings = V21Settings(
         ai_scale=8, device="CPU", face_protection=False,
@@ -143,7 +145,9 @@ def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path)
         assert verified.mode == "RGBA"
         alpha = np.asarray(verified.getchannel("A"))
         assert alpha[0, 0] == 0
-        assert alpha[128, 128] == 255
+        assert alpha[80, 80] == 255
+        assert alpha[128, 128] == 128
+        assert 0 < alpha[96, 96] < 255
     assert log == [
         ("v2", 4, (32, 32)),
         ("hat", 4, (32, 32)),
