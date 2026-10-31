@@ -1,13 +1,8 @@
 name: V2.1.1 exact Thai text vs official V2 proof (opt-in research)
 
+# Manual-only: avoid automatic repeat downloads of the pinned V2 checkpoint.
+# Run this research QA explicitly after relevant changes.
 on:
-  push:
-    branches: [feature/v2.1.1-super-ai]
-    paths:
-      - 'signprint_ai/v211_verified_text.py'
-      - 'tools/v211_verified_text_real_v2_qa.py'
-  # Full checkpoint QA remains on direct model/tool code pushes or manual
-  # workflow_dispatch; unrelated PR edits never redownload V2 weights.
   workflow_dispatch:
 
 jobs:
