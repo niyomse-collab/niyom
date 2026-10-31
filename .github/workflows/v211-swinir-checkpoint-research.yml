@@ -4,6 +4,10 @@ on:
     branches: [feature/v2.1.1-super-ai]
     paths:
       - .github/workflows/v211-swinir-checkpoint-research.yml
+  pull_request:
+    branches: [fix/v21-real-quality]
+    paths:
+      - .github/workflows/v211-swinir-checkpoint-research.yml
   workflow_dispatch:
 jobs:
   measure-upstream-checkpoint:
