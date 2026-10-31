@@ -37,6 +37,8 @@ class V21Settings(EnhanceSettings):
     v211_hat_assist_strength: float = 0.85
     # SwinIR 1x denoise BEFORE V2 Real-ESRGAN (experimental; never default).
     v211_swinir_pre_strength: float = 0.70
+    # Photo-only motion deblur -> V2 (experimental; no model bundled).
+    v211_nafnet_pre_strength: float = 0.85
 
 
 def blend_graphic_detail(photo, graphic, strength=1., protected_regions=()):
