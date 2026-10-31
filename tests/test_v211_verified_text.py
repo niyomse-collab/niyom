@@ -165,37 +165,33 @@ def adapter_with_stub():
     return adapter
 
 
-@pytest.mark.skipif(not verified_shaper_available(), reason="No verified shaping backend")
-def test_real_v211_output_includes_verified_text_only_after_neural_resize(tmp_path):
+def test_image_only_adapter_rejects_legacy_text_replacement_before_processing(tmp_path):
     from signprint_ai.v21_graphics_ai import V21Settings
-    src, dst = tmp_path/"source.png", tmp_path/"shop.png"
+    src, dst = tmp_path / "source.png", tmp_path / "not-exported.png"
     Image.new("RGB", (140, 80), (52, 51, 79)).save(src)
-    settings = V21Settings(
-        ai_scale=2, dpi=300, face_protection=False,
-        v211_verified_text_regions=(region(),),
-    )
-    result = adapter_with_stub().process(src, dst, settings, use_ai=True)
-    with Image.open(dst) as image:
-        assert image.size == (280, 160)
-        pixels = np.asarray(image.convert("RGB"))
-    assert result["verified_exact_text"][0]["exact_text"] == "SALE 30"
-    np.testing.assert_array_equal(pixels[0, 0], (52, 51, 79))
-    assert pixels[60:80, 70:170, 0].max() >= 230
+    adapter = adapter_with_stub()
+    def forbidden_engine(_settings):
+        raise AssertionError("AI must never run after a prohibited text request")
+    adapter.create_job_engine = forbidden_engine
+    settings = V21Settings(ai_scale=2, dpi=300, face_protection=False,
+                           v211_verified_text_regions=(region(),))
+    with pytest.raises(ValueError, match="image-only.*text replacement"):
+        adapter.process(src, dst, settings, use_ai=True)
+    assert not dst.exists()
 
 
-def test_selected_face_overlap_fails_before_any_neural_export(tmp_path):
+def test_legacy_text_replacement_rejected_even_when_face_roi_selected(tmp_path):
     from signprint_ai.v21_graphics_ai import V21Settings
-    src, dst = tmp_path/"source.png", tmp_path/"blocked.png"
+    src, dst = tmp_path / "source.png", tmp_path / "not-exported.png"
     Image.new("RGB", (140, 80), (52, 51, 79)).save(src)
     settings = V21Settings(
         ai_scale=2, face_protection=True, face_mode="recover",
         face_regions=((.2, .2, .8, .8),),
         v211_verified_text_regions=(region(),),
     )
-    with pytest.raises(ValueError, match="ทับใบหน้า"):
+    with pytest.raises(ValueError, match="image-only.*text replacement"):
         adapter_with_stub().process(src, dst, settings, use_ai=True)
     assert not dst.exists()
-
 
 
 def test_windows_without_raqm_uses_harfbuzz_freetype_not_naive_thai(monkeypatch):
