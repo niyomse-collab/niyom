@@ -101,6 +101,28 @@ def source_guided_red_ink(rgb: np.ndarray, source: np.ndarray, *,
         audit["reason"] = "no_safe_stroke_core"
         return rgb.copy(), audit
 
+    # The red mask also picks up thin Thai marks and anti-aliased hairlines.
+    # With no reliable 3x3 stroke interior, a palette repair can turn a
+    # readable vowel/tone mark into a broken stroke. Leave it byte-exact.
+    core_ratio = float(core.sum()) / max(int(red.sum()), 1)
+    if core_ratio < .16:
+        audit["reason"] = "thin_stroke_keep_v2"
+        audit["red_core_ratio"] = round(core_ratio, 5)
+        return rgb.copy(), audit
+
+    # A deliberate flat-to-dark/red gradient is artwork, not pigment noise.
+    # Measure the low-resolution *inside-stroke* colour where possible; if
+    # there is a strong designed tone change, preserve V2 unchanged.
+    source_core = cv2.erode(source_red.astype(np.uint8),
+                            np.ones((3, 3), np.uint8)) != 0
+    if int(source_core.sum()) >= 16:
+        core_red_range = float(np.percentile(sr[source_core], 85)
+                               - np.percentile(sr[source_core], 15))
+        if core_red_range > 20:
+            audit["reason"] = "source_gradient_keep_v2"
+            audit["source_core_red_range"] = round(core_red_range, 3)
+            return rgb.copy(), audit
+
     spread = np.percentile(r[core], 90)-np.percentile(r[core], 10)
     # Broad red blocks which are already flat do not need correction.
     if spread < 13:
@@ -135,14 +157,26 @@ def source_guided_red_ink(rgb: np.ndarray, source: np.ndarray, *,
     # Keep V2's existing antialias geometry, but constrain its colour to
     # the LR-supported background->ink colour line. Core pixels are repaired
     # more strongly; fractional edge coverage stays smooth.
-    coverage = np.clip(
-        np.sum((base-background)*direction, axis=2)/distance*.95,
-        0.0, 1.0
+    # Use the actual V2 antialias occupancy as the main geometric signal,
+    # but consult the ORIGINAL LR source to correct false red/blue patterns.
+    # Without that source support, V2's hallucinated intrastroke colour can
+    # survive a purely output-derived projection.
+    v2_coverage = np.clip(
+        np.sum((base-background)*direction, axis=2)/distance, 0, 1
     )
-    # Do not over-darken valid anti-aliased thin strokes. The 0.85
-    # projection from the first research attempt demonstrably worsened a
-    # known-reference source with otherwise intact letter boundaries.
-    coverage[core] = .95
+    palette_chroma = float(direction[0]-direction[1])
+    if palette_chroma <= 75:
+        audit["reason"] = "weak_red_chroma_keep_v2"
+        return rgb.copy(), audit
+    source_chroma = (prior[..., 0]-prior[..., 1]
+                     - (background[0]-background[1]))
+    source_coverage = np.clip(source_chroma/palette_chroma, 0, 1)
+    # Source is intentionally only a minority vote: it may be blurry or
+    # off by a subpixel, and must not erase an existing glyph or invent text.
+    coverage = .70*v2_coverage + .30*source_coverage
+    # Deep in the stroke use a near-solid but not binary target. Retain the
+    # remaining 20% of measured coverage to protect real antialias details.
+    coverage[core] = .80 + .20*coverage[core]
     target = background + coverage[..., None]*direction
     result = rgb.copy()
     result[red] = np.rint(np.clip(
