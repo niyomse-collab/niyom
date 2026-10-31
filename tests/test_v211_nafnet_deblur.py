@@ -136,3 +136,59 @@ def test_ui_and_quality_runner_include_nafnet_research_mode():
     assert "v2_nafnet_deblur" in inspect.getsource(App._settings)
     assert "v2_nafnet_deblur" in inspect.getsource(App.start_processing)
     assert "v2_nafnet_deblur" in inspect.getsource(run_pair)
+
+
+def test_photo_only_mode_applies_full_real_model_without_throwing_away_colour_detail():
+    from signprint_ai.v211_nafnet_deblur import blend_photo_only
+    src = np.full((64, 64, 3), (90, 100, 120), dtype=np.uint8)
+    restored = np.full_like(src, (140, 115, 105))
+    np.testing.assert_array_equal(blend_photo_only(src, restored, 1.0), restored)
+    np.testing.assert_array_equal(blend_photo_only(src, restored, 0), src)
+    intermediate = blend_photo_only(src, restored, .5)
+    assert 90 < intermediate[0,0,0] < 140
+
+
+def test_photo_only_protects_selected_faces_exactly_before_v2_gfpgan():
+    from signprint_ai.v211_nafnet_deblur import blend_photo_only
+    src = np.full((96, 96, 3), (70, 80, 90), np.uint8)
+    restored = np.full_like(src, (140, 130, 120))
+    out = blend_photo_only(src, restored, 1.0,
+                           protected_regions=((.2, .2, .8, .8),))
+    np.testing.assert_array_equal(out[22:74,22:74], src[22:74,22:74])
+    np.testing.assert_array_equal(out[:12,:12], restored[:12,:12])
+
+
+def test_photo_only_face_rectangles_and_strength_fail_closed():
+    from signprint_ai.v211_nafnet_deblur import blend_photo_only
+    src=np.full((64,64,3),128,dtype=np.uint8)
+    with pytest.raises(ValueError):
+        blend_photo_only(src,src,strength=1.1)
+    with pytest.raises(ValueError):
+        blend_photo_only(src,src,strength=float("nan"))
+    with pytest.raises(ValueError):
+        blend_photo_only(src,src,protected_regions=((0,0,float("nan"),1),))
+
+
+def test_photo_only_adapter_uses_raw_nafnet_and_larger_single_photo_tile(monkeypatch):
+    from signprint_ai import v211_nafnet_deblur
+    from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
+    from signprint_ai.v211_nafnet_deblur import blend_photo_only
+    log=[]
+    v2=V2Stub(log)
+    v2.selected=SimpleNamespace(device_id="cpu",name="CPU",backend="CPU")
+    class FakeNAF(NAFStub):
+        def __init__(self,selected):
+            assert selected is v2.selected
+            super().__init__(log)
+    monkeypatch.setattr(v211_nafnet_deblur, "NAFNetGoProDeblurrer", FakeNAF)
+    adapter=NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    adapter.engine_manager=SimpleNamespace(create_engine=lambda _:v2)
+    settings=SimpleNamespace(v211_photo_model="v2_nafnet_photo_only",
+        device="AUTO",face_protection=False,face_regions=None,
+        v211_nafnet_photo_strength=1.)
+    engine=adapter.create_job_engine(settings)
+    assert isinstance(engine, PreRestoreV2Engine)
+    assert engine.blend_callback is blend_photo_only
+    assert engine.next_pass_engine() is v2
+    assert engine.upsampler.tile_size == 128  # V2 stub tile bound, not guessed
+    assert engine.denoiser.upsampler.tile_size == 192
