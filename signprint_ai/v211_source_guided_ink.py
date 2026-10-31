@@ -136,10 +136,13 @@ def source_guided_red_ink(rgb: np.ndarray, source: np.ndarray, *,
     # the LR-supported background->ink colour line. Core pixels are repaired
     # more strongly; fractional edge coverage stays smooth.
     coverage = np.clip(
-        np.sum((base-background)*direction, axis=2)/distance*.85,
+        np.sum((base-background)*direction, axis=2)/distance*.95,
         0.0, 1.0
     )
-    coverage[core] = .90
+    # Do not over-darken valid anti-aliased thin strokes. The 0.85
+    # projection from the first research attempt demonstrably worsened a
+    # known-reference source with otherwise intact letter boundaries.
+    coverage[core] = .95
     target = background + coverage[..., None]*direction
     result = rgb.copy()
     result[red] = np.rint(np.clip(
