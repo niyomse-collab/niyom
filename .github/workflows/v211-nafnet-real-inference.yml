@@ -10,12 +10,8 @@ on:
       - 'tools/v211_nafnet_real_qa.py'
       - 'tools/v211_generate_ab.py'
       - '.github/workflows/v211-nafnet-real-inference.yml'
-  pull_request:
-    branches: [fix/v21-real-quality]
-    paths:
-      - 'signprint_ai/v211_nafnet_deblur.py'
-      - 'tools/v211_nafnet_real_qa.py'
-      - '.github/workflows/v211-nafnet-real-inference.yml'
+  # Real-weight download is expensive. Restrict automatic runs to directly
+  # changed model code on this branch, not every documentation-only PR update.
   workflow_dispatch:
 
 jobs:
@@ -68,11 +64,22 @@ jobs:
             print(destination.name, destination.stat().st_size, "SHA256 verified")
       - name: TRUE native high-resolution A-B with actual V2 and NAFNet inference
         run: python -m tools.v211_nafnet_real_qa
-      - name: Upload only generated synthetic images and scores
-        if: success()
+      - name: Preserve research evidence even when quality loses to V2
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: V211-NAFNet-GoPro-V2-TrueHR-AB-Research
           path: v211-nafnet-true-hr-proof/**
           retention-days: 14
-          if-no-files-found: error
+          if-no-files-found: warn
+      - name: Enforce native-HR quality gate — never call a regression a pass
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          report = json.loads(Path("v211-nafnet-true-hr-proof/SUMMARY.json").read_text(encoding="utf-8"))
+          print("Actual pretrained checkpoint inference:", report["real_weight_inference_passed"])
+          print("Provisional V2 quality superiority:", report["provisional_release_quality"])
+          if not report["provisional_release_quality"]:
+            raise SystemExit("QUALITY REGRESSION: NAFNet+V2 did not beat V2 across motion blur and clean control")
+
