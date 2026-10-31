@@ -18,7 +18,7 @@ GRAPHIC_MODEL_SHA256 = 'f872d837d3c90ed2e05227bed711af5671a6fd1c9f7d7e91c911a61f
 @dataclass
 class V21Settings(EnhanceSettings):
     # Restore accepted V2 print-pass and edge finishing semantics by default.
-    # Experimental V2.1 text reconstruction must be explicitly selected.
+    # V2.1.1 public processing is strictly raster enhancement, never retyping.
     v21_v2_quality_baseline: bool = True
     # Independent, operator-controlled improvement above the accepted V2
     # edge path; off by default in scripts, on by default in the desktop UI.
@@ -31,8 +31,8 @@ class V21Settings(EnhanceSettings):
     # OFF until real V2, Thai glyph, portrait and print acceptance.
     v211_source_guided_ink: bool = False
     v211_source_guided_ink_strength: float = 1.0
-    # Explicit user-verified Unicode + installed font + final pixel ROI only.
-    # Empty by default: ordinary V2/AI image enhancement stays unchanged.
+    # Deprecated legacy configuration retained for deserialization only.
+    # Any nonempty value is rejected before inference by the image-only adapter.
     v211_verified_text_regions: tuple = ()
 
     # Experimental transfer is opt-in; preserve the established photo core by default.
