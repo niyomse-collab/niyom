@@ -20,6 +20,13 @@ from tools.v211_ab_report import _check_qa_size, compare_images
 KINDS = frozenset({
     "plain_small_text", "styled_fx_text", "thai_ornament", "gold_metal",
     "transparent_edge", "soft_gradient", "face", "product", "other",
+    # Image-only restoration covers scripts beyond Thai; never retypes them.
+    "microtext", "latin_text", "chinese_text", "multiscript_text",
+    # Natural material must remain natural, not smooth plastic.
+    "foliage", "fabric", "natural_texture", "skin", "food_texture",
+})
+NATURAL_TEXTURE_KINDS = frozenset({
+    "foliage", "fabric", "natural_texture", "skin", "food_texture", "face", "product"
 })
 
 def load_regions(path):
@@ -93,6 +100,41 @@ def _delta(before, after):
         "changed_gt3_pct": round(float((maximum > 3).mean() * 100), 4),
     }
 
+def _texture_diagnostic(reference, candidate):
+    """High-frequency texture change versus approved V2, not a quality score.
+
+    Raster sharpening can increase energy by adding fake leaf veins, while
+    denoising can suppress real leaf/fabric/skin texture. Both require visual
+    review. We do not infer an object's identity or invent missing pixels.
+    """
+    import cv2
+    a = np.asarray(reference.convert("RGBA"), dtype=np.uint8)
+    b = np.asarray(candidate.convert("RGBA"), dtype=np.uint8)
+    mask = (a[:, :, 3] > 32) & (b[:, :, 3] > 32)
+    if min(a.shape[:2]) < 16 or np.count_nonzero(mask) < 128:
+        return {"diagnostic_available": False, "reason": "too_few_visible_pixels",
+                "quality_certified": False}
+
+    def high_frequency_energy(rgba):
+        rgb = rgba[..., :3].astype(np.float32)
+        detail = rgb - cv2.GaussianBlur(rgb, (0, 0), 1.2)
+        return float(np.mean(np.abs(detail[mask])))
+
+    before = high_frequency_energy(a)
+    after = high_frequency_energy(b)
+    ratio = after / before if before >= 1.0 else None
+    return {
+        "diagnostic_available": ratio is not None,
+        "v2_high_frequency_energy": round(before, 5),
+        "v211_high_frequency_energy": round(after, 5),
+        "relative_detail_energy": round(ratio, 5) if ratio is not None else None,
+        "possible_texture_loss_review": bool(ratio is not None and ratio < .65),
+        "possible_artificial_crunch_review": bool(ratio is not None and ratio > 1.65),
+        "quality_certified": False,
+        "note": "Energy alone cannot identify real leaf veins, skin details or invented texture.",
+    }
+
+
 def _write_regions(original, baseline, candidate, regions, out, report):
     out.mkdir(parents=True, exist_ok=True)
     for item in regions:
@@ -105,6 +147,12 @@ def _write_regions(original, baseline, candidate, regions, out, report):
             b = candidate.crop(_box(norm, candidate.size))
             entry["paired_crop_pixels"] = list(a.size)
             entry["v2_to_v211_change"] = _delta(a, b)
+            if kind in NATURAL_TEXTURE_KINDS:
+                entry["material_texture_diagnostic"] = _texture_diagnostic(a, b)
+                diagnostic = entry["material_texture_diagnostic"]
+                if (diagnostic.get("possible_texture_loss_review")
+                        or diagnostic.get("possible_artificial_crunch_review")):
+                    report["material_review_required"].append(name)
         mattes = {"gray": (90, 90, 90)}
         if kind == "transparent_edge" or "A" in original.getbands():
             mattes.update({"white": (255, 255, 255),
@@ -130,6 +178,7 @@ def run_audit(source, regions_file, output_dir, *, v2=None, super_path=None):
         "ab_comparison_available": paired,
         "quality_improvement_certified": False,
         "print_certified": False, "face_identity_certified": False,
+        "material_review_required": [],
         "note": "Pixel differences do not prove better quality. Human A/B and print review required.",
         "regions": [],
     }
