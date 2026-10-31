@@ -105,7 +105,13 @@ def source_guided_red_ink(rgb: np.ndarray, source: np.ndarray, *,
     # With no reliable 3x3 stroke interior, a palette repair can turn a
     # readable vowel/tone mark into a broken stroke. Leave it byte-exact.
     core_ratio = float(core.sum()) / max(int(red.sum()), 1)
-    if core_ratio < .16:
+    # A modest number of confidently red interior pixels can still support
+    # repair on cleanly exposed medium-weight Latin/Thai letters. The previous
+    # unconditional ratio gate discarded these, as caught by the original
+    # dark-pigment regression. On very dark backgrounds or very sparse cores
+    # retain the approved V2 pixels instead.
+    background_level = float(np.mean(background))
+    if core_ratio < .16 and (int(core.sum()) < 50 or background_level < 55):
         audit["reason"] = "thin_stroke_keep_v2"
         audit["red_core_ratio"] = round(core_ratio, 5)
         return rgb.copy(), audit
