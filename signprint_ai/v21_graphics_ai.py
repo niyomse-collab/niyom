@@ -31,6 +31,10 @@ class V21Settings(EnhanceSettings):
     # OFF until real V2, Thai glyph, portrait and print acceptance.
     v211_source_guided_ink: bool = False
     v211_source_guided_ink_strength: float = 1.0
+    # Explicit user-verified Unicode + installed font + final pixel ROI only.
+    # Empty by default: ordinary V2/AI image enhancement stays unchanged.
+    v211_verified_text_regions: tuple = ()
+
     # Experimental transfer is opt-in; preserve the established photo core by default.
     graphic_ai: bool = False
     # V2.1-only experimental flat-fill cleanup. Legacy EnhanceSettings has no flag.
