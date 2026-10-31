@@ -52,7 +52,24 @@ def thai_reference(subject):
     origin = (24, 57)
     art = Image.new("RGB", (w, h), bg)
     painter = ImageDraw.Draw(art)
-    if subject == "thai_fx_gradient":
+    if subject == "thai_thin":
+        # Noto Sans Thai may contain .notdef squares for ASCII 3 and 9.
+        # An invalid ground truth can falsely pass a numerals quality gate!
+        # Render exact mixed-script text using explicit, shape-correct fonts.
+        latin_file = subprocess.check_output(
+            ["fc-match", "-f", "%{file}", "Noto Sans"], text=True
+        ).strip()
+        latin_font = ImageFont.truetype(latin_file, font_size)
+        if bytes(latin_font.getmask("3")) == bytes(latin_font.getmask("9")):
+            raise RuntimeError("Latin digits 3/9 are unsupported by reference font")
+        x = float(origin[0])
+        for chunk, selected_font in (
+            ("ชื่อ ซื้อ ", font), ("39", latin_font), (" บาท", font)
+        ):
+            painter.text((round(x), origin[1]), chunk, font=selected_font,
+                         fill=(243, 27, 29))
+            x += selected_font.getlength(chunk)
+    elif subject == "thai_fx_gradient":
         # Preserve deliberately multicolour, stylized Thai glyphs. First draw
         # an outside-only gold outline, then fill from a separate AA text mask.
         painter.text(origin, caption, font=font,
