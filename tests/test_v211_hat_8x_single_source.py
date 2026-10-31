@@ -150,7 +150,7 @@ def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path)
         assert alpha[0, 0] == 0
         assert alpha[80, 80] == 255
         assert alpha[128, 128] == 128
-        assert 0 < alpha[96, 96] < 255
+        assert 0 < alpha[40, 40] < 255
     assert log == [
         ("v2", 4, (32, 32)),
         ("hat", 4, (32, 32)),
