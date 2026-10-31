@@ -657,7 +657,7 @@ class App(tk.Tk):
         )
         selection = ttk.Combobox(
             ai, textvariable=self.v211_photo_model_var,
-            values=("V2 Real-ESRGAN (เดิม)", "V2 + SwinIR Pre-Restore (ทดลอง)", "V2 + HAT Assist (Super AI ทดลอง)"),
+            values=("V2 Real-ESRGAN (เดิม)", "V2 + NAFNet Deblur (ภาพถ่าย ทดลอง)", "V2 + SwinIR Pre-Restore (ทดลอง)", "V2 + HAT Assist (Super AI ทดลอง)"),
             state="readonly", width=39, style="Dark.TCombobox",
         )
         selection.grid(row=4, column=1, sticky="ew", pady=(5, 2))
@@ -1070,7 +1070,7 @@ class App(tk.Tk):
     def _settings(self) -> EnhanceSettings:
         s = EnhanceSettings(
             graphic_ai=self.graphic_ai_var.get(),
-            v211_photo_model=("v2_swinir_pre" if self.v211_photo_model_var.get().startswith("V2 + SwinIR ") else ("v2_hat_assist" if self.v211_photo_model_var.get().startswith("V2 + HAT ") else "real_esrgan")),
+            v211_photo_model=("v2_nafnet_deblur" if self.v211_photo_model_var.get().startswith("V2 + NAFNet ") else ("v2_swinir_pre" if self.v211_photo_model_var.get().startswith("V2 + SwinIR ") else ("v2_hat_assist" if self.v211_photo_model_var.get().startswith("V2 + HAT ") else "real_esrgan"))),
             denoise=round(self.denoise_var.get()),
             flat_smoothing=round(self.flat_var.get()),
             text_graphic_boost=round(self.text_var.get()),
@@ -1388,9 +1388,10 @@ class App(tk.Tk):
         # Check the selected backend independently. HAT is a separate model:
         # do not require the original ESRGAN weight just to start HAT.
         chosen_model = (
-            "v2_swinir_pre" if self.v211_photo_model_var.get().startswith("V2 + SwinIR ")
-            else ("v2_hat_assist" if self.v211_photo_model_var.get().startswith("V2 + HAT ")
-                  else "real_esrgan")
+            "v2_nafnet_deblur" if self.v211_photo_model_var.get().startswith("V2 + NAFNet ")
+            else ("v2_swinir_pre" if self.v211_photo_model_var.get().startswith("V2 + SwinIR ")
+                  else ("v2_hat_assist" if self.v211_photo_model_var.get().startswith("V2 + HAT ")
+                        else "real_esrgan"))
         )
         if requested_scale > 1 and not self.pipeline.selected_model_available(chosen_model):
             guidance = (
@@ -1400,6 +1401,9 @@ class App(tk.Tk):
                 "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\n\n"
                 "โปรดติดตั้งโมเดลเสริมเฉพาะที่ต้องใช้ ไม่ดาวน์โหลดอัตโนมัติ"
                 if chosen_model == "v2_swinir_pre" else
+                "V2 + NAFNet Deblur ต้องมี Real-ESRGAN ของ V2 และ NAFNet GoPro ที่ตรวจสอบ SHA-256 แล้ว\n\n"
+                "ตัวนี้ใช้กับภาพถ่ายเบลอเท่านั้น; ไม่ติดตั้งน้ำหนักโมเดลโดยอัตโนมัติ"
+                if chosen_model == "v2_nafnet_deblur" else
                 "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\n\n"
                 "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน"
             )
