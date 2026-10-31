@@ -6,15 +6,8 @@ on:
     paths:
       - 'signprint_ai/v211_verified_text.py'
       - 'tools/v211_verified_text_real_v2_qa.py'
-  # Temporary PR-visible run for first official V2/font QA; remove
-  # after inspection so future routine commits do not re-download weights.
-  pull_request:
-    branches: [fix/v21-real-quality]
-    paths:
-      - 'signprint_ai/v211_verified_text.py'
-      - 'signprint_ai/v211_hb_font.py'
-      - 'tools/v211_verified_text_real_v2_qa.py'
-      - '.github/workflows/v211-verified-text-real-v2-qa.yml'
+  # Full checkpoint QA remains on direct model/tool code pushes or manual
+  # workflow_dispatch; unrelated PR edits never redownload V2 weights.
   workflow_dispatch:
 
 jobs:
