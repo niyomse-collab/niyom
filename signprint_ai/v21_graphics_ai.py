@@ -39,6 +39,9 @@ class V21Settings(EnhanceSettings):
     v211_swinir_pre_strength: float = 0.70
     # Photo-only motion deblur -> V2 (experimental; no model bundled).
     v211_nafnet_pre_strength: float = 0.85
+    # Explicit photographic input only, full raw 1x NAFNet recovery.
+    # Never default-on or apply to text-rich signage without segmentation.
+    v211_nafnet_photo_strength: float = 1.0
 
 
 def blend_graphic_detail(photo, graphic, strength=1., protected_regions=()):
