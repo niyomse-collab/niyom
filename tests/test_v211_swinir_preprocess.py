@@ -214,3 +214,19 @@ def test_swinir_desktop_mode_selected_not_replacing_v2():
     start = inspect.getsource(App.start_processing)
     assert '"v2_swinir_pre"' in ui
     assert '"v2_swinir_pre"' in start
+
+
+
+def test_sigma15_noise_is_not_misclassified_as_a_wall_of_typographic_edges():
+    rng = np.random.default_rng(20261031)
+    clean = np.full((96, 96, 3), 128, dtype=np.uint8)
+    noisy = np.clip(
+        clean.astype("float32") + rng.normal(0, 15, clean.shape),
+        0, 255
+    ).astype("uint8")
+    restored = blend_pre_restoration(noisy, clean, strength=.8)
+    before_error = np.mean((noisy.astype("float32") - clean)**2)
+    after_error = np.mean((restored.astype("float32") - clean)**2)
+    assert after_error < before_error * .65, (
+        "Noisy photo falsely classified as all edges; source restoration ineffective"
+    )
