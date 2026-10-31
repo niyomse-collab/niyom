@@ -216,3 +216,16 @@ def test_windows_without_raqm_uses_harfbuzz_freetype_not_naive_thai(monkeypatch)
     assert np.count_nonzero(alpha) > 100
     assert np.all(alpha[:10] == 0)
     assert np.all(alpha[135:] == 0)
+
+
+
+def test_operator_rejected_source_ink_cannot_be_enabled_or_exported(tmp_path):
+    from signprint_ai.v21_graphics_ai import V21Settings
+    src, dst = tmp_path/"input.png", tmp_path/"blocked_source_ink.png"
+    Image.new("RGB", (96, 96), (60, 50, 80)).save(src)
+    settings = V21Settings(
+        ai_scale=2, face_protection=False, v211_source_guided_ink=True
+    )
+    with pytest.raises(RuntimeError, match="Source-Ink ไม่ผ่าน"):
+        adapter_with_stub().process(src, dst, settings, use_ai=True)
+    assert not dst.exists()
