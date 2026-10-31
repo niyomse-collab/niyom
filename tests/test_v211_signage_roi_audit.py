@@ -48,6 +48,52 @@ def test_matched_pair_reports_delta_without_certification(tmp_path):
         assert image.width > 3 * 20
 
 
+def test_multilingual_text_rois_are_raster_only_source_reviews(tmp_path):
+    source = tmp_path / "multiscript.png"
+    Image.new("RGB", (96, 60), (255, 255, 255)).save(source)
+    regions = tmp_path / "multiscript-rois.json"
+    regions.write_text(json.dumps({"regions": [
+        {"id": "en", "kind": "latin_text", "box": [0, 0, .3, .4]},
+        {"id": "zh", "kind": "chinese_text", "box": [.3, 0, .65, .4]},
+        {"id": "tiny", "kind": "microtext", "box": [.65, 0, 1, .4]},
+        {"id": "multi", "kind": "multiscript_text", "box": [0, .4, 1, 1]},
+    ]}), encoding="utf-8")
+    report = run_audit(source, regions, tmp_path / "qa")
+    assert report["ab_comparison_available"] is False
+    assert report["quality_improvement_certified"] is False
+    assert [r["kind"] for r in report["regions"]] == [
+        "latin_text", "chinese_text", "microtext", "multiscript_text"]
+    assert source.read_bytes() == (tmp_path / "multiscript.png").read_bytes()
+
+
+def test_foliage_texture_loss_triggers_review_not_quality_certification(tmp_path):
+    from PIL import ImageFilter
+
+    source = tmp_path / "source.png"
+    v2 = tmp_path / "v2.png"
+    candidate = tmp_path / "experimental.png"
+    Image.new("RGB", (48, 48), (40, 130, 45)).save(source)
+    rng = np.random.default_rng(20261031)
+    pixels = rng.integers(0, 256, (96, 96, 3), dtype=np.uint8)
+    # Source-only artificial texture, NOT a real customer photo/AI benchmark.
+    Image.fromarray(pixels, "RGB").save(v2, dpi=(300, 300))
+    Image.fromarray(pixels, "RGB").filter(
+        ImageFilter.GaussianBlur(3.0)
+    ).save(candidate, dpi=(300, 300))
+    regions = tmp_path / "foliage-rois.json"
+    regions.write_text(json.dumps({"regions": [
+        {"id": "leaf", "kind": "foliage", "box": [0, 0, 1, 1]}
+    ]}), encoding="utf-8")
+    out = run_audit(source, regions, tmp_path / "qa",
+                    v2=v2, super_path=candidate)
+    texture = out["regions"][0]["material_texture_diagnostic"]
+    assert texture["diagnostic_available"] is True
+    assert texture["relative_detail_energy"] < 0.65
+    assert texture["possible_texture_loss_review"] is True
+    assert out["material_review_required"] == ["leaf"]
+    assert out["quality_improvement_certified"] is False
+
+
 @pytest.mark.parametrize("bad", [
     {"regions": []},
     {"regions": [{"id": "../danger", "kind": "face", "box": [0, 0, 1, 1]}]},
