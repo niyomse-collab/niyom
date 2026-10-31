@@ -35,7 +35,7 @@ def degrade_blurred(hr, blur=9, noise=2, angle=0, seed=211):
     k=np.zeros((blur,blur),np.float32)
     cv2.line(k, (0,blur//2), (blur-1,blur//2), 1.0, 1)
     k=cv2.warpAffine(
-        k, cv2.getRotationMatrix2D((blur-1)/2*(1,1), angle, 1),
+        k, cv2.getRotationMatrix2D(((blur-1)/2.0, (blur-1)/2.0), angle, 1),
         (blur,blur), flags=cv2.INTER_LINEAR)
     k/=k.sum()
     degraded=cv2.filter2D(lr, -1, k, borderType=cv2.BORDER_REFLECT)
