@@ -10,12 +10,8 @@ on:
       - 'tools/v211_swinir_real_qa.py'
       - 'tools/v211_generate_ab.py'
       - '.github/workflows/v211-swinir-real-inference.yml'
-  pull_request:
-    branches: [fix/v21-real-quality]
-    paths:
-      - 'signprint_ai/v211_swinir_preprocess.py'
-      - 'tools/v211_swinir_real_qa.py'
-      - '.github/workflows/v211-swinir-real-inference.yml'
+  # Keep expensive checkpoint research on explicit changes or manual dispatch.
+  # PR diff filters would redownload weights on unrelated commits.
   workflow_dispatch:
 
 jobs:
