@@ -1,0 +1,54 @@
+name: V2.1.1 HAT real CPU inference (research only)
+on:
+  push:
+    branches: [feature/v2.1.1-super-ai]
+    paths:
+      - 'signprint_ai/v211_hat_engine.py'
+      - 'tools/test_v211_hat_inference.py'
+      - '.github/workflows/verify-v211-hat-inference.yml'
+  workflow_dispatch:
+
+jobs:
+  hat-real-inference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install standalone CPU HAT research runtime
+        run: |
+          # Keep a genuinely CPU-only research environment: unconstrained
+          # spandrel dependencies previously replaced CPU torch with CUDA torch.
+          python -m pip install "torch==2.5.1+cpu" "torchvision==0.20.1+cpu" --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install "spandrel==0.4.2" --no-deps
+          # Real RGBA export invokes the V2 alpha-edge preconditioner (cv2).
+          # Pin NumPy/OpenCV together to avoid untested ABI resolution.
+          python -m pip install "einops==0.8.1" "safetensors==0.5.3" "numpy==2.2.6" "opencv-python-headless==4.12.0.88" Pillow
+          python -m pip check
+          python -c "import torch, torchvision; assert torch.version.cuda is None, 'unexpected CUDA torch'; print('Verified CPU torch:', torch.__version__, 'torchvision:', torchvision.__version__)"
+      - name: Download pinned research checkpoint; do not publish weights
+        shell: python
+        run: |
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+          url = "https://huggingface.co/Acly/hat/resolve/8403819bcbf5959d54c72383f0725f2525472d30/HAT_SRx4_ImageNet-pretrain.pth"
+          target = Path("models/experimental/HAT_SRx4_ImageNet-pretrain.pth")
+          target.parent.mkdir(parents=True, exist_ok=True)
+          with urllib.request.urlopen(url, timeout=180) as incoming, target.open("wb") as dest:
+              while chunk := incoming.read(1024*1024):
+                  dest.write(chunk)
+          got = hashlib.sha256(target.read_bytes()).hexdigest()
+          assert got == "4ee053c42461187846dc0e93aa5abd34591c0725a8e044a59000e92ee215e833", got
+      - name: Execute actual HAT inference on a synthetic RGB crop
+        run: python -m tools.test_v211_hat_inference
+      - name: Save proof image and metadata only; not the model
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: V211-HAT-CPU-research-proof
+          path: hat-inference-proof/*

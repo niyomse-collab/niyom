@@ -1,0 +1,72 @@
+name: V2.1.1 official V2 source-guided typography QA (research only)
+
+on:
+  push:
+    branches: [feature/v2.1.1-super-ai]
+    paths:
+      - 'signprint_ai/v211_source_guided_ink.py'
+      - 'tools/v211_source_ink_real_qa.py'
+  # Repeated PR workflow execution would download the 67MB V2 checkpoint
+  # on documentation and unrelated branches. Restrict to direct research
+  # code pushes or an explicit maintainer workflow_dispatch.
+  workflow_dispatch:
+
+jobs:
+  real-v2-source-guided-ink:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install reproducible open-source Thai font for native-HR proof
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-noto-core
+          fc-match 'Noto Sans Thai'
+      - name: Install pinned V2 independent CPU research runtime
+        run: |
+          python -m pip install 'torch==2.5.1+cpu' 'torchvision==0.20.1+cpu' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'spandrel==0.4.2' 'basicsr==1.4.2' 'realesrgan==0.3.0' --no-deps
+          python -m pip install 'numpy==2.2.6' 'opencv-python-headless==4.12.0.88' 'Pillow==12.3.0' 'einops==0.8.1' 'safetensors==0.5.3' 'scikit-image==0.25.2' addict future lmdb pyyaml requests scipy tqdm yapf
+      - name: Check SHA256 of official V2 checkpoint
+        shell: python
+        run: |
+          import hashlib, urllib.request
+          from pathlib import Path
+          model = Path("models/RealESRGAN_x4plus.pth")
+          model.parent.mkdir(parents=True, exist_ok=True)
+          expected = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
+          url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
+          digest = hashlib.sha256()
+          with urllib.request.urlopen(url, timeout=180) as r, model.open("wb") as out:
+            while block := r.read(1024 * 1024):
+              digest.update(block)
+              out.write(block)
+          if digest.hexdigest() != expected:
+            model.unlink(missing_ok=True)
+            raise RuntimeError("Official RealESRGAN V2 weight SHA256 does not match")
+          print("Approved V2 model checkpoint verified")
+      - name: Real V2 vs source-guided red lettering on independent native HR
+        run: python -m tools.v211_source_ink_real_qa
+      - name: Preserve side-by-side native HR image evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: V211-OfficialV2-LRSourceTypography-Research
+          path: v211-source-ink-real-v2-proof/**
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Reject changes unless text improves and unrelated content is pixel-identical
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          report = json.loads(Path("v211-source-ink-real-v2-proof/SUMMARY.json").read_text(encoding="utf-8"))
+          print(report["trials"])
+          if not report["provisional_text_colour_screen"]:
+            raise SystemExit("QUALITY FAIL: source-guided typography did not beat actual V2 safely")
+          print("PROVISIONAL source-colour test passed; true Thai text/face/print quality NOT certified")

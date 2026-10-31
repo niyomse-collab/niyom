@@ -43,11 +43,18 @@ def fake_app(tmp_path):
     path.write_bytes(b"not decoded in this UI-level test")
     app.files = [path]
     app.scale_var = Var("4x")
+    app.v211_photo_model_var = Var("V2 Real-ESRGAN (เดิม)")
     app.color_mode_var = Var("RGB")
     app.format_var = Var("PNG")
     app.icc_profile_path_var = Var("")
     app.output_dir_var = Var("")
-    app.pipeline = SimpleNamespace(ai=SimpleNamespace(available=True))
+    app._model_preflight_calls = []
+    app.pipeline = SimpleNamespace(
+        ai=SimpleNamespace(available=True),
+        selected_model_available=lambda model: (
+            app._model_preflight_calls.append(model) or True
+        ),
+    )
     app.current_settings = V21Settings(
         ai_scale=4, denoise=18, flat_smoothing=18
     )
@@ -133,3 +140,11 @@ def test_changed_dpi_scale_and_format_each_invalidate_completion(tmp_path):
     App.start_processing(app)
     assert app._job_calls[-1] == (0,)
     assert app._completed_indices == set()
+
+
+def test_start_processing_checks_selected_super_ai_backend(tmp_path):
+    app = fake_app(tmp_path)
+    app.v211_photo_model_var.value = "V2 + HAT Assist (Super AI ทดลอง)"
+    App.start_processing(app)
+    assert app._model_preflight_calls == ["v2_hat_assist"]
+    assert app._job_calls == [(0,)]

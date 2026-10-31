@@ -254,7 +254,21 @@ class FaceProtectionModule:
                 "stretch", cancel,
                 (lambda v, msg: progress(80+round(v*.2), msg)) if progress else None,
                 source_image=restored)
-            return result, replace(info, mode=mode, applied=bool(count))
+            # The Recover stage may restore every selected face while Studio
+            # retouch skips an invalid/empty ROI.  Never report the Recover
+            # count as the Studio AI success count: V2.1.1 must fail closed
+            # before export if even one selected face was not processed.
+            completed = min(info.face_count, count)
+            reason = info.skipped_reason
+            if completed < len(regions):
+                reason = (
+                    f"Studio AI ฟื้นฟูใบหน้าได้เพียง {completed}/{len(regions)} ใบหน้า; "
+                    "กรุณาตรวจตำแหน่งใบหน้าและประมวลผลใหม่"
+                )
+            return result, replace(
+                info, mode=mode, applied=bool(completed),
+                face_count=completed, skipped_reason=reason,
+            )
         if str(mode).lower() == "studio":
             from .studio import apply_studio
             if source_path is None or source_regions is None:
