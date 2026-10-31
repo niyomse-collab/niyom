@@ -149,3 +149,71 @@ def test_studio_ai_reports_actual_completed_faces(monkeypatch, studio_completed)
             settings(face_mode="studio ai", face_regions=regions),
             info.as_dict(),
         )
+
+
+
+@pytest.mark.parametrize("failure", [
+    "collapsed_face_content",
+    "face_detail_collapsed",
+    "local_face_detail_collapsed",
+    "face_colour_drift",
+    "excessive_face_change",
+])
+def test_gfpgan_failed_face_audit_blocks_export_even_after_successful_inference(failure):
+    selected = ((.12, .12, .40, .65),)
+    result = {
+        "applied": True, "face_count": 1, "skipped_reason": None,
+        "face_audit": [{
+            "index": 1, "applied": True, "model": "GFPGANv1.4",
+            "heuristic_pass": False, "reason": failure,
+        }],
+    }
+    with pytest.raises(RuntimeError, match="ตรวจคุณภาพไม่ผ่าน") as error:
+        enforce_requested_face_restoration(
+            settings(face_regions=selected,
+                     v211_reject_failed_face_audit=True),
+            result,
+        )
+    assert failure in str(error.value)
+
+
+def test_all_selected_gfpgan_faces_must_pass_audit():
+    selected = ((.02, .02, .40, .43), (.56, .54, .97, .98))
+    statuses = [
+        {"index": 1, "heuristic_pass": True, "reason": "accepted"},
+        {"index": 2, "heuristic_pass": False,
+         "reason": "local_face_detail_collapsed"},
+    ]
+    with pytest.raises(RuntimeError, match="ใบหน้าที่ 2"):
+        enforce_requested_face_restoration(
+            settings(face_regions=selected,
+                     v211_reject_failed_face_audit=True),
+            {"applied": True, "face_count": 2, "skipped_reason": None,
+             "face_audit": statuses},
+        )
+    statuses[1] = {"index": 2, "heuristic_pass": True, "reason": "accepted"}
+    enforce_requested_face_restoration(
+        settings(face_regions=selected, v211_reject_failed_face_audit=True),
+        {"applied": True, "face_count": 2, "skipped_reason": None,
+         "face_audit": statuses},
+    )
+
+
+def test_incomplete_face_audit_is_not_reported_as_quality_success():
+    with pytest.raises(RuntimeError, match="ตรวจคุณภาพใบหน้าไม่ครบ"):
+        enforce_requested_face_restoration(
+            settings(face_regions=((.10, .10, .35, .40),
+                                   (.55, .55, .90, .95)),
+                     v211_reject_failed_face_audit=True),
+            {"applied": True, "face_count": 2, "skipped_reason": None,
+             "face_audit": [{"index": 1, "heuristic_pass": True}]},
+        )
+
+
+def test_accepted_v2_legacy_face_behavior_remains_unchanged():
+    enforce_requested_face_restoration(
+        settings(v211_reject_failed_face_audit=False),
+        {"applied": True, "face_count": 1, "skipped_reason": None,
+         "face_audit": [{"index": 1, "heuristic_pass": False,
+                         "reason": "face_detail_collapsed"}]},
+    )
