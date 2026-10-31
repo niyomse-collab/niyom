@@ -238,6 +238,15 @@ class NiyomSilpCoreAdapter:
 
         validate_export(dst, target_size, settings)
 
+        # Operator visually rejected the old LR-guided red-ink experiment:
+        # black/blue stains remain in SALE 30 and true glyph quality regresses.
+        # Do not let an internal flag accidentally ship this bad candidate.
+        if getattr(settings, "v211_source_guided_ink", False):
+            raise RuntimeError(
+                "V2.1.1 Source-Ink ไม่ผ่านการตรวจคุณภาพภาพจริง "
+                "โปรดใช้ V2 เดิม หรือโหมดข้อความต้นฉบับที่ยืนยันแล้ว"
+            )
+
         # Exact-text reconstruction requires supplied Unicode, actual installed
         # font and final pixel ROI. Reject missing/misaligned details *before*
         # the expensive AI pass. Never apply to unsupported disk-backed output.
@@ -396,22 +405,6 @@ class NiyomSilpCoreAdapter:
                 output, settings=settings,
                 protected_regions=(settings.face_regions if settings.face_protection else None),
             )
-            # V2.1.1 isolated research: source-guided ink is not a generic
-            # photo filter, and must run BEFORE GFPGAN face recovery.
-            # Large/disk-backed exports are rejected below while unverified.
-            if getattr(settings, "v211_source_guided_ink", False):
-                from .v211_source_guided_ink import restore_source_guided_ink
-                with Image.open(src) as original:
-                    source_for_ink = ImageOps.exif_transpose(original)
-                    output, _ = restore_source_guided_ink(
-                        output, source_for_ink,
-                        strength=getattr(settings,
-                                         "v211_source_guided_ink_strength", 1.0),
-                        protected_regions=(
-                            settings.face_regions if settings.face_protection
-                            else ()
-                        )
-                    )
 
         # Retouch before free resizing: detector and facial geometry see the
         # original aspect ratio. Final resizing transforms the whole image once.
