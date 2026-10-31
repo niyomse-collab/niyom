@@ -13,6 +13,13 @@ on:
       - '.github/workflows/v211-swinir-real-inference.yml'
   # Keep expensive checkpoint research on explicit changes or manual dispatch.
   # PR diff filters would redownload weights on unrelated commits.
+  # Temporary PR gate for the newly introduced native-HR reference QA.
+  # Remove after verifying the first real checkpoint run to avoid repeat downloads.
+  pull_request:
+    branches: [fix/v21-real-quality]
+    paths:
+      - 'tools/v211_true_hr_benchmark.py'
+      - '.github/workflows/v211-swinir-real-inference.yml'
   workflow_dispatch:
 
 jobs:
