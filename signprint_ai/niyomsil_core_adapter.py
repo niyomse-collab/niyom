@@ -57,6 +57,12 @@ class NiyomSilpCoreAdapter:
         """
         if model_name == "real_esrgan":
             return self.available
+        if model_name == "v2_swinir_pre":
+            try:
+                from .v211_swinir_preprocess import swinir_checkpoint_path
+                return self.available and swinir_checkpoint_path().is_file()
+            except (OSError, RuntimeError):
+                return False
         if model_name in ("hat", "v2_hat_assist"):
             try:
                 from .v211_hat_engine import checkpoint_path
@@ -99,6 +105,28 @@ class NiyomSilpCoreAdapter:
                 protected_regions=(settings.face_regions if settings.face_protection else ())
             )
             return engine
+        elif selected_model == "v2_swinir_pre":
+            # A distinct, 1x neural denoiser prepares source photographs
+            # BEFORE the exact accepted V2 upscaler. Selected faces/text
+            # regions are protected; V2 GFPGAN still runs afterward.
+            from .v211_swinir_preprocess import SwinIRColorDenoiser, PreRestoreV2Engine
+            v2_engine = self.engine_manager.create_engine(settings.device)
+            if (getattr(settings, "graphic_ai", False)
+                    and settings.text_graphic_boost > 0):
+                from .v21_graphics_ai import GraphicDetailEngine
+                graphics = GraphicDetailEngine(
+                    v2_engine, settings.text_graphic_boost / 100.,
+                    settings.face_regions if settings.face_protection else ()
+                )
+            else:
+                graphics = v2_engine
+            denoiser = SwinIRColorDenoiser(v2_engine.selected)
+            return PreRestoreV2Engine(
+                graphics, denoiser,
+                strength=float(getattr(settings, "v211_swinir_pre_strength", .70)),
+                protected_regions=(settings.face_regions
+                                   if settings.face_protection else ()),
+            )
         elif selected_model == "real_esrgan":
             engine = self.engine_manager.create_engine(settings.device)
         else:
@@ -232,7 +260,11 @@ class NiyomSilpCoreAdapter:
                         raise InterruptedError("Processing stopped by user")
                     if progress:
                         progress(48, "NiyomSilp Design Engine · pass 2/2 · 2x")
-                    engine.enhance(
+                    # Pre-restoration is source-only. Do NOT denoise the
+                    # already-upscaled 4x image during the second 8x pass.
+                    followup_engine = (engine.next_pass_engine()
+                                       if hasattr(engine, "next_pass_engine") else engine)
+                    followup_engine.enhance(
                         stage4,
                         final_ai,
                         scale=2,
@@ -418,7 +450,7 @@ class NiyomSilpCoreAdapter:
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",
-            "model": ("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1 else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus")),
+            "model": ("V2 RealESRGAN_x4plus + SwinIR pre-denoise" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1 else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus"))),
             "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
