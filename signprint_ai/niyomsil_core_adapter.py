@@ -238,6 +238,36 @@ class NiyomSilpCoreAdapter:
 
         validate_export(dst, target_size, settings)
 
+        # Exact-text reconstruction requires supplied Unicode, actual installed
+        # font and final pixel ROI. Reject missing/misaligned details *before*
+        # the expensive AI pass. Never apply to unsupported disk-backed output.
+        verified_regions = getattr(settings, "v211_verified_text_regions", ())
+        if verified_regions:
+            from .v211_verified_text import _validate as validate_exact_text
+            for region in verified_regions:
+                validate_exact_text(region, target_size)
+            if getattr(settings, "face_protection", False):
+                if settings.face_regions is None:
+                    raise ValueError(
+                        "กรุณายืนยันบริเวณใบหน้าก่อนแทนที่ตัวอักษร "
+                        "เพื่อไม่ให้ข้อความทับใบหน้า"
+                    )
+                from .face_module.detection import map_regions
+                face_boxes = map_regions(
+                    settings.face_regions, source_size, target_size,
+                    settings.resize_mode
+                )
+                for region in verified_regions:
+                    rx1, ry1 = region.x/target_size[0], region.y/target_size[1]
+                    rx2 = (region.x+region.width)/target_size[0]
+                    ry2 = (region.y+region.height)/target_size[1]
+                    for x1, y1, x2, y2 in face_boxes:
+                        if rx1 < x2 and rx2 > x1 and ry1 < y2 and ry2 > y1:
+                            raise ValueError(
+                                "พื้นที่ข้อความทับใบหน้าที่เลือก "
+                                "กรุณาเลื่อนหรือย่อบริเวณข้อความ"
+                            )
+
         # V2.1.1 research-only photo NAFNet must never touch already-sharp
         # photographs, RGBA logo cutouts, or unconfirmed face selections.
         # Decide before creating AI weights or disk-backed print rasters.
@@ -250,6 +280,11 @@ class NiyomSilpCoreAdapter:
                 progress(1, "Photo AI ไม่เหมาะกับภาพนี้ — ใช้ V2 เดิมเพื่อรักษาคุณภาพ")
 
         if needs_streaming(source_size, target_size, model_scale if use_ai else 1):
+            if verified_regions:
+                raise RuntimeError(
+                    "V2.1.1 Exact Text ยังไม่ผ่านการตรวจงานขนาดใหญ่ "
+                    "ให้ใช้ไฟล์ PNG ตัวอักษรโปร่งใสแยกเลเยอร์ใน Photoshop"
+                )
             if getattr(settings, "v211_source_guided_ink", False):
                 raise RuntimeError(
                     "V2.1.1 Source Ink เป็นโหมดวิจัยขนาดเล็กเท่านั้น "
@@ -463,6 +498,18 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
+        # Exact glyphs are drawn only at the FINAL output dimensions so
+        # neither Real-ESRGAN nor GFPGAN can alter Thai marks after shaping.
+        verified_audits = None
+        if verified_regions:
+            from .v211_verified_text import apply_verified_regions
+            had_alpha = "A" in output.getbands()
+            output, verified_audits = apply_verified_regions(
+                output, verified_regions
+            )
+            if not had_alpha:
+                output = output.convert("RGB")
+
         if progress:
             progress(96, "Save Output")
 
@@ -526,4 +573,5 @@ class NiyomSilpCoreAdapter:
             "runtime": "PyTorch",
             "face_protection": face_info,
             "photo_preflight": photo_preflight,
+            "verified_exact_text": verified_audits,
         }
