@@ -6,13 +6,9 @@ on:
     paths:
       - 'signprint_ai/v211_source_guided_ink.py'
       - 'tools/v211_source_ink_real_qa.py'
-      - '.github/workflows/v211-source-ink-real-v2-qa.yml'
-  pull_request:
-    branches: [fix/v21-real-quality]
-    paths:
-      - 'signprint_ai/v211_source_guided_ink.py'
-      - 'tools/v211_source_ink_real_qa.py'
-      - '.github/workflows/v211-source-ink-real-v2-qa.yml'
+  # Repeated PR workflow execution would download the 67MB V2 checkpoint
+  # on documentation and unrelated branches. Restrict to direct research
+  # code pushes or an explicit maintainer workflow_dispatch.
   workflow_dispatch:
 
 jobs:
