@@ -93,3 +93,36 @@ def test_bounded_qa_does_not_allocate_a_whole_vinyl_master():
     _check_qa_size((500, 500))
     with pytest.raises(ValueError, match="16 megapixels"):
         _check_qa_size((20000, 12000))
+
+
+def test_ab_flags_flat_ink_changes_for_human_review(tmp_path):
+    v2, enhanced = _write_pair(tmp_path)
+    # Change a broad uniform fill rather than just the existing boundary.
+    with Image.open(enhanced) as image:
+        pixels = np.asarray(image).copy()
+    pixels[5:25, 5:20] = (210, 20, 40)
+    Image.fromarray(pixels).save(enhanced, dpi=(300, 300))
+    result = compare_images(v2, enhanced)
+    assert result["review_required"] is True
+    assert "flat_ink_colour_changed_review_required" in result["review_flags"]
+    assert result["quality_improvement_certified"] is False
+
+
+def test_ab_flags_selected_face_changes_without_claiming_identity(tmp_path):
+    v2, enhanced = _write_pair(tmp_path)
+    with Image.open(enhanced) as image:
+        pixels = np.asarray(image).copy()
+    pixels[2:8, 2:8] = (220, 20, 40)
+    Image.fromarray(pixels).save(enhanced, dpi=(300, 300))
+    result = compare_images(v2, enhanced, face_regions=((0, 0, 0.3, 0.5),))
+    assert "selected_face_changed_review_required" in result["review_flags"]
+    assert result["face_identity_certified"] is False
+
+
+def test_ab_flags_identical_results_as_no_evidence_of_improvement(tmp_path):
+    v2, enhanced = _write_pair(tmp_path)
+    with Image.open(v2) as image:
+        image.save(enhanced, dpi=(300, 300))
+    result = compare_images(v2, enhanced)
+    assert "identical_results_no_observed_pixel_improvement" in result["review_flags"]
+    assert result["quality_improvement_certified"] is False
