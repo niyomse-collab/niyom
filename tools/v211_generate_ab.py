@@ -62,7 +62,7 @@ def run_pair(source, destination, *, scale=2, dpi=300, device="AUTO",
     _check_qa_size((width * scale, height * scale))
     selected_faces = _validate_faces([list(f) for f in faces])
     engine = adapter if adapter is not None else NiyomSilpCoreAdapter()
-    if assist_model not in ("v2_hat_assist", "v2_swinir_pre", "v2_nafnet_deblur"):
+    if assist_model not in ("v2_hat_assist", "v2_swinir_pre", "v2_nafnet_deblur", "v2_nafnet_photo_only"):
         raise ValueError("Unknown A/B assistant model")
     if not engine.selected_model_available(assist_model):
         raise RuntimeError("V2 + selected AI comparison requires both verified model weights")
@@ -87,6 +87,7 @@ def run_pair(source, destination, *, scale=2, dpi=300, device="AUTO",
         "v2_hat_assist": "V211_V2_plus_HAT.png",
         "v2_swinir_pre": "V211_V2_plus_SwinIR.png",
         "v2_nafnet_deblur": "V211_V2_plus_NAFNet.png",
+        "v2_nafnet_photo_only": "V211_V2_plus_NAFNet_PhotoOnly.png",
     }[assist_model]
     assisted = destination / assisted_name
     first = engine.process(
@@ -122,7 +123,7 @@ def main(argv=None):
     parser.add_argument("--scale", choices=(2, 4), type=int, default=2)
     parser.add_argument("--dpi", type=int, default=300)
     parser.add_argument("--device", default="AUTO")
-    parser.add_argument("--assist", choices=("v2_hat_assist", "v2_swinir_pre", "v2_nafnet_deblur"), default="v2_hat_assist")
+    parser.add_argument("--assist", choices=("v2_hat_assist", "v2_swinir_pre", "v2_nafnet_deblur", "v2_nafnet_photo_only"), default="v2_hat_assist")
     parser.add_argument("--faces", type=Path, help="Optional private JSON face ROI list")
     parser.add_argument("--face-mode", choices=("recover", "studio ai"), default="recover")
     parser.add_argument("--face-strength", type=int, default=65)
