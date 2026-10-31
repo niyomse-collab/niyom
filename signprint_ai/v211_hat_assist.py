@@ -33,15 +33,34 @@ def blend_v2_with_hat(v2_pixels, hat_pixels, strength=0.85, protected_regions=()
     base_detail = base_luma - cv2.GaussianBlur(base_luma, (0, 0), 1.35)
     hat_detail = hat_luma - cv2.GaussianBlur(hat_luma, (0, 0), 1.35)
     delta = np.clip(hat_detail - base_detail, -38.0, 38.0)
-    # Detect existing edges in RGB, not only grayscale brightness. Opposing
-    # saturated sign colours can have almost equal luminance even though
-    # their contour is visually strong; grayscale-only masking misses them.
+    # Regression seen in the real two-model A/B: an RGB edge mask alone
+    # accepted HAT-created ringing/stripes around a circle and a thin line.
+    # Require the HAT gradient to sharpen an ALREADY PRESENT V2 contour in
+    # the SAME direction. Reject shifted edges, blur and new background detail.
     rgb_float = v2_pixels.astype(np.float32)
+    hat_float = hat_pixels.astype(np.float32)
     gx = cv2.Sobel(rgb_float, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(rgb_float, cv2.CV_32F, 0, 1, ksize=3)
-    edge_strength = np.sqrt(gx * gx + gy * gy).max(axis=2)
-    # Apply only near an existing V2 edge. A flat region stays V2-identical.
-    edge_weight = np.clip(edge_strength / 65.0, 0.0, 1.0)
+    hat_gx = cv2.Sobel(hat_float, cv2.CV_32F, 1, 0, ksize=3)
+    hat_gy = cv2.Sobel(hat_float, cv2.CV_32F, 0, 1, ksize=3)
+    power = np.sum(gx * gx + gy * gy, axis=2)
+    hat_power = np.sum(hat_gx * hat_gx + hat_gy * hat_gy, axis=2)
+    edge_strength = np.sqrt(power)
+    hat_strength = np.sqrt(hat_power)
+    alignment = (
+        np.sum(gx * hat_gx + gy * hat_gy, axis=2)
+        / np.maximum(edge_strength * hat_strength, 1e-5)
+    )
+    edge_ratio = hat_strength / np.maximum(edge_strength, 1e-5)
+    coherent = (
+        (edge_strength >= 140.0)
+        & (edge_ratio >= 1.05)
+        & (edge_ratio <= 1.65)
+        & (alignment >= 0.975)
+        & (base_detail * hat_detail >= 0)
+    )
+    gain = np.clip((edge_ratio - 1.0) * 3.0, 0.0, 1.0)
+    edge_weight = coherent.astype(np.float32) * gain
 
     rgb = v2_pixels.astype(np.int16)
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
@@ -66,11 +85,16 @@ def blend_v2_with_hat(v2_pixels, hat_pixels, strength=0.85, protected_regions=()
     # result to [0,255] would clip just red (or blue) on a saturated logo,
     # changing channel differences and washing out the V2 brand colour.
     base = v2_pixels.astype(np.float32)
-    signed_detail = delta * weight
-    available_up = 255.0 - np.max(base, axis=2)
-    available_down = np.min(base, axis=2)
+    # The original +/-38 range caused faint parallel contours around solid
+    # strokes and made a synthetic circle visibly worse than V2. Cap transfer
+    # at +/-12, and forbid overshoot beyond the local V2 3x3 range (+/-6).
+    signed_detail = np.clip(delta * weight, -12.0, 12.0)
+    near_min = cv2.erode(v2_pixels, np.ones((3, 3), np.uint8)).astype(np.float32)
+    near_max = cv2.dilate(v2_pixels, np.ones((3, 3), np.uint8)).astype(np.float32)
+    allowed_up = np.min(np.minimum(near_max + 6.0, 255.0) - base, axis=2)
+    allowed_down = np.min(base - np.maximum(near_min - 6.0, 0.0), axis=2)
     signed_detail = np.maximum(
-        -available_down, np.minimum(signed_detail, available_up)
+        -allowed_down, np.minimum(signed_detail, allowed_up)
     )
     # Quantize the offset ONCE per pixel. Rounding each channel separately
     # can diverge at exactly half-integer offsets (banker's rounding depends
