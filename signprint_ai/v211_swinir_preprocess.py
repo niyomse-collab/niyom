@@ -183,9 +183,20 @@ class PreRestoreV2Engine:
     def enhance_graphic_tile(self, pixels, scale, cancel, protected_regions=()):
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
+        # The large-image tile adapter expresses a partially overlapping
+        # face ROI in tile coordinates; clipping prevents out-of-range masks
+        # and keeps the face excluded even on boundary tiles.
+        cropped_regions = []
+        for x1, y1, x2, y2 in protected_regions or ():
+            if not all(math.isfinite(float(v)) for v in (x1, y1, x2, y2)):
+                raise ValueError("Invalid face region in source tile")
+            a, b = max(0., float(x1)), max(0., float(y1))
+            c, d = min(1., float(x2)), min(1., float(y2))
+            if c > a and d > b:
+                cropped_regions.append((a, b, c, d))
         denoised = self.denoiser.denoise_tile(pixels, cancel)
         restored = blend_pre_restoration(
-            pixels, denoised, self.strength, protected_regions
+            pixels, denoised, self.strength, tuple(cropped_regions)
         )
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
