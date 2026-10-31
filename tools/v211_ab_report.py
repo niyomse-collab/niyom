@@ -16,6 +16,19 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
+# Diagnostic arrays are per-pixel float/int tensors. Large vinyl masters
+# must be compared on representative crops, not forced into RAM at once.
+MAX_QA_PIXELS = 16_000_000
+
+
+def _check_qa_size(size):
+    if size[0] * size[1] > MAX_QA_PIXELS:
+        raise ValueError(
+            "A/B diagnostic exceeds 16 megapixels. Export the same "
+            "representative crop from V2 and V2.1.1 at identical pixels "
+            "before running this local quality check."
+        )
+
 
 def _rgb_and_alpha(image: Image.Image):
     rgba = np.asarray(image.convert("RGBA"))
@@ -56,6 +69,7 @@ def compare_images(v2_path, super_path, *, face_regions=()):
     with Image.open(v2_path) as v2_image, Image.open(super_path) as super_image:
         if v2_image.size != super_image.size:
             raise ValueError("Comparison invalid: different output pixel dimensions")
+        _check_qa_size(v2_image.size)
         meta_v2, meta_super = _metadata(v2_image), _metadata(super_image)
         if v2_image.info.get("icc_profile") != super_image.info.get("icc_profile"):
             raise ValueError("Comparison invalid: ICC profiles differ")
@@ -119,6 +133,7 @@ def render_comparison(v2_path, super_path, output_path):
     with Image.open(v2_path) as first, Image.open(super_path) as second:
         if first.size != second.size:
             raise ValueError("Cannot render unequal-sized comparison images")
+        _check_qa_size(first.size)
         # Flat grey matte makes transparent PNGs comparable without revealing
         # arbitrary hidden RGB values and without changing their source files.
         def matte(image):
