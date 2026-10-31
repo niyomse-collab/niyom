@@ -119,6 +119,18 @@ class HATAssistEngine:
             tile_pad=max(v2_engine.upsampler.tile_pad, hat_engine.upsampler.tile_pad),
         )
 
+    def next_pass_engine(self):
+        """8x second pass uses approved V2 only, never HAT twice.
+
+        HAT assists V2 on the ORIGINAL source in the 4x pass. Re-running
+        HAT on a 4x intermediate would double the experimental sharpening,
+        create false detail, and require far more GPU memory. The adapter
+        and disk-tile processor both call this after the first 8x pass.
+        If V2 was wrapped by experimental graphic-detail enhancement,
+        unwrap it too: the validated V2 upscaler owns the second pass.
+        """
+        return getattr(self.v2, "photo", self.v2)
+
     def device_name(self):
         return self.v2.device_name()
 
