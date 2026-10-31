@@ -8,6 +8,7 @@ on:
       - 'signprint_ai/v211_swinir_preprocess.py'
       - 'signprint_ai/niyomsil_core_adapter.py'
       - 'tools/v211_nafnet_real_qa.py'
+      - 'tools/v211_nafnet_photo_qa.py'
       - 'tools/v211_generate_ab.py'
       - '.github/workflows/v211-nafnet-real-inference.yml'
   # Real-weight download is expensive. Restrict automatic runs to directly
@@ -29,7 +30,7 @@ jobs:
         run: |
           python -m pip install 'torch==2.5.1+cpu' 'torchvision==0.20.1+cpu' --index-url https://download.pytorch.org/whl/cpu
           python -m pip install 'spandrel==0.4.2' 'basicsr==1.4.2' 'realesrgan==0.3.0' --no-deps
-          python -m pip install 'numpy==2.2.6' 'opencv-python-headless==4.12.0.88' 'Pillow==12.3.0' 'einops==0.8.1' 'safetensors==0.5.3' addict future lmdb pyyaml requests scipy tqdm yapf
+          python -m pip install 'numpy==2.2.6' 'opencv-python-headless==4.12.0.88' 'Pillow==12.3.0' 'einops==0.8.1' 'safetensors==0.5.3' addict future lmdb pyyaml requests scipy tqdm yapf 'scikit-image==0.25.2'
       - name: Verify exact upstream Real-ESRGAN and NAFNet-GoPro weight SHA256
         shell: python
         run: |
@@ -64,12 +65,16 @@ jobs:
             print(destination.name, destination.stat().st_size, "SHA256 verified")
       - name: TRUE native high-resolution A-B with actual V2 and NAFNet inference
         run: python -m tools.v211_nafnet_real_qa
+      - name: Photo-only NAFNet ablation (genuine photo, raw vs guarded vs V2)
+        run: python -m tools.v211_nafnet_photo_qa
       - name: Preserve research evidence even when quality loses to V2
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: V211-NAFNet-GoPro-V2-TrueHR-AB-Research
-          path: v211-nafnet-true-hr-proof/**
+          path: |
+            v211-nafnet-true-hr-proof/**
+            v211-nafnet-photo-proof/**
           retention-days: 14
           if-no-files-found: warn
       - name: Enforce native-HR quality gate — never call a regression a pass
