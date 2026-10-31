@@ -1,4 +1,4 @@
-# V2.1.1 effect-text and mixed-sign QA protocol (research; NOT acceptance)
+> **คำสั่งล่าสุดของเจ้าของงาน (31 ต.ค. 2569) — ใช้เกณฑ์ใหม่เป็นหลัก:** V2.1.1 เป็นโปรแกรม *ปรับคุณภาพและขยายภาพ Raster เท่านั้น* ไม่แก้ไข/เขียน/วาดตัวอักษรทับ ไม่ว่าจะไทย อังกฤษ จีน หรือภาษาอื่น โหมด Verified Text ที่เคยระบุด้านล่างเป็นแนวคิดเก่าและ **ถูกปิดจากเส้นทางประมวลผล V2.1.1 แล้ว**. ให้ยึด [IMAGE-ONLY RESTORATION CONTRACT](V211_IMAGE_ONLY_RECOVERY_ACCEPTANCE.md) แทนข้อความเก่าที่ขัดแย้งกัน.\n\n# V2.1.1 effect-text and mixed-sign QA protocol (research; NOT acceptance)
 
 Status: **SPECIFICATION ONLY**. No effect-retention model or benchmark is implemented or certified by this document. The five user-described artworks are *visual references*, not paired degraded input/native-HR ground truths; they must not be copied into public GitHub or public CI artifacts.
 
