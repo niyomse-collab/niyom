@@ -109,6 +109,42 @@ def blend_photo_deblur(original: np.ndarray, deblurred: np.ndarray,
     return out
 
 
+def blend_photo_only(original: np.ndarray, deblurred: np.ndarray,
+                     strength: float = 1.0, protected_regions=()) -> np.ndarray:
+    """Photo-only experiment: transfer NAFNet's actual restored RGB signal.
+
+    The earlier sign-ink high-pass blend discarded much of NAFNet's useful
+    low-frequency correction on genuine photographs (raw +4.63dB source PSNR
+    vs protected +1.55dB on an astronaut motion-blur sample). This path is
+    EXPLICITLY for photographs, not a poster containing text/logos. Selected
+    face ROIs remain bitwise original ahead of V2 GFPGAN restoration.
+    """
+    if (original.shape != deblurred.shape or original.ndim != 3
+            or original.shape[-1] != 3
+            or original.dtype != np.uint8 or deblurred.dtype != np.uint8):
+        raise ValueError("NAFNet photo-only requires matching uint8 RGB")
+    if not math.isfinite(strength) or not 0 <= strength <= 1:
+        raise ValueError("NAFNet photo-only strength must be finite 0..1")
+    if strength == 0:
+        return original.copy()
+    blended = np.rint(
+        original.astype(np.float32) * (1.0-strength)
+        + deblurred.astype(np.float32) * strength
+    ).astype(np.uint8)
+    h, w = original.shape[:2]
+    for rect in protected_regions or ():
+        if len(rect) != 4 or not all(math.isfinite(float(v)) for v in rect):
+            raise ValueError("Invalid photo-only face rectangle")
+        x1, y1, x2, y2 = map(float, rect)
+        if not 0 <= x1 < x2 <= 1 or not 0 <= y1 < y2 <= 1:
+            raise ValueError("NAFNet photo-only face selection must be normalized")
+        margin = max(4, round(min((x2-x1)*w, (y2-y1)*h)*.15))
+        l, t = max(0, math.floor(x1*w)-margin), max(0, math.floor(y1*h)-margin)
+        r, b = min(w, math.ceil(x2*w)+margin), min(h, math.ceil(y2*h)+margin)
+        blended[t:b, l:r] = original[t:b, l:r]
+    return blended
+
+
 class NAFNetGoProDeblurrer:
     """Bounded 1x NAFNet deblur. Shares source-tile orchestration with SwinIR."""
 
