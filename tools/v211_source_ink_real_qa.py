@@ -19,6 +19,59 @@ from tools.v211_ink_real_v2_qa import (
 )
 
 
+
+def thai_reference(subject):
+    """Native-HR Thai pixels are drawn FIRST with real RAQM Thai shaping.
+
+    Pure research samples with correctly specified source strings, not OCR.
+    These NEVER replace a customer's image or prove exact text recognition.
+    """
+    import subprocess
+    from PIL import ImageDraw, ImageFont
+
+    if subject not in ("thai_thick", "thai_thin", "thai_fx_gradient"):
+        raise ValueError(subject)
+    font_file = subprocess.check_output(
+        ["fc-match", "-f", "%{file}", "Noto Sans Thai"], text=True
+    ).strip()
+    if "NotoSansThai" not in Path(font_file).name:
+        raise RuntimeError("Real Thai benchmark requires NotoSansThai")
+    if not ImageFont.core.HAVE_RAQM:
+        raise RuntimeError("Real Thai benchmark requires RAQM shaping")
+    w, h = 576, 192
+    bg = ((30, 36, 61) if subject == "thai_thin" else (62, 58, 86))
+    caption = {
+        "thai_thick": "ซื้อ ชื่อ โปรโมชั่น",
+        "thai_thin": "ชื่อ ซื้อ 39 บาท",
+        "thai_fx_gradient": "โปรโมชั่น",
+    }[subject]
+    font_size = 22 if subject == "thai_thin" else 40
+    font = ImageFont.truetype(
+        font_file, font_size, layout_engine=ImageFont.Layout.RAQM
+    )
+    origin = (24, 57)
+    art = Image.new("RGB", (w, h), bg)
+    painter = ImageDraw.Draw(art)
+    if subject == "thai_fx_gradient":
+        # Preserve deliberately multicolour, stylized Thai glyphs. First draw
+        # an outside-only gold outline, then fill from a separate AA text mask.
+        painter.text(origin, caption, font=font,
+                     fill=(243, 185, 21), stroke_width=3,
+                     stroke_fill=(243, 185, 21))
+        ink_mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(ink_mask).text(
+            origin, caption, font=font, fill=255
+        )
+        ramp = np.empty((h, w, 3), dtype=np.uint8)
+        ramp[..., 0] = np.linspace(145, 247, w).astype(np.uint8)
+        ramp[..., 1] = 30
+        ramp[..., 2] = 38
+        art.paste(Image.fromarray(ramp), (0, 0), ink_mask)
+    else:
+        painter.text(origin, caption, font=font, fill=(243, 27, 29))
+    return np.asarray(art).copy()
+
+
 def run(destination=Path("v211-source-ink-real-v2-proof")):
     _basic_sr_import_compat()
     from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
@@ -41,10 +94,14 @@ def run(destination=Path("v211-source-ink-real-v2-proof")):
     # Instead run the official V2 model once, and apply an isolated local
     # postprocess to its final output for A/B evidence only.
     trials = {}
-    for subject in ("letters", "blocks", "curves", "photo_control"):
+    for subject in ("letters", "blocks", "curves", "photo_control",
+                    "thai_thick", "thai_thin", "thai_fx_gradient"):
         folder = destination / subject
         folder.mkdir(parents=True, exist_ok=True)
-        truth = np.ascontiguousarray(independent_hr(subject))
+        truth = np.ascontiguousarray(
+            thai_reference(subject) if subject.startswith("thai_")
+            else independent_hr(subject)
+        )
         source = folder / "LOW_RES_DEGRADED.png"
         Image.fromarray(truth).save(folder / "TRUE_HIGH_RES_REFERENCE.png")
         Image.fromarray(low_res_degradation(truth)).save(source)
@@ -85,14 +142,23 @@ def run(destination=Path("v211-source-ink-real-v2-proof")):
         and trials["letters"]["ssim_gain"] >= 0
         and all(trials[k]["pixel_exact"] for k in
                 ("blocks", "curves", "photo_control"))
+        # Genuine Thai pixels from the source font; fail the experimental
+        # research gate for harmful changes, especially thin tone marks.
+        and trials["thai_thick"]["psnr_gain_db"] >= .25
+        and trials["thai_thick"]["ssim_gain"] >= 0
+        and all(trials[k]["psnr_gain_db"] >= -.02
+                and trials[k]["ssim_gain"] >= -.0002
+                for k in ("thai_thin", "thai_fx_gradient"))
     )
     report = {
         "model": "Approved V2 RealESRGAN_x4plus + LR source-guided ink",
         "real_weight_inference": True,
         "production_app_source_ink_still_blocked": True,
+        "native_hr_thai_text_rendered_before_degradation": True,
+        "known_text_no_ocr_or_generated_glyphs": True,
         "provisional_text_colour_screen": screen,
         "quality_release_approved": False,
-        "remaining": ["actual Thai diacritics", "letter topology",
+        "remaining": ["human review of actual Thai diacritics", "letter topology",
                       "PNG/TIFF with AI GPU", "large vinyl prints",
                       "GFPGAN face identity", "MainTop RIP"],
         "trials": trials,
