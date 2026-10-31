@@ -27,6 +27,10 @@ class V21Settings(EnhanceSettings):
     # Never enable by default before real V2 and Thai print acceptance.
     v211_ink_geometry: bool = False
     v211_ink_geometry_strength: float = 1.0
+    # Experimental low-resolution source-constrained ink colour correction.
+    # OFF until real V2, Thai glyph, portrait and print acceptance.
+    v211_source_guided_ink: bool = False
+    v211_source_guided_ink_strength: float = 1.0
     # Experimental transfer is opt-in; preserve the established photo core by default.
     graphic_ai: bool = False
     # V2.1-only experimental flat-fill cleanup. Legacy EnhanceSettings has no flag.
