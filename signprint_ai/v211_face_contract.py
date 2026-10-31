@@ -40,6 +40,29 @@ def enforce_requested_face_restoration(settings, face_info, *, use_ai=True, mode
     # Disk-tile restoration may partially succeed while recording a skip reason.
     if (info.get("applied") and restored_count >= required_count
             and not info.get("skipped_reason")):
+        # GFPGAN inference can finish and still produce an obvious bad face:
+        # washed-out eyes, erased mouth or major colour drift. V2.1.1 is
+        # fail-closed on *audited failures*, never silently substitutes an
+        # unretouched blurry face or saves the bad crop. The accepted V2
+        # processor itself is unchanged.
+        if getattr(settings, "v211_reject_failed_face_audit", False):
+            audits = info.get("face_audit") or ()
+            for audit in audits:
+                if audit.get("heuristic_pass") is False:
+                    index = audit.get("index", "?")
+                    reason = str(audit.get("reason") or "quality_audit_failed")
+                    raise RuntimeError(
+                        f"V2.1.1: ฟื้นฟูใบหน้าที่ {index} แล้วแต่ตรวจคุณภาพไม่ผ่าน "
+                        f"({reason}) จึงหยุดก่อนส่งออก กรุณาตรวจใบหน้า "
+                        "ปรับ Face Strength แล้วประมวลผลใหม่"
+                    )
+            # Explicit audited results must cover every successfully applied
+            # face; no quiet omission of a failed/unaudited selected face.
+            if audits and len(audits) < required_count:
+                raise RuntimeError(
+                    "V2.1.1: รายงานตรวจคุณภาพใบหน้าไม่ครบจำนวนที่เลือก "
+                    "หยุดก่อนส่งออกเพื่อป้องกันใบหน้าเพี้ยน"
+                )
         return
     if 0 < restored_count < required_count:
         reason = f"ฟื้นฟูได้เพียง {restored_count}/{required_count} ใบหน้า; {reason}"
