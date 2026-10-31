@@ -11,16 +11,10 @@ on:
       - 'tools/v211_generate_ab.py'
       - 'tools/v211_ab_report.py'
       - '.github/workflows/verify-v211-real-dual-inference.yml'
-  pull_request:
-    branches: [fix/v21-real-quality]
-    paths:
-      - 'signprint_ai/v211_hat_assist.py'
-      - 'signprint_ai/v211_hat_engine.py'
-      - 'signprint_ai/niyomsil_core_adapter.py'
-      - 'tools/v211_real_dual_model_qa.py'
-      - 'tools/v211_generate_ab.py'
-      - 'tools/v211_ab_report.py'
-      - '.github/workflows/verify-v211-real-dual-inference.yml'
+  # This pinned-weight CPU job is expensive. PR path filtering checks the
+  # entire PR diff against its base and would rerun for documentation-only
+  # updates. Push-path filters trigger only when these model/QA files change.
+  # Maintainers may also start it manually with workflow_dispatch.
   workflow_dispatch:
 
 jobs:
