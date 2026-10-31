@@ -90,13 +90,17 @@ def compare_images(v2_path, super_path, *, face_regions=()):
     face = _regions_to_mask(face_regions, width, height) & visible
     delta = np.abs(base.astype(np.int16) - enhanced.astype(np.int16))
     maximum = delta.max(axis=2)
-    gray = cv2.cvtColor(base, cv2.COLOR_RGB2GRAY)
-    edge_x = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
-    edge_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
-    edge = cv2.magnitude(edge_x, edge_y) > 45
-    edge &= visible
+    # Printed RGB artwork can have strong *chroma* edges with almost the
+    # same grayscale luminance (red text against blue fills). A grayscale
+    # Sobel edge detector incorrectly classified those as flat ink regions.
+    # Evaluate the strongest channel gradient, not only brightness.
+    rgb = base.astype(np.float32)
+    edge_x = cv2.Sobel(rgb, cv2.CV_32F, 1, 0, ksize=3)
+    edge_y = cv2.Sobel(rgb, cv2.CV_32F, 0, 1, ksize=3)
+    edge_strength = np.sqrt(edge_x * edge_x + edge_y * edge_y).max(axis=2)
+    edge = (edge_strength > 45) & visible
     # Flat print fills are identified from V2, not from the new result.
-    flat = (cv2.magnitude(edge_x, edge_y) < 7) & visible & ~face
+    flat = (edge_strength < 7) & visible & ~face
 
     def measure(mask):
         if not mask.any():
