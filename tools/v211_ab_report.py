@@ -111,6 +111,26 @@ def compare_images(v2_path, super_path, *, face_regions=()):
             "mean_abs_change": round(float(values.mean()), 5),
             "changed_gt_3_pct": round(float((maximum[mask] > 3).mean() * 100), 4),
         }
+    # Review signals, not automatic quality verdicts: a new model may change
+    # pixels while damaging brand fills or altering selected faces. Keep the
+    # thresholds explicit so a human can inspect the corresponding crop.
+    flat_changes = measure(flat)
+    face_changes = measure(face)
+    review_flags = []
+    if flat_changes["pixel_count"] and (
+        flat_changes["changed_gt_3_pct"] > 1.0
+        or flat_changes["mean_abs_change"] > 1.0
+    ):
+        review_flags.append("flat_ink_colour_changed_review_required")
+    if face_changes["pixel_count"] and (
+        face_changes["changed_gt_3_pct"] > 0.0
+    ):
+        review_flags.append("selected_face_changed_review_required")
+    if not edge.any():
+        review_flags.append("no_existing_edges_detected_cannot_assess_sharpness")
+    if not maximum[visible].any():
+        review_flags.append("identical_results_no_observed_pixel_improvement")
+
     return {
         "v2_metadata": meta_v2,
         "super_metadata": meta_super,
@@ -119,8 +139,10 @@ def compare_images(v2_path, super_path, *, face_regions=()):
         "same_icc": True,
         "overall": measure(visible),
         "existing_v2_edges": measure(edge),
-        "flat_ink_fills": measure(flat),
-        "selected_face_regions": measure(face),
+        "flat_ink_fills": flat_changes,
+        "selected_face_regions": face_changes,
+        "review_required": bool(review_flags),
+        "review_flags": review_flags,
         "max_absolute_channel_difference": int(maximum[visible].max()),
         "mean_rgb_channel_shift": [
             round(float(v), 5) for v in
