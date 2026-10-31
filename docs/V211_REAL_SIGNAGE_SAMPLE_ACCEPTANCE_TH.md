@@ -50,3 +50,23 @@
 5. **Release gate:** PR #18 ต้อง Draft / unmerged, ไม่ออก installer จนทุกประเภทสำคัญชนะ V2 จริง และผู้ใช้อนุมัติผลภาพและงานพิมพ์.
 
 เกี่ยวข้องกับ [Issue #19](https://github.com/niyomse-collab/niyom/issues/19) และ [PR #18](https://github.com/niyomse-collab/niyom/pull/18).
+
+
+## เครื่องมือใหม่สำหรับตรวจจุดสำคัญ (31 ต.ค. 2569)
+เพิ่ม `tools/v211_signage_roi_audit.py` และ `tests/test_v211_signage_roi_audit.py` ลง Branch ทดลอง V2.1.1 เท่านั้น; **ยังไม่ใช่โมเดลกู้ภาพ และยังไม่ได้ยืนยันว่าดีกว่า V2**.
+- โหมด **source-only** เตรียม ROI และพรีวิวพื้นเทา/ขาว/ดำ/แดงของภาพตัวอย่าง (transparent PNG) โดยไม่สร้างผล AI ปลอม
+- โหมด **real A/B** รับภาพเดียวกันจากต้นฉบับ, Approved V2, Experimental V2.1.1 แล้วเรียก `tools.v211_ab_report.compare_images` เพื่อตรวจขนาด/alpha/ICC/DPI ที่เทียบกันได้
+- ให้ ROI ตามชนิด เช่น `plain_small_text`, `styled_fx_text`, `thai_ornament`, `gold_metal`, `transparent_edge`, `soft_gradient`, `face`, `product`; แสดงภาพสามช่องเทียบและเลขความต่างภายใน ROI โดย **ไม่ตัดสินคุณภาพอัตโนมัติ**
+- ที่เตรียมด้วยตัวอย่างภาพผู้ใช้ในพื้นที่ทำงานส่วนตัว: 11 ภาพ (ตัวอย่าง plain text 2, งานป้าย 5, PNG โปร่งใส 4), รวม 21 ROI. ภาพของผู้ใช้ไม่ได้ถูก push ไป GitHub
+- source-only/test synthetic ที่รันในสภาพแวดล้อมตรวจสอบผ่าน 9 กรณี; รอผล GitHub Actions สำหรับ commit ล่าสุดก่อนกล่าวว่า CI ผ่าน; **real model A/B บนภาพเหล่านี้ = ยังไม่ทำ**
+
+ตัวอย่างคำสั่ง (เก็บไฟล์ลูกค้าไว้ภายในเครื่อง):
+```bash
+python -m tools.v211_signage_roi_audit --source private/input.png --regions private/regions.json --out private/source-review
+python -m tools.v211_signage_roi_audit --source private/input.png --v2 private/v2.png --super private/v211.png --regions private/regions.json --out private/ab-review
+```
+รูปแบบ regions.json:
+```json
+{"regions":[{"id":"fx_title","kind":"styled_fx_text","box":[0.05,0.04,0.90,0.32]}]}
+```
+จำกัด in-memory QA ไว้ที่ <=16MP ต่อภาพ/คู่เพื่อความเสถียรของเครื่องมือวิเคราะห์ **ไม่ใช่ขีดจำกัดการส่งออกป้ายในโปรแกรมหลัก**. ต้องใช้ตัวทดสอบจริงพร้อมน้ำหนักโมเดลเพื่อสร้างผล V2 และ V2.1.1 ก่อนค่อยประเมินว่าคม/เนียนกว่าหรือไม่.
