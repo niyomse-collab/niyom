@@ -42,6 +42,44 @@ def _ssim(reference, candidate):
     ))
 
 
+def evaluate_photo_case(engine, high_res, output, name, *, motion_blur):
+    """One independent photo case; never replace the reference with upsampled LR."""
+    folder = output / "stress_suite" / name
+    folder.mkdir(parents=True, exist_ok=True)
+    hr = np.asarray(high_res, dtype=np.uint8)
+    if hr.shape != (384, 384, 3):
+        raise ValueError("Photo stress case must be native 384x384 RGB")
+    if motion_blur:
+        source_pixels = degrade_blurred(hr, blur=9, noise=2, angle=-24, seed=113)
+    else:
+        source_pixels = np.asarray(Image.fromarray(hr).resize(
+            (192, 192), Image.Resampling.LANCZOS
+        )).copy()
+    Image.fromarray(hr).save(folder / "NATIVE_HIGH_RES_TRUTH.png")
+    source = folder / "LOW_RES_INPUT.png"
+    Image.fromarray(source_pixels).save(source)
+    run_pair(source, folder, adapter=engine, scale=2, dpi=300,
+             device="cpu", assist_model="v2_nafnet_photo_only")
+    with Image.open(folder / "V2_reference.png") as image:
+        baseline = np.asarray(image.convert("RGB")).copy()
+    with Image.open(folder / "V211_V2_plus_NAFNet_PhotoOnly.png") as image:
+        assisted = np.asarray(image.convert("RGB")).copy()
+    record = {
+        "name": name, "motion_blur": bool(motion_blur),
+        "v2_psnr": round(_psnr(hr, baseline),4),
+        "photo_only_psnr": round(_psnr(hr, assisted),4),
+        "v2_ssim": round(_ssim(hr, baseline),5),
+        "photo_only_ssim": round(_ssim(hr, assisted),5),
+        "visual_quality_certified": False,
+    }
+    record["gain_psnr_db"] = round(record["photo_only_psnr"]-record["v2_psnr"],4)
+    record["gain_ssim"] = round(record["photo_only_ssim"]-record["v2_ssim"],5)
+    (folder / "METRICS.json").write_text(
+        json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return record
+
+
 def run(output=Path("v211-nafnet-photo-proof")):
     _basic_sr_import_compat()
     verify_nafnet_checkpoint(nafnet_checkpoint_path())
@@ -116,6 +154,32 @@ def run(output=Path("v211-nafnet-photo-proof")):
     )
     full_output_scores["full_photo_only_not_for_text_or_logos"] = True
 
+    # Avoid cherry-picking an astronaut motion-blur sample. A separate
+    # actual photograph and an unblurred photo test show whether photo-only
+    # deblur is general enough or introduces needless change on clean input.
+    coffee = Image.fromarray(data.coffee(), "RGB")
+    # Centre-square crop maintains aspect ratio, unlike stretching coffee.
+    short = min(coffee.size)
+    left, top = (coffee.width-short)//2, (coffee.height-short)//2
+    coffee_hr = np.asarray(coffee.crop(
+        (left,top,left+short,top+short)
+    ).resize((384,384), Image.Resampling.LANCZOS)).copy()
+    suite = {
+        "coffee_motion_blur": evaluate_photo_case(
+            engine, coffee_hr, output, "coffee_motion_blur", motion_blur=True
+        ),
+        "astronaut_clean_control": evaluate_photo_case(
+            engine, hr, output, "astronaut_clean_control", motion_blur=False
+        ),
+    }
+    suite["provisional_domain_gate_passed"] = bool(
+        full_output_scores["provisional_photo_only_gain"]
+        and suite["coffee_motion_blur"]["gain_psnr_db"] >= 1.0
+        and suite["coffee_motion_blur"]["gain_ssim"] >= 0
+        and suite["astronaut_clean_control"]["gain_psnr_db"] >= -0.1
+        and suite["astronaut_clean_control"]["gain_ssim"] >= -0.005
+    )
+
     verdict={
         "photo_sample":"skimage astronaut NASA (no customer content)",
         "source_model_path":"NAFNet GoPro width64 1x -> Real-ESRGAN V2 2x",
@@ -124,6 +188,7 @@ def run(output=Path("v211-nafnet-photo-proof")):
         "final_hr_comparison":output_scores,
         "raw_photo_only_candidate":full_output_scores,
         "raw_photo_only_model":photo_only_comparison["processing"]["assisted_model"],
+        "multiple_photo_and_clean_control":suite,
         "provisional_photo_gain":bool(output_scores["psnr_gain_db"]>=1.0
                                        and output_scores["ssim_gain"]>=0),
         "faces_or_print_certified":False,
