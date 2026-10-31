@@ -239,3 +239,28 @@ def test_corrupted_gfpgan_face_is_never_exported_after_model_reported_success(tm
     with pytest.raises(RuntimeError, match="ตรวจคุณภาพไม่ผ่าน"):
         adapter.process(src, dst, settings, use_ai=True)
     assert not dst.exists()
+
+
+
+def test_rgba_tiff_fit_adds_only_transparent_padding_not_white_or_black(tmp_path):
+    from signprint_ai.v21_graphics_ai import V21Settings
+    src, dst = tmp_path / "isolated_object.png", tmp_path / "print-cutout.tif"
+    rgba = np.zeros((40, 80, 4), dtype=np.uint8)
+    rgba[6:34, 8:72] = (215, 35, 28, 255)
+    Image.fromarray(rgba, "RGBA").save(src)
+    settings = V21Settings(
+        ai_scale=2, dpi=100, face_protection=False, color_mode="RGB",
+        resize_mode="fit", print_width=4, print_height=4,
+        print_unit="in", v211_photo_model="real_esrgan",
+    )
+    adapter = _adapter()
+    adapter.process(src, dst, settings, use_ai=True)
+    with Image.open(dst) as result:
+        assert result.width == result.height == 400
+        assert "A" in result.getbands()
+        alpha = np.asarray(result.convert("RGBA").getchannel("A"))
+        # Padding outside the contained 2:1 cutout must be truly transparent,
+        # not an opaque white/black backdrop from TIFF RGB conversion.
+        assert np.all(alpha[:60] == 0)
+        assert np.all(alpha[-60:] == 0)
+        assert np.any(alpha[170:230, 150:250] == 255)
