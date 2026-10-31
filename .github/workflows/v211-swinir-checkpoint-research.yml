@@ -1,0 +1,34 @@
+name: V2.1.1 SwinIR checkpoint provenance research
+on:
+  push:
+    branches: [feature/v2.1.1-super-ai]
+    paths:
+      - .github/workflows/v211-swinir-checkpoint-research.yml
+  workflow_dispatch:
+jobs:
+  measure-upstream-checkpoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Download OFFICIAL SwinIR colour denoise noise15; hash only, never load weights
+        shell: python
+        run: |
+          import hashlib
+          import urllib.request
+          from pathlib import Path
+          name = "005_colorDN_DFWB_s128w8_SwinIR-M_noise15.pth"
+          source = f"https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/{name}"
+          file = Path(name)
+          digest = hashlib.sha256()
+          with urllib.request.urlopen(source, timeout=120) as inp, file.open("wb") as out:
+              while part := inp.read(1024 * 1024):
+                  out.write(part)
+                  digest.update(part)
+          if file.stat().st_size < 1_000_000:
+              raise RuntimeError("Unexpectedly small upstream checkpoint")
+          print("Official SwinIR checkpoint filename:", name)
+          print("SHA256:", digest.hexdigest())
+          print("Bytes:", file.stat().st_size)
+          # Do not upload/store model weights or private customer images.
