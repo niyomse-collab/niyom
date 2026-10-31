@@ -155,7 +155,9 @@ def test_photo_only_protects_selected_faces_exactly_before_v2_gfpgan():
     out = blend_photo_only(src, restored, 1.0,
                            protected_regions=((.2, .2, .8, .8),))
     np.testing.assert_array_equal(out[22:74,22:74], src[22:74,22:74])
-    np.testing.assert_array_equal(out[:12,:12], restored[:12,:12])
+    # Protected ROI adds a safety margin down to pixel 10. Compare only
+    # pixels strictly outside that enlarged mask, not the 10..11 border.
+    np.testing.assert_array_equal(out[:8,:8], restored[:8,:8])
 
 
 def test_photo_only_face_rectangles_and_strength_fail_closed():
