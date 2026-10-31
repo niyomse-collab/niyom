@@ -13,6 +13,13 @@ on:
       - '.github/workflows/v211-nafnet-real-inference.yml'
   # Real-weight download is expensive. Restrict automatic runs to directly
   # changed model code on this branch, not every documentation-only PR update.
+  # Temporary PR trigger for the one-time real-photo A/B. Remove after
+  # verifying its artifact; otherwise PR diffs download large weights again.
+  pull_request:
+    branches: [fix/v21-real-quality]
+    paths:
+      - 'tools/v211_nafnet_photo_qa.py'
+      - '.github/workflows/v211-nafnet-real-inference.yml'
   workflow_dispatch:
 
 jobs:
