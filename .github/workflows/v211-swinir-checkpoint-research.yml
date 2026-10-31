@@ -4,10 +4,8 @@ on:
     branches: [feature/v2.1.1-super-ai]
     paths:
       - .github/workflows/v211-swinir-checkpoint-research.yml
-  pull_request:
-    branches: [fix/v21-real-quality]
-    paths:
-      - .github/workflows/v211-swinir-checkpoint-research.yml
+  # Keep expensive checkpoint research on explicit changes or manual dispatch.
+  # PR diff filters would redownload weights on unrelated commits.
   workflow_dispatch:
 jobs:
   measure-upstream-checkpoint:
