@@ -58,8 +58,8 @@ def evaluate_photo_case(engine, high_res, output, name, *, motion_blur):
     Image.fromarray(hr).save(folder / "NATIVE_HIGH_RES_TRUTH.png")
     source = folder / "LOW_RES_INPUT.png"
     Image.fromarray(source_pixels).save(source)
-    run_pair(source, folder, adapter=engine, scale=2, dpi=300,
-             device="cpu", assist_model="v2_nafnet_photo_only")
+    comparison = run_pair(source, folder, adapter=engine, scale=2, dpi=300,
+                          device="cpu", assist_model="v2_nafnet_photo_only")
     with Image.open(folder / "V2_reference.png") as image:
         baseline = np.asarray(image.convert("RGB")).copy()
     with Image.open(folder / "V211_V2_plus_NAFNet_PhotoOnly.png") as image:
@@ -71,7 +71,16 @@ def evaluate_photo_case(engine, high_res, output, name, *, motion_blur):
         "v2_ssim": round(_ssim(hr, baseline),5),
         "photo_only_ssim": round(_ssim(hr, assisted),5),
         "visual_quality_certified": False,
+        "photo_preflight": comparison["processing"].get("photo_preflight"),
+        "pixel_exact_v2_bypass": bool(np.array_equal(baseline, assisted)),
     }
+    if not motion_blur:
+        # A clean reference must never be altered by the experimental model.
+        # If blur confidence is uncertain, retain the V2 image exactly.
+        if not record["pixel_exact_v2_bypass"]:
+            raise AssertionError("Sharp photo was modified by NAFNet despite conservative V2 bypass")
+        if record["photo_preflight"]["actual_model"] != "real_esrgan":
+            raise AssertionError("Sharp photo preflight failed to report V2 fallback")
     record["gain_psnr_db"] = round(record["photo_only_psnr"]-record["v2_psnr"],4)
     record["gain_ssim"] = round(record["photo_only_ssim"]-record["v2_ssim"],5)
     (folder / "METRICS.json").write_text(
@@ -178,6 +187,7 @@ def run(output=Path("v211-nafnet-photo-proof")):
         and suite["coffee_motion_blur"]["gain_ssim"] >= 0
         and suite["astronaut_clean_control"]["gain_psnr_db"] >= -0.1
         and suite["astronaut_clean_control"]["gain_ssim"] >= -0.005
+        and suite["astronaut_clean_control"]["pixel_exact_v2_bypass"]
     )
 
     verdict={
