@@ -75,8 +75,13 @@ def blend_pre_restoration(original: np.ndarray, restored: np.ndarray,
         return original.copy()
     f = original.astype(np.float32)
     h, w = original.shape[:2]
-    gx = cv2.Sobel(f, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(f, cv2.CV_32F, 0, 1, ksize=3)
+    # Build the *structural* edge mask from a softly filtered copy.
+    # Raw Sobel over Gaussian noise sigma=15 marks almost every pixel as an
+    # "edge" and disables the very denoising this stage is meant to perform.
+    # Blur ONLY for edge detection, never as the restored image itself.
+    structure = cv2.GaussianBlur(f, (0, 0), 1.15)
+    gx = cv2.Sobel(structure, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(structure, cv2.CV_32F, 0, 1, ksize=3)
     edges = np.max(np.sqrt(gx * gx + gy * gy), axis=2) > 60.0
     # Dilating the mask protects thin Thai/English glyph strokes and outlines
     # from blur/shape changes even near their boundaries.
