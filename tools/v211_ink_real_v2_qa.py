@@ -90,7 +90,7 @@ def run(destination=Path("v211-ink-real-v2-proof")):
     destination.mkdir(parents=True, exist_ok=True)
     baseline_settings = V21Settings(
         ai_scale=2, dpi=300, color_mode="RGB", resize_mode="stretch",
-        device="CPU", face_protection=False,
+        device="cpu", face_protection=False,
         v21_v2_quality_baseline=True, v211_ink_geometry=False,
     )
     experiment_settings = replace(
