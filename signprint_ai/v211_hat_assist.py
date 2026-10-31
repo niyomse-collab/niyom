@@ -56,9 +56,18 @@ def blend_v2_with_hat(v2_pixels, hat_pixels, strength=0.85, protected_regions=()
         bottom = min(h, int(np.ceil(y2 * h)) + margin)
         weight[top:bottom, left:right] = 0
 
-    output = np.rint(np.clip(
-        v2_pixels.astype(np.float32) + (delta * weight)[..., None], 0, 255
-    )).astype(np.uint8)
+    # Add the *same* luminance detail to all RGB channels, but keep it
+    # inside the gamut of every channel before addition. Naively clipping the
+    # result to [0,255] would clip just red (or blue) on a saturated logo,
+    # changing channel differences and washing out the V2 brand colour.
+    base = v2_pixels.astype(np.float32)
+    signed_detail = delta * weight
+    available_up = 255.0 - np.max(base, axis=2)
+    available_down = np.min(base, axis=2)
+    signed_detail = np.maximum(
+        -available_down, np.minimum(signed_detail, available_up)
+    )
+    output = np.rint(base + signed_detail[..., None]).astype(np.uint8)
     return output
 
 
