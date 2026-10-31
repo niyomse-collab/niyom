@@ -167,11 +167,13 @@ class SwinIRColorDenoiser:
 class PreRestoreV2Engine:
     """Perform optional 1x pre-restoration once; upscale with ORIGINAL V2."""
 
-    def __init__(self, v2_engine, denoiser, strength=.70, protected_regions=()):
+    def __init__(self, v2_engine, denoiser, strength=.70, protected_regions=(),
+                 blend_callback=None):
         self.v2 = v2_engine
         self.denoiser = denoiser
         self.strength = strength
         self.protected_regions = protected_regions
+        self.blend_callback = blend_callback or blend_pre_restoration
         self.upsampler = SimpleNamespace(
             tile_size=min(v2_engine.upsampler.tile_size or 256,
                           denoiser.upsampler.tile_size or 64),
@@ -200,7 +202,7 @@ class PreRestoreV2Engine:
             if c > a and d > b:
                 cropped_regions.append((a, b, c, d))
         denoised = self.denoiser.denoise_tile(pixels, cancel)
-        restored = blend_pre_restoration(
+        restored = self.blend_callback(
             pixels, denoised, self.strength, tuple(cropped_regions)
         )
         if cancel and cancel():
@@ -241,7 +243,7 @@ class PreRestoreV2Engine:
                     if x2*w > l and x1*w < r and y2*h > t and y1*h < b
                 )
                 clean = self.denoiser.denoise_tile(crop, cancel_check)
-                blended = blend_pre_restoration(
+                blended = self.blend_callback(
                     crop, clean, self.strength, tile_regions
                 )
                 restored[y:y2, x:x2] = blended[y-t:y2-t, x-l:x2-l]
