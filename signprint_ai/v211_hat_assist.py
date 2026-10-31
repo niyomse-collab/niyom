@@ -33,10 +33,15 @@ def blend_v2_with_hat(v2_pixels, hat_pixels, strength=0.85, protected_regions=()
     base_detail = base_luma - cv2.GaussianBlur(base_luma, (0, 0), 1.35)
     hat_detail = hat_luma - cv2.GaussianBlur(hat_luma, (0, 0), 1.35)
     delta = np.clip(hat_detail - base_detail, -38.0, 38.0)
-    gx = cv2.Sobel(base_luma, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(base_luma, cv2.CV_32F, 0, 1, ksize=3)
+    # Detect existing edges in RGB, not only grayscale brightness. Opposing
+    # saturated sign colours can have almost equal luminance even though
+    # their contour is visually strong; grayscale-only masking misses them.
+    rgb_float = v2_pixels.astype(np.float32)
+    gx = cv2.Sobel(rgb_float, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(rgb_float, cv2.CV_32F, 0, 1, ksize=3)
+    edge_strength = np.sqrt(gx * gx + gy * gy).max(axis=2)
     # Apply only near an existing V2 edge. A flat region stays V2-identical.
-    edge_weight = np.clip(cv2.magnitude(gx, gy) / 65.0, 0.0, 1.0)
+    edge_weight = np.clip(edge_strength / 65.0, 0.0, 1.0)
 
     rgb = v2_pixels.astype(np.int16)
     r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
