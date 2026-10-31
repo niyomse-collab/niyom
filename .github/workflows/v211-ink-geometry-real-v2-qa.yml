@@ -7,16 +7,8 @@ on:
       - 'signprint_ai/v211_ink_geometry.py'
       - 'signprint_ai/v2_graphic_edges.py'
       - 'tools/v211_ink_real_v2_qa.py'
-      - '.github/workflows/v211-ink-geometry-real-v2-qa.yml'
-  # One-time PR measurement so checkpoint inference is inspectable from PR.
-  # Remove this trigger after the first real-weight A/B to prevent repeated
-  # download of the large pretrained model on unrelated branch commits.
-  pull_request:
-    branches: [fix/v21-real-quality]
-    paths:
-      - 'tools/v211_ink_real_v2_qa.py'
-      - 'signprint_ai/v211_ink_geometry.py'
-      - '.github/workflows/v211-ink-geometry-real-v2-qa.yml'
+  # Experimental real-weight QA is now restricted to model/QA code pushes
+  # and explicit manual dispatch; unrelated PR edits must not redownload.
   workflow_dispatch:
 
 jobs:
