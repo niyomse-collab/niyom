@@ -204,3 +204,38 @@ def test_requested_face_recover_fails_before_export_if_gfpgan_skipped(tmp_path):
     with pytest.raises(RuntimeError, match="ฟื้นฟูใบหน้าไม่สำเร็จ"):
         adapter.process(src, dst, settings, use_ai=True)
     assert not dst.exists()
+
+
+
+def test_corrupted_gfpgan_face_is_never_exported_after_model_reported_success(tmp_path):
+    from signprint_ai.v21_graphics_ai import V21Settings
+    from signprint_ai.face_module.face_protection import FaceProtectionResult
+
+    src, dst = tmp_path / "portrait.png", tmp_path / "blocked-face.png"
+    Image.fromarray(_photolike_source()).save(src)
+    adapter = _adapter()
+
+    class DamagedFaceResult:
+        def apply(self, image, **kwargs):
+            assert kwargs["mode"] == "recover"
+            # The neural pass ran, but audit found erased facial detail.
+            # No exception was raised by the model; only the final contract
+            # may prevent accidental output of an unnatural portrait.
+            return image, FaceProtectionResult(
+                enabled=True, applied=True, face_count=1, mode="recover",
+                face_audit=({
+                    "index": 1, "heuristic_pass": False,
+                    "reason": "local_face_detail_collapsed", "applied": True,
+                },),
+            )
+
+    adapter.face_module = DamagedFaceResult()
+    settings = V21Settings(
+        ai_scale=2, dpi=300, face_protection=True, face_mode="recover",
+        face_regions=((.23, .23, .78, .79),),
+        v211_photo_model="real_esrgan",
+    )
+    assert settings.v211_reject_failed_face_audit
+    with pytest.raises(RuntimeError, match="ตรวจคุณภาพไม่ผ่าน"):
+        adapter.process(src, dst, settings, use_ai=True)
+    assert not dst.exists()
