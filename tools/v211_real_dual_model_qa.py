@@ -15,7 +15,7 @@ import types
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageChops
 
 
 def _basic_sr_import_compat():
@@ -57,6 +57,38 @@ def synthetic_sign_photo(size=(48, 40)):
     return image
 
 
+def save_pixel_review_sheet(folder):
+    """Nearest-neighbour audit views; no smoothing from screenshot zoom."""
+    folder = Path(folder)
+    with Image.open(folder / "V2_reference.png") as ref_image:
+        v2 = ref_image.convert("RGB")
+    with Image.open(folder / "V211_V2_plus_HAT.png") as assist_image:
+        assisted = assist_image.convert("RGB")
+    if v2.size != assisted.size:
+        raise ValueError("V2/HAT audit images have different dimensions")
+    # Exaggerated difference is diagnostic only; never use it as an
+    # enhancement-quality score or colour-managed print preview.
+    difference = ImageChops.difference(v2, assisted)
+    difference = difference.point(lambda c: min(255, c * 4))
+    ratio, margin, header = 6, 12, 30
+    w, h = v2.size
+    sheet = Image.new(
+        "RGB", (w * ratio * 3 + margin * 4, h * ratio + header + margin),
+        (28, 30, 34),
+    )
+    draw = ImageDraw.Draw(sheet)
+    for index, (title, view) in enumerate((
+        ("V2 APPROVED BASE", v2),
+        ("V2 + HAT ASSIST", assisted),
+        ("x4 PIXEL DIFF - NOT QUALITY", difference),
+    )):
+        left = margin + index * (w * ratio + margin)
+        draw.text((left, 8), title, fill="white")
+        sheet.paste(view.resize((w * ratio, h * ratio),
+                                Image.Resampling.NEAREST), (left, header))
+    sheet.save(folder / "V2_HAT_PIXEL_REVIEW_NEAREST.png")
+
+
 def run(output_dir=Path("v211-dual-model-proof"), scale=2):
     if scale not in (2, 4):
         raise ValueError("Research A/B supports scale 2 or 4")
@@ -81,6 +113,7 @@ def run(output_dir=Path("v211-dual-model-proof"), scale=2):
         source, output_dir, scale=scale, dpi=300,
         device="cpu", adapter=adapter,
     )
+    save_pixel_review_sheet(output_dir)
     # Model outputs must reflect actual inference, not the test stub.
     if report["processing"]["v2_model"] != "RealESRGAN_x4plus":
         raise AssertionError("V2 primary model did not run")
