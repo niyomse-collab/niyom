@@ -32,6 +32,7 @@ class VerifiedTextRegion:
     max_font_px: int
     fill: tuple[int, int, int] = (255, 255, 255)
     align: str = "center"
+    mode: str = "replace_flat"  # replace_flat | transparent_overlay
 
 
 def _validate(region: VerifiedTextRegion, image_size: tuple[int, int]) -> None:
@@ -48,6 +49,8 @@ def _validate(region: VerifiedTextRegion, image_size: tuple[int, int]) -> None:
         raise ValueError("Exact supplied text is required; no OCR guessing")
     if region.align not in ("center", "left", "right"):
         raise ValueError("Horizontal text alignment must be left/center/right")
+    if region.mode not in ("replace_flat", "transparent_overlay"):
+        raise ValueError("Text region mode must be replace_flat/transparent_overlay")
     if (len(region.fill) != 3
             or not all(isinstance(c, int) and 0 <= c <= 255
                        for c in region.fill)):
@@ -170,6 +173,10 @@ def apply_verified_regions(
     result = image.copy()
     audits = []
     for region in regions:
-        result, audit = replace_on_verified_flat_background(result, region)
+        if region.mode == "transparent_overlay":
+            overlay, audit = exact_text_overlay(result.size, region)
+            result = Image.alpha_composite(result.convert("RGBA"), overlay)
+        else:
+            result, audit = replace_on_verified_flat_background(result, region)
         audits.append(audit)
     return result, audits
