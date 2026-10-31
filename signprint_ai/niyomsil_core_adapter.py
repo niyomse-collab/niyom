@@ -250,6 +250,11 @@ class NiyomSilpCoreAdapter:
                 progress(1, "Photo AI ไม่เหมาะกับภาพนี้ — ใช้ V2 เดิมเพื่อรักษาคุณภาพ")
 
         if needs_streaming(source_size, target_size, model_scale if use_ai else 1):
+            if getattr(settings, "v211_source_guided_ink", False):
+                raise RuntimeError(
+                    "V2.1.1 Source Ink เป็นโหมดวิจัยขนาดเล็กเท่านั้น "
+                    "ยังไม่ผ่านการทดสอบงานไวนิลใหญ่ กรุณาปิดโหมดนี้และใช้ V2"
+                )
             large_result = process_large(
                 self, src, dst, settings, source_size, target_size,
                 model_scale, progress, cancel, use_ai
@@ -356,6 +361,22 @@ class NiyomSilpCoreAdapter:
                 output, settings=settings,
                 protected_regions=(settings.face_regions if settings.face_protection else None),
             )
+            # V2.1.1 isolated research: source-guided ink is not a generic
+            # photo filter, and must run BEFORE GFPGAN face recovery.
+            # Large/disk-backed exports are rejected below while unverified.
+            if getattr(settings, "v211_source_guided_ink", False):
+                from .v211_source_guided_ink import restore_source_guided_ink
+                with Image.open(src) as original:
+                    source_for_ink = ImageOps.exif_transpose(original)
+                    output, _ = restore_source_guided_ink(
+                        output, source_for_ink,
+                        strength=getattr(settings,
+                                         "v211_source_guided_ink_strength", 1.0),
+                        protected_regions=(
+                            settings.face_regions if settings.face_protection
+                            else ()
+                        )
+                    )
 
         # Retouch before free resizing: detector and facial geometry see the
         # original aspect ratio. Final resizing transforms the whole image once.
