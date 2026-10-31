@@ -60,3 +60,15 @@ default. Merely having more changed pixels is not evidence of better art.
 - Windows V2.1.1 installer test, uninstall/reinstall and checksum
 
 **PR #18 stays Draft and separate from accepted V1/V2.**
+
+
+### Real-weight SwinIR re-run: technical pass, leap criterion NOT met
+
+- [Run #41155035986](https://github.com/niyomse-collab/niyom/actions/runs/41155035986) completed SUCCESS with **two real official neural weights**, SHA256-verified at runtime, no client image or weights redistributed.
+- Synthetic photo noise σ=15, known 1× clean reference ROI: **24.6977 dB before**, **26.9563 dB after** (SwinIR source restoration gain **+2.2586 dB**).
+- End-to-end NiyomSilp pipeline: 2×, 128×128 output, 300 DPI, V2 Real-ESRGAN vs V2 Real-ESRGAN + SwinIR pre-restoration both executed. Source/OAI image output stays in the research ZIP artifact `V211-Real-SwinIR-PreRestore-V2-CPU-QA`, ID `13024693158`.
+- In the final 2× comparison, the assisted result differed from V2 in **8.6121%** of pixels by more than 3/255, mean absolute channel change **1.13391**. This shows the changes are **much smaller** than the already-rejected V2+HAT path.
+- Independent comparison of both final 2× outputs against the known 1× clean input resized **bicubic** (a proxy, NOT true high-resolution ground truth): **V2 26.964 dB**, **V2+SwinIR 27.244 dB**, net **+0.280 dB**. Comparable Lanczos and nearest-neighbor references give +0.263 and +0.288 dB.
+- **Conclusion:** Source denoising definitely works, but end-to-end difference is **NOT** the visible leap the operator explicitly requires. This configuration is **not accepted for release**. Do not claim more pixels changing means higher print quality.
+- The research script now records the final-output bicubic proxy gain and a provisional **+1 dB output acceptance screen**; a 1 dB pass would still require human visual and real print checks.
+- No portrait identity, Thai diacritics, Windows installer, GPU/GTX1660Ti or real MainTop vinyl proof yet.
