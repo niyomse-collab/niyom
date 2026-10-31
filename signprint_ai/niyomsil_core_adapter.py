@@ -63,7 +63,7 @@ class NiyomSilpCoreAdapter:
                 return self.available and swinir_checkpoint_path().is_file()
             except (OSError, RuntimeError):
                 return False
-        if model_name == "v2_nafnet_deblur":
+        if model_name in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
             try:
                 from .v211_nafnet_deblur import nafnet_checkpoint_path
                 return self.available and nafnet_checkpoint_path().is_file()
@@ -111,22 +111,33 @@ class NiyomSilpCoreAdapter:
                 protected_regions=(settings.face_regions if settings.face_protection else ())
             )
             return engine
-        elif selected_model == "v2_nafnet_deblur":
+        elif selected_model in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
             # Motion deblurring occurs on the original source, BEFORE the
             # approved V2 Real-ESRGAN upscaler and untouched GFPGAN face pass.
             # This is opt-in and never runs a second time on an 8x intermediate.
             from .v211_nafnet_deblur import (
-                NAFNetGoProDeblurrer, blend_photo_deblur
+                NAFNetGoProDeblurrer, blend_photo_deblur, blend_photo_only
             )
             from .v211_swinir_preprocess import PreRestoreV2Engine
             v2 = self.engine_manager.create_engine(settings.device)
             denoiser = NAFNetGoProDeblurrer(v2.selected)
+            photo_only = selected_model == "v2_nafnet_photo_only"
+            if photo_only:
+                # Whole-image photograph benchmark uses one real receptive
+                # field for <=192 source pixels; production uses bounded tiles.
+                # Never apply this full transfer to mixed graphic artwork.
+                denoiser.upsampler.tile_size = 192
+                denoiser.upsampler.tile_pad = 32
             return PreRestoreV2Engine(
                 v2, denoiser,
-                strength=float(getattr(settings, "v211_nafnet_pre_strength", .85)),
+                strength=float(getattr(settings,
+                                       "v211_nafnet_photo_strength" if photo_only
+                                       else "v211_nafnet_pre_strength",
+                                       1.0 if photo_only else .85)),
                 protected_regions=(settings.face_regions
                                    if settings.face_protection else ()),
-                blend_callback=blend_photo_deblur,
+                blend_callback=(blend_photo_only if photo_only
+                                else blend_photo_deblur),
             )
         elif selected_model == "v2_swinir_pre":
             # A distinct, 1x neural denoiser prepares source photographs
@@ -473,7 +484,7 @@ class NiyomSilpCoreAdapter:
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",
-            "model": ("V2 RealESRGAN_x4plus + NAFNet GoPro deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + SwinIR pre-denoise" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1 else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus")))),
+            "model": ("V2 RealESRGAN_x4plus + NAFNet photo-only deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_photo_only" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + NAFNet GoPro deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + SwinIR pre-denoise" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1 else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus"))))),
             "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
