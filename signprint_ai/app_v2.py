@@ -1397,7 +1397,7 @@ class App(tk.Tk):
                 "V2 + HAT Assist ต้องมีทั้ง Real-ESRGAN ของ V2 และ HAT\n\n"
                 "ติดตั้งเฉพาะโมเดลเสริมที่ยังขาด ไม่ต้องติดตั้งโมเดลอื่นโดยไม่จำเป็น"
                 if chosen_model == "v2_hat_assist" else
-                "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\\n\\n"
+                "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\n\n"
                 "โปรดติดตั้งโมเดลเสริมเฉพาะที่ต้องใช้ ไม่ดาวน์โหลดอัตโนมัติ"
                 if chosen_model == "v2_swinir_pre" else
                 "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\n\n"
