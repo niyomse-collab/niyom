@@ -105,3 +105,47 @@ def test_real_memory_adapter_8x_uses_hat_on_original_once(tmp_path):
         ("hat", 4, (32, 32)),
         ("v2", 2, (128, 128)),
     ]
+
+
+def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path):
+    """Regression: 8x print cutouts must not acquire an opaque background.
+
+    Deterministic routing/alpha test only; real neural quality remains unproven.
+    """
+    log = []
+    v2 = RecordingEngine("v2", log)
+    hat = RecordingEngine("hat", log)
+    combined = HATAssistEngine(v2, hat)
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    adapter.create_job_engine = lambda settings: combined
+    adapter.engine_manager = SimpleNamespace(
+        engine=None,
+        device_manager=SimpleNamespace(
+            get_default_device=lambda: SimpleNamespace(
+                device_id="cpu", name="CPU",
+            )
+        ),
+    )
+    source = tmp_path / "cutout.png"
+    output = tmp_path / "cutout_8x.png"
+    pixels = np.zeros((32, 32, 4), dtype=np.uint8)
+    pixels[:, :, :3] = (180, 40, 70)
+    pixels[8:24, 8:24, 3] = 255
+    Image.fromarray(pixels, "RGBA").save(source)
+    settings = V21Settings(
+        ai_scale=8, device="CPU", face_protection=False,
+        resize_mode="stretch", v211_photo_model="v2_hat_assist",
+        v21_precision_ink=False, graphic_ai=False,
+    )
+    adapter.process(source, output, settings, use_ai=True)
+    with Image.open(output) as verified:
+        assert verified.size == (256, 256)
+        assert verified.mode == "RGBA"
+        alpha = np.asarray(verified.getchannel("A"))
+        assert alpha[0, 0] == 0
+        assert alpha[128, 128] == 255
+    assert log == [
+        ("v2", 4, (32, 32)),
+        ("hat", 4, (32, 32)),
+        ("v2", 2, (128, 128)),
+    ]
