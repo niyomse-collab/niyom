@@ -10,16 +10,10 @@ on:
       - 'tools/v211_nafnet_real_qa.py'
       - 'tools/v211_nafnet_photo_qa.py'
       - 'tools/v211_generate_ab.py'
-      - '.github/workflows/v211-nafnet-real-inference.yml'
-  # Real-weight download is expensive. Restrict automatic runs to directly
-  # changed model code on this branch, not every documentation-only PR update.
-  # Temporary PR trigger for the one-time real-photo A/B. Remove after
-  # verifying its artifact; otherwise PR diffs download large weights again.
-  pull_request:
-    branches: [fix/v21-real-quality]
-    paths:
-      - 'tools/v211_nafnet_photo_qa.py'
-      - '.github/workflows/v211-nafnet-real-inference.yml'
+  # Checkpoint research runs only when model/QA code changes on this
+  # isolated branch, or when a maintainer explicitly dispatches a run.
+  # Deliberately omit workflow-only edits and pull_request diff triggers:
+  # a PR remains dirty for weeks and would re-download weights needlessly.
   workflow_dispatch:
 
 jobs:
@@ -89,9 +83,15 @@ jobs:
         run: |
           import json
           from pathlib import Path
-          report = json.loads(Path("v211-nafnet-true-hr-proof/SUMMARY.json").read_text(encoding="utf-8"))
-          print("Actual pretrained checkpoint inference:", report["real_weight_inference_passed"])
-          print("Provisional V2 quality superiority:", report["provisional_release_quality"])
-          if not report["provisional_release_quality"]:
-            raise SystemExit("QUALITY REGRESSION: NAFNet+V2 did not beat V2 across motion blur and clean control")
+          art = json.loads(Path("v211-nafnet-true-hr-proof/SUMMARY.json").read_text(encoding="utf-8"))
+          photo = json.loads(Path("v211-nafnet-photo-proof/PHOTO_QA.json").read_text(encoding="utf-8"))
+          art_passed = bool(art["provisional_release_quality"])
+          photo_passed = bool(photo["multiple_photo_and_clean_control"]["provisional_domain_gate_passed"])
+          print("Pinned checkpoint inference passed:", art["real_weight_inference_passed"])
+          print("Mixed sign/flat ink native-HR quality gate passed:", art_passed)
+          print("Blurred photos + sharp clean-control quality gate passed:", photo_passed)
+          # A model that improves one blurred portrait but degrades a clean
+          # input or exact graphic ink must NOT be approved automatically.
+          if not (art_passed and photo_passed):
+            raise SystemExit("V2.1.1 REJECTED: at least one print/photo quality domain regressed vs approved V2")
 
