@@ -238,9 +238,25 @@ class NiyomSilpCoreAdapter:
 
         validate_export(dst, target_size, settings)
 
+        # V2.1.1 research-only photo NAFNet must never touch already-sharp
+        # photographs, RGBA logo cutouts, or unconfirmed face selections.
+        # Decide before creating AI weights or disk-backed print rasters.
+        from .v211_blur_gate import select_photo_restoration
+        settings, photo_preflight = select_photo_restoration(
+            settings, src, use_ai=use_ai, model_scale=model_scale
+        )
+        if photo_preflight and photo_preflight["actual_model"] == "real_esrgan":
+            if progress:
+                progress(1, "Photo AI ไม่เหมาะกับภาพนี้ — ใช้ V2 เดิมเพื่อรักษาคุณภาพ")
+
         if needs_streaming(source_size, target_size, model_scale if use_ai else 1):
-            return process_large(self, src, dst, settings, source_size, target_size,
-                                 model_scale, progress, cancel, use_ai)
+            large_result = process_large(
+                self, src, dst, settings, source_size, target_size,
+                model_scale, progress, cancel, use_ai
+            )
+            if photo_preflight is not None:
+                large_result["photo_preflight"] = photo_preflight
+            return large_result
 
         # Only small images reach Pillow. Large masters must use libvips for
         # RGB and alpha, without allocating a full RGBA canvas or triggering
@@ -488,4 +504,5 @@ class NiyomSilpCoreAdapter:
             "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
+            "photo_preflight": photo_preflight,
         }
