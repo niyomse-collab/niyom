@@ -55,10 +55,20 @@ def _validate(region: VerifiedTextRegion, image_size: tuple[int, int]) -> None:
             or not all(isinstance(c, int) and 0 <= c <= 255
                        for c in region.fill)):
         raise ValueError("Ink RGB fill must have three 8-bit components")
-    if not features.check("raqm"):
-        raise RuntimeError("Verified Thai typography requires HarfBuzz/RAQM shaping")
     if not Path(region.font_path).is_file():
         raise FileNotFoundError("Select an existing installed matching font")
+    if not verified_shaper_available():
+        raise RuntimeError(
+            "Thai/Unicode font shaping unavailable: install RAQM or "
+            "the uharfbuzz + freetype-py backend; cannot draw unshaped Thai"
+        )
+
+
+def verified_shaper_available() -> bool:
+    if features.check("raqm"):
+        return True
+    from .v211_hb_font import backend_available
+    return backend_available()
 
 
 def exact_text_overlay(
@@ -76,29 +86,40 @@ def exact_text_overlay(
     if tw * th > 100_000_000:
         raise ValueError("Selected text ROI exceeds bounded render memory")
     pad = max(2*s, round(min(tw, th)*.03))
+    use_raqm = bool(features.check("raqm"))
     measure = ImageDraw.Draw(Image.new("L", (1, 1)))
+    if not use_raqm:
+        from .v211_hb_font import rasterize_shaped_text
     for size in range(region.max_font_px, 3, -1):
-        font = ImageFont.truetype(
-            region.font_path, size*s, layout_engine=ImageFont.Layout.RAQM
-        )
-        l, t, r, b = measure.multiline_textbbox(
-            (0, 0), region.text, font=font, spacing=size*s//4
-        )
-        ink_width, ink_height = r-l, b-t
+        if use_raqm:
+            font = ImageFont.truetype(
+                region.font_path, size*s, layout_engine=ImageFont.Layout.RAQM
+            )
+            l, t, r, b = measure.multiline_textbbox(
+                (0, 0), region.text, font=font, spacing=size*s//4
+            )
+            ink_width, ink_height = r-l, b-t
+        else:
+            shaped_mask = rasterize_shaped_text(
+                region.text, region.font_path, size*s
+            )
+            ink_width, ink_height = shaped_mask.size
         if ink_width <= tw-2*pad and ink_height <= th-2*pad:
             break
     else:
         raise ValueError("Exact text cannot fit without stretching or cropping")
     mask = Image.new("L", (tw, th), 0)
-    draw = ImageDraw.Draw(mask)
     x = (pad if region.align == "left" else
          tw-pad-ink_width if region.align == "right" else
          (tw-ink_width)/2)
     y = (th-ink_height)/2
-    draw.multiline_text(
-        (round(x-l), round(y-t)), region.text, fill=255, font=font,
-        spacing=size*s//4
-    )
+    if use_raqm:
+        ImageDraw.Draw(mask).multiline_text(
+            (round(x-l), round(y-t)), region.text, fill=255, font=font,
+            spacing=size*s//4
+        )
+    else:
+        mask.paste(shaped_mask, (round(x), round(y)))
     alpha = mask.resize(
         (region.width, region.height), Image.Resampling.LANCZOS
     )
@@ -110,7 +131,7 @@ def exact_text_overlay(
     return result, {
         "exact_text": region.text,
         "font_size_px": size,
-        "shaping": "RAQM_HarfBuzz",
+        "shaping": ("RAQM_HarfBuzz" if use_raqm else "HarfBuzz_FreeType"),
         "verified_user_text": True,
         "no_background_generated": True,
         "print_dimensions_unchanged": True,
