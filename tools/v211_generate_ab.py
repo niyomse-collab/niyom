@@ -102,6 +102,7 @@ def run_pair(source, destination, *, scale=2, dpi=300, device="AUTO",
     report["processing"] = {
         "v2_model": first.get("model"),
         "assisted_model": second.get("model"),
+        "photo_preflight": second.get("photo_preflight"),
         "scale": scale,
         "dpi": dpi,
         "device": device,
