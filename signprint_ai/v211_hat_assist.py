@@ -67,7 +67,11 @@ def blend_v2_with_hat(v2_pixels, hat_pixels, strength=0.85, protected_regions=()
     signed_detail = np.maximum(
         -available_down, np.minimum(signed_detail, available_up)
     )
-    output = np.rint(base + signed_detail[..., None]).astype(np.uint8)
+    # Quantize the offset ONCE per pixel. Rounding each channel separately
+    # can diverge at exactly half-integer offsets (banker's rounding depends
+    # on the underlying RGB channel parity), subtly changing ink colour.
+    offset = np.rint(signed_detail).astype(np.int16)
+    output = (v2_pixels.astype(np.int16) + offset[..., None]).astype(np.uint8)
     return output
 
 
