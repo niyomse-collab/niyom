@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw, ImageFont, features
 from signprint_ai.v211_verified_text import (
     VerifiedTextRegion, exact_text_overlay,
     replace_on_verified_flat_background, apply_verified_regions,
+    verified_shaper_available,
 )
 
 
@@ -54,7 +55,7 @@ def region(*, font=None, mode="replace_flat", text="SALE 30"):
                               49, (246, 25, 35), "center", mode)
 
 
-@pytest.mark.skipif(not features.check("raqm"), reason="RAQM unavailable")
+@pytest.mark.skipif(not verified_shaper_available(), reason="No verified shaping backend")
 def test_text_only_overlay_has_no_opaque_background():
     overlay, audit = exact_text_overlay(
         (280, 160), region(mode="transparent_overlay")
@@ -70,7 +71,7 @@ def test_text_only_overlay_has_no_opaque_background():
     assert audit["no_background_generated"] is True
 
 
-@pytest.mark.skipif(not features.check("raqm"), reason="RAQM unavailable")
+@pytest.mark.skipif(not verified_shaper_available(), reason="No verified shaping backend")
 def test_overwrite_only_inside_selected_flat_region_removes_mottled_old_ink():
     source = Image.new("RGB", (280, 160), (52, 51, 79))
     drawing = ImageDraw.Draw(source)
@@ -88,7 +89,7 @@ def test_overwrite_only_inside_selected_flat_region_removes_mottled_old_ink():
     assert audit["unchanged_outside_selected_rectangle"]
 
 
-@pytest.mark.skipif(not features.check("raqm"), reason="RAQM unavailable")
+@pytest.mark.skipif(not verified_shaper_available(), reason="No verified shaping backend")
 def test_transparent_cutout_never_gains_white_flat_background():
     rgba = np.zeros((160, 280, 4), dtype=np.uint8)
     rgba[40:120, 40:240] = (230, 40, 35, 255)
@@ -105,7 +106,7 @@ def test_transparent_cutout_never_gains_white_flat_background():
     assert audits[0]["no_background_generated"]
 
 
-@pytest.mark.skipif(not features.check("raqm"), reason="RAQM unavailable")
+@pytest.mark.skipif(not verified_shaper_available(), reason="No verified shaping backend")
 def test_nonuniform_or_photo_background_fails_closed():
     rgba = np.zeros((160, 280, 3), dtype=np.uint8)
     rgba[:, :, 0] = np.linspace(10, 220, 280).astype("uint8")
@@ -124,7 +125,7 @@ def test_missing_font_and_outside_canvas_never_render():
         exact_text_overlay((280, 160), r2)
 
 
-@pytest.mark.skipif(not features.check("raqm"), reason="RAQM unavailable")
+@pytest.mark.skipif(not verified_shaper_available(), reason="No verified shaping backend")
 def test_thai_vowels_and_tone_marks_render_without_cropped_bounding_box():
     font = thai_font()
     text = "ซื้อ ชื่อ ป้ายไวนิล โปรโมชั่น"
@@ -164,7 +165,7 @@ def adapter_with_stub():
     return adapter
 
 
-@pytest.mark.skipif(not features.check("raqm"), reason="RAQM unavailable")
+@pytest.mark.skipif(not verified_shaper_available(), reason="No verified shaping backend")
 def test_real_v211_output_includes_verified_text_only_after_neural_resize(tmp_path):
     from signprint_ai.v21_graphics_ai import V21Settings
     src, dst = tmp_path/"source.png", tmp_path/"shop.png"
@@ -194,3 +195,24 @@ def test_selected_face_overlap_fails_before_any_neural_export(tmp_path):
     with pytest.raises(ValueError, match="ทับใบหน้า"):
         adapter_with_stub().process(src, dst, settings, use_ai=True)
     assert not dst.exists()
+
+
+
+def test_windows_without_raqm_uses_harfbuzz_freetype_not_naive_thai(monkeypatch):
+    if not verified_shaper_available():
+        pytest.skip("No exact shaping backend")
+    from signprint_ai import v211_verified_text
+    from signprint_ai.v211_hb_font import backend_available
+    if not backend_available():
+        pytest.skip("Cannot test HarfBuzz/FreeType fallback")
+    font = thai_font()
+    monkeypatch.setattr(v211_verified_text.features, "check", lambda _: False)
+    roi = VerifiedTextRegion(10, 10, 550, 125, "ซื้อ ชื่อ ป้าย", font, 68,
+                             (245, 20, 30), "center", "transparent_overlay")
+    overlay, audit = exact_text_overlay((580, 160), roi)
+    assert audit["shaping"] == "HarfBuzz_FreeType"
+    assert audit["exact_text"] == "ซื้อ ชื่อ ป้าย"
+    alpha = np.asarray(overlay.getchannel("A"))
+    assert np.count_nonzero(alpha) > 100
+    assert np.all(alpha[:10] == 0)
+    assert np.all(alpha[135:] == 0)
