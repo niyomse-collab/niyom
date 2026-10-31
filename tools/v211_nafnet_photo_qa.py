@@ -89,12 +89,41 @@ def run(output=Path("v211-nafnet-photo-proof")):
     }
     output_scores["psnr_gain_db"]=round(output_scores["assisted_psnr_db"]-output_scores["v2_psnr_db"],4)
     output_scores["ssim_gain"]=round(output_scores["assisted_ssim"]-output_scores["v2_ssim"],5)
+    # The mixed-signage blend was deliberately conservative but discarded
+    # much of the raw NAFNet denoising/deblurring advantage. A separate
+    # unexposed photo-only candidate transfers the actual 1x model output,
+    # without applying it to artwork containing letters or logos.
+    photo_only_dir = output / "photo_only_candidate"
+    photo_only_comparison = run_pair(
+        source, photo_only_dir, adapter=engine, scale=2, dpi=300,
+        device="cpu", assist_model="v2_nafnet_photo_only"
+    )
+    with Image.open(photo_only_dir/"V211_V2_plus_NAFNet_PhotoOnly.png") as image:
+        raw_photo_final = np.asarray(image.convert("RGB")).copy()
+    full_output_scores = {
+        "psnr_db": round(_psnr(hr, raw_photo_final),4),
+        "ssim": round(_ssim(hr, raw_photo_final),5),
+    }
+    full_output_scores["psnr_gain_vs_v2_db"] = round(
+        full_output_scores["psnr_db"] - output_scores["v2_psnr_db"], 4
+    )
+    full_output_scores["ssim_gain_vs_v2"] = round(
+        full_output_scores["ssim"] - output_scores["v2_ssim"], 5
+    )
+    full_output_scores["provisional_photo_only_gain"] = bool(
+        full_output_scores["psnr_gain_vs_v2_db"] >= 2.0
+        and full_output_scores["ssim_gain_vs_v2"] >= .04
+    )
+    full_output_scores["full_photo_only_not_for_text_or_logos"] = True
+
     verdict={
         "photo_sample":"skimage astronaut NASA (no customer content)",
         "source_model_path":"NAFNet GoPro width64 1x -> Real-ESRGAN V2 2x",
         "native_photographic_hr":True,
         "low_res_nafnet_ablation":low_scores,
         "final_hr_comparison":output_scores,
+        "raw_photo_only_candidate":full_output_scores,
+        "raw_photo_only_model":photo_only_comparison["processing"]["assisted_model"],
         "provisional_photo_gain":bool(output_scores["psnr_gain_db"]>=1.0
                                        and output_scores["ssim_gain"]>=0),
         "faces_or_print_certified":False,
