@@ -7,7 +7,6 @@ gate, not certification. There is no external user/customer content.
 """
 from __future__ import annotations
 
-from dataclasses import replace
 import json
 from pathlib import Path
 
@@ -24,6 +23,7 @@ def run(destination=Path("v211-source-ink-real-v2-proof")):
     _basic_sr_import_compat()
     from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
     from signprint_ai.v21_graphics_ai import V21Settings
+    from signprint_ai.v211_source_guided_ink import restore_source_guided_ink
 
     adapter = NiyomSilpCoreAdapter()
     if not adapter.selected_model_available("real_esrgan"):
@@ -36,10 +36,10 @@ def run(destination=Path("v211-source-ink-real-v2-proof")):
         v21_v2_quality_baseline=True, v211_source_guided_ink=False,
         v211_ink_geometry=False,
     )
-    research_settings = replace(
-        baseline_settings, v211_source_guided_ink=True,
-        v211_source_guided_ink_strength=1.0
-    )
+    # The released app deliberately rejects the unapproved Source-Ink flag.
+    # Research must not bypass that safety gate by changing production code.
+    # Instead run the official V2 model once, and apply an isolated local
+    # postprocess to its final output for A/B evidence only.
     trials = {}
     for subject in ("letters", "blocks", "curves", "photo_control"):
         folder = destination / subject
@@ -53,18 +53,19 @@ def run(destination=Path("v211-source-ink-real-v2-proof")):
         old = adapter.process(
             source, baseline_path, baseline_settings, use_ai=True
         )
-        new = adapter.process(
-            source, research_path, research_settings, use_ai=True
-        )
-        with Image.open(baseline_path) as image:
+        with Image.open(baseline_path) as image, Image.open(source) as original:
             baseline = np.asarray(image.convert("RGB")).copy()
-        with Image.open(research_path) as image:
-            revised = np.asarray(image.convert("RGB")).copy()
+            result, audit = restore_source_guided_ink(image, original)
+            # Diagnostic proof, NOT an operator export or a shipped feature.
+            result.save(research_path, dpi=image.info.get("dpi", (300, 300)))
+            revised = np.asarray(result.convert("RGB")).copy()
         old_psnr, old_ssim = quality(truth, baseline)
         new_psnr, new_ssim = quality(truth, revised)
         trials[subject] = {
             "v2_model": old.get("model"),
-            "assisted_v2_model": new.get("model"),
+            "assisted_v2_model": old.get("model"),
+            "isolated_unapproved_postprocess": True,
+            "source_ink_audit": audit,
             "native_hr_reference": True,
             "v2_psnr_db": old_psnr,
             "source_ink_psnr_db": new_psnr,
@@ -88,6 +89,7 @@ def run(destination=Path("v211-source-ink-real-v2-proof")):
     report = {
         "model": "Approved V2 RealESRGAN_x4plus + LR source-guided ink",
         "real_weight_inference": True,
+        "production_app_source_ink_still_blocked": True,
         "provisional_text_colour_screen": screen,
         "quality_release_approved": False,
         "remaining": ["actual Thai diacritics", "letter topology",
