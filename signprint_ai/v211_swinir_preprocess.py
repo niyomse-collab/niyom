@@ -219,8 +219,8 @@ class PreRestoreV2Engine:
                 # Regions are normalized to whole-image coordinates; map into
                 # this padded source tile before blending.
                 tile_regions = tuple(
-                    ((x1*w-l)/(r-l), (y1*h-t)/(b-t),
-                     (x2*w-l)/(r-l), (y2*h-t)/(b-t))
+                    (max(0., (x1*w-l)/(r-l)), max(0., (y1*h-t)/(b-t)),
+                     min(1., (x2*w-l)/(r-l)), min(1., (y2*h-t)/(b-t)))
                     for x1, y1, x2, y2 in self.protected_regions or ()
                     if x2*w > l and x1*w < r and y2*h > t and y1*h < b
                 )
