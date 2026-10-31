@@ -247,35 +247,13 @@ class NiyomSilpCoreAdapter:
                 "โปรดใช้ V2 เดิม หรือโหมดข้อความต้นฉบับที่ยืนยันแล้ว"
             )
 
-        # Exact-text reconstruction requires supplied Unicode, actual installed
-        # font and final pixel ROI. Reject missing/misaligned details *before*
-        # the expensive AI pass. Never apply to unsupported disk-backed output.
-        verified_regions = getattr(settings, "v211_verified_text_regions", ())
-        if verified_regions:
-            from .v211_verified_text import _validate as validate_exact_text
-            for region in verified_regions:
-                validate_exact_text(region, target_size)
-            if getattr(settings, "face_protection", False):
-                if settings.face_regions is None:
-                    raise ValueError(
-                        "กรุณายืนยันบริเวณใบหน้าก่อนแทนที่ตัวอักษร "
-                        "เพื่อไม่ให้ข้อความทับใบหน้า"
-                    )
-                from .face_module.detection import map_regions
-                face_boxes = map_regions(
-                    settings.face_regions, source_size, target_size,
-                    settings.resize_mode
-                )
-                for region in verified_regions:
-                    rx1, ry1 = region.x/target_size[0], region.y/target_size[1]
-                    rx2 = (region.x+region.width)/target_size[0]
-                    ry2 = (region.y+region.height)/target_size[1]
-                    for x1, y1, x2, y2 in face_boxes:
-                        if rx1 < x2 and rx2 > x1 and ry1 < y2 and ry2 > y1:
-                            raise ValueError(
-                                "พื้นที่ข้อความทับใบหน้าที่เลือก "
-                                "กรุณาเลื่อนหรือย่อบริเวณข้อความ"
-                            )
+        # PRINT-IMAGE-ONLY CONTRACT: The owner wants raster recovery, never
+        # rewriting/overlaying letters or prices, in any script or font.
+        # Fail closed even if a stale GUI/CLI supplies legacy text regions.
+        if getattr(settings, "v211_verified_text_regions", ()):
+            raise ValueError(
+                "V2.1.1 image-only enhancement forbids text replacement or overlays"
+            )
 
         # V2.1.1 research-only photo NAFNet must never touch already-sharp
         # photographs, RGBA logo cutouts, or unconfirmed face selections.
@@ -491,18 +469,6 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
-        # Exact glyphs are drawn only at the FINAL output dimensions so
-        # neither Real-ESRGAN nor GFPGAN can alter Thai marks after shaping.
-        verified_audits = None
-        if verified_regions:
-            from .v211_verified_text import apply_verified_regions
-            had_alpha = "A" in output.getbands()
-            output, verified_audits = apply_verified_regions(
-                output, verified_regions
-            )
-            if not had_alpha:
-                output = output.convert("RGB")
-
         if progress:
             progress(96, "Save Output")
 
@@ -566,5 +532,5 @@ class NiyomSilpCoreAdapter:
             "runtime": "PyTorch",
             "face_protection": face_info,
             "photo_preflight": photo_preflight,
-            "verified_exact_text": verified_audits,
+            "verified_exact_text": None,  # image-only: no raster text rewriting
         }
