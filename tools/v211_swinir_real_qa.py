@@ -98,6 +98,25 @@ def run(output_dir=Path("v211-swinir-proof")):
         raise AssertionError("V2 baseline was not used")
     if comparison["processing"]["assisted_model"] != "V2 RealESRGAN_x4plus + SwinIR pre-denoise":
         raise AssertionError("Both real models were not used in the assisted path")
+    # Additional *proxy* check after final V2 upscaling. The clean 1x
+    # source is resized with bicubic ONLY for objective paired diagnostics;
+    # this is NOT a true recovered high-res ground truth or a human verdict.
+    clean_proxy = np.asarray(
+        Image.fromarray(clean).resize((clean.shape[1] * 2, clean.shape[0] * 2),
+                                      Image.Resampling.BICUBIC)
+    )
+    with Image.open(output_dir / "V2_reference.png") as v2_out:
+        v2_rgb = np.asarray(v2_out.convert("RGB")).copy()
+    with Image.open(output_dir / "V211_V2_plus_SwinIR.png") as assisted_out:
+        assisted_rgb = np.asarray(assisted_out.convert("RGB")).copy()
+    v2_proxy_psnr = _psnr(clean_proxy, v2_rgb)
+    assisted_proxy_psnr = _psnr(clean_proxy, assisted_rgb)
+    proxy_gain = assisted_proxy_psnr - v2_proxy_psnr
+    # A measured source improvement is not a quality leap if the final image
+    # is virtually identical. 1dB is only a minimum research screening gate,
+    # *never* sufficient alone for installer / shop print acceptance.
+    proxy_gate_passed = bool(proxy_gain >= 1.0)
+
     summary = {
         "model": "SwinIR colour denoise 15 -> V2 Real-ESRGAN",
         "checkpoint_sha256": SWINIR_SHA256,
@@ -105,6 +124,11 @@ def run(output_dir=Path("v211-swinir-proof")):
         "photo_source_roi_psnr_before": round(before_psnr, 4),
         "photo_source_roi_psnr_after": round(after_psnr, 4),
         "source_roi_psnr_gain_db": round(after_psnr - before_psnr, 4),
+        "v2_proxy_psnr_bicubic_clean": round(v2_proxy_psnr, 4),
+        "assisted_proxy_psnr_bicubic_clean": round(assisted_proxy_psnr, 4),
+        "final_output_proxy_gain_db": round(proxy_gain, 4),
+        "provisional_output_1db_gate_passed": proxy_gate_passed,
+        "proxy_is_true_high_res_ground_truth": False,
         "v2_vs_assisted": comparison,
         "subjective_quality_certified": False,
         "portrait_identity_certified": False,
@@ -117,6 +141,8 @@ def run(output_dir=Path("v211-swinir-proof")):
     )
     print(json.dumps({
         "source_roi_psnr_gain_db": summary["source_roi_psnr_gain_db"],
+        "final_output_proxy_gain_db": summary["final_output_proxy_gain_db"],
+        "provisional_output_1db_gate_passed": proxy_gate_passed,
         "real_checkpoint_inference": True,
         "v2_vs_assisted": comparison["overall"],
         "quality_certified": False
