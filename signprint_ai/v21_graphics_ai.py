@@ -23,6 +23,10 @@ class V21Settings(EnhanceSettings):
     # Independent, operator-controlled improvement above the accepted V2
     # edge path; off by default in scripts, on by default in the desktop UI.
     v21_precision_ink: bool = False
+    # Research-only colour-coverage contour restoration on flat graphic ink.
+    # Never enable by default before real V2 and Thai print acceptance.
+    v211_ink_geometry: bool = False
+    v211_ink_geometry_strength: float = 1.0
     # Experimental transfer is opt-in; preserve the established photo core by default.
     graphic_ai: bool = False
     # V2.1-only experimental flat-fill cleanup. Legacy EnhanceSettings has no flag.
