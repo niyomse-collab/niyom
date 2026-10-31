@@ -267,11 +267,8 @@ class NiyomSilpCoreAdapter:
                 progress(1, "Photo AI ไม่เหมาะกับภาพนี้ — ใช้ V2 เดิมเพื่อรักษาคุณภาพ")
 
         if needs_streaming(source_size, target_size, model_scale if use_ai else 1):
-            if verified_regions:
-                raise RuntimeError(
-                    "V2.1.1 Exact Text ยังไม่ผ่านการตรวจงานขนาดใหญ่ "
-                    "ให้ใช้ไฟล์ PNG ตัวอักษรโปร่งใสแยกเลเยอร์ใน Photoshop"
-                )
+            # Text redrawing was rejected at preflight for ALL image sizes.
+            # Large-format image enhancement remains available unchanged.
             if getattr(settings, "v211_source_guided_ink", False):
                 raise RuntimeError(
                     "V2.1.1 Source Ink เป็นโหมดวิจัยขนาดเล็กเท่านั้น "
