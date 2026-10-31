@@ -43,7 +43,7 @@ def _validate_faces(faces):
 
 def run_pair(source, destination, *, scale=2, dpi=300, device="AUTO",
              faces=(), face_mode="recover", face_strength=65,
-             adapter=None):
+             adapter=None, assist_model="v2_hat_assist"):
     """Produce matching V2 and assisted PNGs plus noncertifying A/B evidence."""
     source, destination = Path(source), Path(destination)
     if not source.is_file():
@@ -62,8 +62,10 @@ def run_pair(source, destination, *, scale=2, dpi=300, device="AUTO",
     _check_qa_size((width * scale, height * scale))
     selected_faces = _validate_faces([list(f) for f in faces])
     engine = adapter if adapter is not None else NiyomSilpCoreAdapter()
-    if not engine.selected_model_available("v2_hat_assist"):
-        raise RuntimeError("V2 + HAT comparison requires both verified model weights")
+    if assist_model not in ("v2_hat_assist", "v2_swinir_pre"):
+        raise ValueError("Unknown A/B assistant model")
+    if not engine.selected_model_available(assist_model):
+        raise RuntimeError("V2 + HAT comparison requires both verified model weights" if assist_model == "v2_hat_assist" else "V2 + SwinIR comparison requires both verified model weights")
     destination.mkdir(parents=True, exist_ok=True)
     settings = V21Settings(
         ai_scale=scale,
@@ -81,13 +83,13 @@ def run_pair(source, destination, *, scale=2, dpi=300, device="AUTO",
         color_mode="RGB",
     )
     reference = destination / "V2_reference.png"
-    assisted = destination / "V211_V2_plus_HAT.png"
+    assisted = destination / ("V211_V2_plus_HAT.png" if assist_model == "v2_hat_assist" else "V211_V2_plus_SwinIR.png")
     first = engine.process(
         source, reference, replace(settings, v211_photo_model="real_esrgan"),
         use_ai=True,
     )
     second = engine.process(
-        source, assisted, replace(settings, v211_photo_model="v2_hat_assist"),
+        source, assisted, replace(settings, v211_photo_model=assist_model),
         use_ai=True,
     )
     report = compare_images(reference, assisted, face_regions=selected_faces)
@@ -115,6 +117,7 @@ def main(argv=None):
     parser.add_argument("--scale", choices=(2, 4), type=int, default=2)
     parser.add_argument("--dpi", type=int, default=300)
     parser.add_argument("--device", default="AUTO")
+    parser.add_argument("--assist", choices=("v2_hat_assist", "v2_swinir_pre"), default="v2_hat_assist")
     parser.add_argument("--faces", type=Path, help="Optional private JSON face ROI list")
     parser.add_argument("--face-mode", choices=("recover", "studio ai"), default="recover")
     parser.add_argument("--face-strength", type=int, default=65)
@@ -124,7 +127,8 @@ def main(argv=None):
     )
     report = run_pair(args.input, args.out, scale=args.scale, dpi=args.dpi,
                       device=args.device, faces=faces,
-                      face_mode=args.face_mode, face_strength=args.face_strength)
+                      face_mode=args.face_mode, face_strength=args.face_strength,
+                      assist_model=args.assist)
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
 
