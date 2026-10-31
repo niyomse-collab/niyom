@@ -175,3 +175,42 @@ def test_8x_second_pass_skips_duplicate_restoration():
     from signprint_ai.large_image import _large_job
     assert "engine.next_pass_engine()" in inspect.getsource(NiyomSilpCoreAdapter.process)
     assert "engine.next_pass_engine()" in inspect.getsource(_large_job)
+
+
+
+def test_partial_face_roi_on_large_tile_is_clipped_and_preserved():
+    log = []
+    pixels = _noisy_photo()
+    engine = PreRestoreV2Engine(
+        DummyV2(log), DummySwinIR(log), strength=.9,
+    )
+    engine.enhance_graphic_tile(
+        pixels, scale=2, cancel=None,
+        protected_regions=((-0.2, -0.2, .6, .6),)
+    )
+    sent_to_v2 = log[-1][1]
+    np.testing.assert_array_equal(sent_to_v2[:40, :40], pixels[:40, :40])
+
+
+def test_swinir_preflight_requires_both_separate_weights(tmp_path, monkeypatch):
+    from signprint_ai import v211_swinir_preprocess, niyomsil_core_adapter
+    from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
+    sw = tmp_path / "noise15.pth"
+    v2 = tmp_path / "esrgan.pth"
+    monkeypatch.setattr(v211_swinir_preprocess, "swinir_checkpoint_path", lambda: sw)
+    monkeypatch.setattr(niyomsil_core_adapter, "model_path", lambda: v2)
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    assert adapter.selected_model_available("v2_swinir_pre") is False
+    sw.write_bytes(b"research stub only")
+    assert adapter.selected_model_available("v2_swinir_pre") is False
+    v2.write_bytes(b"research stub only")
+    assert adapter.selected_model_available("v2_swinir_pre") is True
+
+
+def test_swinir_desktop_mode_selected_not_replacing_v2():
+    import inspect
+    from signprint_ai.app_v2 import App
+    ui = inspect.getsource(App._settings)
+    start = inspect.getsource(App.start_processing)
+    assert '"v2_swinir_pre"' in ui
+    assert '"v2_swinir_pre"' in start
