@@ -151,6 +151,13 @@ def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path)
         assert alpha[80, 80] == 255
         assert alpha[128, 128] == 128
         assert 0 < alpha[40, 40] < 255
+        # RGB under fractional alpha must retain the foreground ink colour.
+        # A black/white matte baked into RGB causes visible fringes when a
+        # transparent sticker is composited on a different background.
+        rgba = np.asarray(verified.convert("RGBA"))
+        foreground = np.array([180, 40, 70], dtype=np.int16)
+        for y, x in ((40, 40), (128, 128), (80, 80)):
+            assert np.max(np.abs(rgba[y, x, :3].astype(np.int16) - foreground)) <= 1
     assert log == [
         ("v2", 4, (32, 32)),
         ("hat", 4, (32, 32)),
