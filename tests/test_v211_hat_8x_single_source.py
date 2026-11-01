@@ -180,3 +180,52 @@ def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path,
         ("hat", 4, (32, 32)),
         ("v2", 2, (128, 128)),
     ]
+
+
+def test_8x_rgba_multicolour_opaque_plateaus_keep_distinct_inks(tmp_path):
+    """Catch channel contamination across independent saturated ink regions.
+
+    This is a deterministic routing regression, not a gradient, neural-model,
+    multi-outline or real-world visual-quality certification.
+    """
+    log = []
+    v2 = RecordingEngine("v2", log)
+    hat = RecordingEngine("hat", log)
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    adapter.create_job_engine = lambda settings: HATAssistEngine(v2, hat)
+    adapter.engine_manager = SimpleNamespace(
+        engine=None,
+        device_manager=SimpleNamespace(
+            get_default_device=lambda: SimpleNamespace(
+                device_id="cpu", name="CPU",
+            )
+        ),
+    )
+    pixels = np.zeros((32, 32, 4), dtype=np.uint8)
+    pixels[:, :16, :3] = (245, 35, 95)
+    pixels[:, 16:, :3] = (20, 195, 240)
+    pixels[4:28, 4:28, 3] = 255
+    source = tmp_path / "two_inks.png"
+    output = tmp_path / "two_inks_8x.png"
+    Image.fromarray(pixels, "RGBA").save(source)
+    settings = V21Settings(
+        ai_scale=8, device="CPU", face_protection=False,
+        resize_mode="stretch", v211_photo_model="v2_hat_assist",
+        v21_precision_ink=False, graphic_ai=False,
+    )
+    adapter.process(source, output, settings, use_ai=True)
+    with Image.open(output) as result:
+        rgba = np.asarray(result.convert("RGBA"))
+    assert rgba.shape == (256, 256, 4)
+    for x, expected in ((64, (245, 35, 95)), (192, (20, 195, 240))):
+        assert rgba[128, x, 3] == 255
+        assert np.max(np.abs(
+            rgba[128, x, :3].astype(np.int16)
+            - np.array(expected, dtype=np.int16)
+        )) <= 1
+    assert rgba[0, 0, 3] == 0
+    assert log == [
+        ("v2", 4, (32, 32)),
+        ("hat", 4, (32, 32)),
+        ("v2", 2, (128, 128)),
+    ]
