@@ -126,3 +126,27 @@ def test_ab_flags_identical_results_as_no_evidence_of_improvement(tmp_path):
     result = compare_images(v2, enhanced)
     assert "identical_results_no_observed_pixel_improvement" in result["review_flags"]
     assert result["quality_improvement_certified"] is False
+
+
+def test_ab_flags_new_dark_speckles_inside_flat_ink(tmp_path):
+    """Diagnostic catches false pixel texture away from genuine contours."""
+    v2, enhanced = _write_pair(tmp_path)
+    with Image.open(enhanced) as image:
+        pixels = np.asarray(image).copy()
+    # A patch of isolated dark dots well inside the uniform red region.
+    for y in range(8, 32, 3):
+        for x in range(6, 24, 3):
+            pixels[y, x] = (20, 10, 20)
+    Image.fromarray(pixels).save(enhanced, dpi=(300, 300))
+    result = compare_images(v2, enhanced)
+    assert result["flat_ink_new_speckles_pct"] > 0.1
+    assert "new_flat_ink_high_frequency_speckles_review_required" in result["review_flags"]
+    assert result["quality_improvement_certified"] is False
+
+
+def test_ab_identical_flat_ink_has_no_new_speckles(tmp_path):
+    v2, enhanced = _write_pair(tmp_path)
+    with Image.open(v2) as image:
+        image.save(enhanced, dpi=(300, 300))
+    result = compare_images(v2, enhanced)
+    assert result["flat_ink_new_speckles_pct"] == 0.0
