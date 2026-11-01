@@ -88,6 +88,22 @@ def compare_images(v2_path, super_path, *, face_regions=()):
     if not visible.any():
         raise ValueError("Comparison invalid: entirely transparent output")
     face = _regions_to_mask(face_regions, width, height) & visible
+    # Semi-transparent antialiased ink is especially vulnerable to new
+    # coloured halos. Compare the *visible premultiplied contribution*,
+    # not hidden RGB values in fully transparent pixels. This is a review
+    # signal only: intended edge enhancement may also change these pixels.
+    translucent = (alpha_v2 > 0) & (alpha_v2 < 255)
+    if translucent.any():
+        premult_delta = np.max(
+            np.abs(base.astype(np.float32) - enhanced.astype(np.float32))
+            * (alpha_v2.astype(np.float32) / 255.0)[:, :, None],
+            axis=2,
+        )
+        translucent_changed_pct = round(
+            float((premult_delta[translucent] > 12).mean() * 100), 4
+        )
+    else:
+        translucent_changed_pct = None
     delta = np.abs(base.astype(np.int16) - enhanced.astype(np.int16))
     maximum = delta.max(axis=2)
     # Printed RGB artwork can have strong *chroma* edges with almost the
@@ -133,6 +149,8 @@ def compare_images(v2_path, super_path, *, face_regions=()):
     else:
         speckle_pct = None
     review_flags = []
+    if translucent_changed_pct is not None and translucent_changed_pct > 1.0:
+        review_flags.append("translucent_edge_colour_shift_review_required")
     if speckle_pct is not None and speckle_pct > 0.1:
         review_flags.append("new_flat_ink_high_frequency_speckles_review_required")
     if flat_changes["pixel_count"] and (
@@ -154,6 +172,7 @@ def compare_images(v2_path, super_path, *, face_regions=()):
         "super_metadata": meta_super,
         "same_pixels": True,
         "same_alpha": True,
+        "translucent_edge_visible_colour_shift_gt_12_pct": translucent_changed_pct,
         "same_icc": True,
         "overall": measure(visible),
         "existing_v2_edges": measure(edge),
