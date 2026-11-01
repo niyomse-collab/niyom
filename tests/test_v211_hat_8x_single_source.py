@@ -229,3 +229,57 @@ def test_8x_rgba_multicolour_opaque_plateaus_keep_distinct_inks(tmp_path):
         ("hat", 4, (32, 32)),
         ("v2", 2, (128, 128)),
     ]
+
+
+def test_8x_rgba_two_inks_with_independent_fractional_alpha(tmp_path):
+    """Two straight-alpha ink cutouts must retain distinct RGB under alpha.
+
+    Tests semi-transparent *interiors* on both inks, rather than opaque
+    plateaus only. This does not certify neural edge/gradient quality.
+    """
+    log = []
+    v2 = RecordingEngine("v2", log)
+    hat = RecordingEngine("hat", log)
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    adapter.create_job_engine = lambda settings: HATAssistEngine(v2, hat)
+    adapter.engine_manager = SimpleNamespace(
+        engine=None,
+        device_manager=SimpleNamespace(
+            get_default_device=lambda: SimpleNamespace(
+                device_id="cpu", name="CPU",
+            )
+        ),
+    )
+    rgba = np.zeros((32, 48, 4), dtype=np.uint8)
+    inks = ((240, 35, 110), (20, 190, 235))
+    rgba[4:28, 4:20, :3] = inks[0]
+    rgba[4:28, 28:44, :3] = inks[1]
+    rgba[4:28, 4:20, 3] = 255
+    rgba[4:28, 28:44, 3] = 255
+    rgba[10:22, 9:15, 3] = 96
+    rgba[10:22, 33:39, 3] = 160
+    src = tmp_path / "two_alpha_inks.png"
+    dst = tmp_path / "two_alpha_inks_8x.png"
+    Image.fromarray(rgba, "RGBA").save(src)
+    settings = V21Settings(
+        ai_scale=8, device="CPU", face_protection=False,
+        resize_mode="stretch", v211_photo_model="v2_hat_assist",
+        v21_precision_ink=False, graphic_ai=False,
+    )
+    adapter.process(src, dst, settings, use_ai=True)
+    with Image.open(dst) as im:
+        assert im.mode == "RGBA"
+        assert im.size == (384, 256)
+        out = np.asarray(im)
+    assert out[0, 0, 3] == 0
+    for x, ink, expected_alpha in ((96, inks[0], 96), (288, inks[1], 160)):
+        assert out[128, x, 3] == expected_alpha
+        assert np.max(np.abs(
+            out[128, x, :3].astype(np.int16)
+            - np.array(ink, dtype=np.int16)
+        )) <= 1
+    assert log == [
+        ("v2", 4, (48, 32)),
+        ("hat", 4, (48, 32)),
+        ("v2", 2, (192, 128)),
+    ]
