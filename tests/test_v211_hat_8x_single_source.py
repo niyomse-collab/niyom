@@ -158,6 +158,21 @@ def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path)
         foreground = np.array([180, 40, 70], dtype=np.int16)
         for y, x in ((40, 40), (128, 128), (80, 80)):
             assert np.max(np.abs(rgba[y, x, :3].astype(np.int16) - foreground)) <= 1
+        # Check the *entire* nonzero-alpha contour, not just three sample
+        # pixels. A small local matte defect can be missed by point probes.
+        # This fixture uses constant foreground RGB, so every covered pixel
+        # must retain that ink regardless of fractional alpha coverage.
+        covered = alpha > 0
+        assert np.any((alpha > 0) & (alpha < 255))
+        deviation = np.abs(rgba[:, :, :3].astype(np.int16) - foreground)
+        assert np.max(deviation[covered]) <= 1
+        # Verify black/white background composites agree with the straight
+        # alpha equation. This is a deterministic fixture, NOT neural QA.
+        a = alpha.astype(np.float32) / 255.0
+        for background in (0.0, 255.0):
+            actual = rgba[:, :, :3].astype(np.float32) * a[..., None] + background * (1.0 - a[..., None])
+            expected = foreground.astype(np.float32) * a[..., None] + background * (1.0 - a[..., None])
+            assert np.max(np.abs(actual[covered] - expected[covered])) <= 1.0
     assert log == [
         ("v2", 4, (32, 32)),
         ("hat", 4, (32, 32)),
