@@ -150,3 +150,34 @@ def test_ab_identical_flat_ink_has_no_new_speckles(tmp_path):
         image.save(enhanced, dpi=(300, 300))
     result = compare_images(v2, enhanced)
     assert result["flat_ink_new_speckles_pct"] == 0.0
+
+
+def test_ab_flags_new_visible_fringe_on_translucent_ink(tmp_path):
+    """Only the visible RGB contribution at semi-transparent pixels is scored."""
+    v2, enhanced = tmp_path / "v2.png", tmp_path / "super.png"
+    pixels = np.zeros((32, 32, 4), dtype=np.uint8)
+    pixels[:, :, :3] = (230, 30, 80)
+    pixels[:, :, 3] = 128
+    Image.fromarray(pixels, "RGBA").save(v2)
+    changed = pixels.copy()
+    changed[6:26, 6:26, :3] = (30, 30, 230)
+    Image.fromarray(changed, "RGBA").save(enhanced)
+    report = compare_images(v2, enhanced)
+    assert report["same_alpha"] is True
+    assert report["translucent_edge_visible_colour_shift_gt_12_pct"] > 1
+    assert "translucent_edge_colour_shift_review_required" in report["review_flags"]
+    assert report["quality_improvement_certified"] is False
+
+
+def test_ab_ignores_hidden_rgb_in_fully_transparent_pixels(tmp_path):
+    v2, enhanced = tmp_path / "v2.png", tmp_path / "super.png"
+    pixels = np.zeros((32, 32, 4), dtype=np.uint8)
+    pixels[:, :, :3] = (240, 50, 60)
+    pixels[4:28, 4:28, 3] = 255
+    Image.fromarray(pixels, "RGBA").save(v2)
+    changed = pixels.copy()
+    changed[pixels[:, :, 3] == 0, :3] = (0, 255, 255)
+    Image.fromarray(changed, "RGBA").save(enhanced)
+    report = compare_images(v2, enhanced)
+    assert report["translucent_edge_visible_colour_shift_gt_12_pct"] is None
+    assert "translucent_edge_colour_shift_review_required" not in report["review_flags"]
