@@ -116,7 +116,25 @@ def compare_images(v2_path, super_path, *, face_regions=()):
     # thresholds explicit so a human can inspect the corresponding crop.
     flat_changes = measure(flat)
     face_changes = measure(face)
+    # Diagnostic for false dark/blue speckles inside otherwise smooth ink.
+    # Use a conservative 3x3 interior mask: never score intentional contours,
+    # transparency boundaries, selected faces, or their immediate neighbours.
+    # Compare local high-frequency energy against V2 at the SAME pixels.
+    interior = flat.astype(np.uint8)
+    interior = cv2.erode(interior, np.ones((3, 3), np.uint8), iterations=1).astype(bool)
+    if interior.any():
+        base_lap = cv2.Laplacian(base.astype(np.float32), cv2.CV_32F, ksize=1)
+        new_lap = cv2.Laplacian(enhanced.astype(np.float32), cv2.CV_32F, ksize=1)
+        base_energy = np.max(np.abs(base_lap), axis=2)[interior]
+        new_energy = np.max(np.abs(new_lap), axis=2)[interior]
+        # Only report NEW strong local texture, not a smooth global hue shift.
+        new_speckles = (new_energy > 20) & (new_energy > base_energy + 15)
+        speckle_pct = round(float(new_speckles.mean() * 100), 4)
+    else:
+        speckle_pct = None
     review_flags = []
+    if speckle_pct is not None and speckle_pct > 0.1:
+        review_flags.append("new_flat_ink_high_frequency_speckles_review_required")
     if flat_changes["pixel_count"] and (
         flat_changes["changed_gt_3_pct"] > 1.0
         or flat_changes["mean_abs_change"] > 1.0
@@ -140,6 +158,7 @@ def compare_images(v2_path, super_path, *, face_regions=()):
         "overall": measure(visible),
         "existing_v2_edges": measure(edge),
         "flat_ink_fills": flat_changes,
+        "flat_ink_new_speckles_pct": speckle_pct,
         "selected_face_regions": face_changes,
         "review_required": bool(review_flags),
         "review_flags": review_flags,
