@@ -6,6 +6,7 @@ do NOT certify image quality or exercise real checkpoint inference.
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
@@ -107,7 +108,8 @@ def test_real_memory_adapter_8x_uses_hat_on_original_once(tmp_path):
     ]
 
 
-def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path):
+@pytest.mark.parametrize("ink_rgb", [(180, 40, 70), (20, 175, 235), (245, 230, 35)])
+def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path, ink_rgb):
     """Regression: 8x print cutouts must not acquire an opaque background.
 
     Deterministic routing/alpha test only; real neural quality remains unproven.
@@ -129,7 +131,7 @@ def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path)
     source = tmp_path / "cutout.png"
     output = tmp_path / "cutout_8x.png"
     pixels = np.zeros((32, 32, 4), dtype=np.uint8)
-    pixels[:, :, :3] = (180, 40, 70)
+    pixels[:, :, :3] = ink_rgb
     pixels[5:27, 5:27, 3] = 255
     # Keep an opaque plateau well away from both alpha boundaries. Lanczos
     # resampling legitimately changes coverage near a contour; sampling there
@@ -155,7 +157,7 @@ def test_8x_memory_rgba_keeps_transparent_cutout_and_single_hat_source(tmp_path)
         # A black/white matte baked into RGB causes visible fringes when a
         # transparent sticker is composited on a different background.
         rgba = np.asarray(verified.convert("RGBA"))
-        foreground = np.array([180, 40, 70], dtype=np.int16)
+        foreground = np.array(ink_rgb, dtype=np.int16)
         for y, x in ((40, 40), (128, 128), (80, 80)):
             assert np.max(np.abs(rgba[y, x, :3].astype(np.int16) - foreground)) <= 1
         # Check the *entire* nonzero-alpha contour, not just three sample
