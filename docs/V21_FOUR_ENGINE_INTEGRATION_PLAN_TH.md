@@ -30,3 +30,10 @@ Current status: integration not yet implemented; this document specifies the wor
 - Preserve existing V2 user workflow and controls. Internal routing may select or combine compatible processing stages only when proven safe; preserve baseline and fallback.
 - Background quality checks must be bounded and non-destructive; log per-engine selection, elapsed time, failures and output validation for diagnostics without exposing technical details to customers.
 - Never imply that running four models guarantees better output. Require image-level A/B evidence and preserve manual quality controls already present in V2.
+
+## Owner correction — 2026-11-02: cooperative four-engine processing
+- On image import, initialize **all four** background engine paths (Real-ESRGAN, Waifu2x, Real-CUGAN, Anime4K) as a coordinated quality pipeline. Keep model identities invisible in the normal UI.
+- Distinguish 'all four participate in the workflow' from 'apply four destructive full-image upscales in sequence'. Perform shared source analysis, independent candidate processing at a common target resolution, then selectively fuse only validated improvements per region/stage. This avoids 2x/4x compounding, double sharpening, hallucinated text and unnecessary VRAM pressure.
+- Proposed stages: (1) analyze source, alpha, text-like contours, portraits and colour; (2) denoise/detail candidates using Waifu2x and Real-CUGAN; (3) Real-ESRGAN base upscale; (4) Anime4K edge candidate; (5) confidence/consistency-gated fusion against original and V2, with automatic fallback to V2 if validation fails. Exact sequencing and concurrency must be benchmarked, not assumed.
+- The four-engine workflow must preserve pixel dimensions, ICC/DPI, RGBA, original typography and likeness. Use tiled bounded memory scheduling for 6 GB VRAM, not four concurrent full-resolution GPU models by default.
+- This replaces the earlier 'compare separately only' *product behavior* proposal, while separate A/B evaluations remain mandatory before release. Implementation and actual inference are still pending.
