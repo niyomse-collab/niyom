@@ -17,9 +17,10 @@ from pathlib import Path
 from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand, make_processors
 from tools.v211_real_engine_manifest import load_real_engine_manifest
+from tools.v211_four_engine_safe_selection import select_conservative_candidate
 
 
-def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True) -> dict:
+def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None) -> dict:
     if real_engines:
         commands = load_real_engine_manifest(config)
     else:
@@ -41,6 +42,13 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         "candidates": {item.engine: str(item.path) for item in result["candidates"]},
         "failures": result["failures"],
     }
+    if v2_reference is not None and result["ready_for_fusion_research"]:
+        selection = select_conservative_candidate(
+            source, v2_reference,
+            {item.engine: item.path for item in result["candidates"]},
+            output_dir / "four_engine_selected.png",
+        )
+        report["conservative_selection"] = selection
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "four_engine_report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -54,10 +62,11 @@ def main() -> None:
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("config", type=Path)
     parser.add_argument("--research-commands", action="store_true", help="Explicitly allow generic research commands; default requires installed real AI engines")
+    parser.add_argument("--v2-reference", type=Path, help="Trusted V2 image at target dimensions; enables conservative selection")
     parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--height", type=int, required=True)
     args = parser.parse_args()
-    report = run(args.source, args.output_dir, args.config, (args.width, args.height), real_engines=not args.research_commands)
+    report = run(args.source, args.output_dir, args.config, (args.width, args.height), real_engines=not args.research_commands, v2_reference=args.v2_reference)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if not report["ready_for_fusion_research"]:
         raise SystemExit(1)
