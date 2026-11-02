@@ -82,10 +82,22 @@ def make_processors(commands: Mapping[str, EngineCommand]):
                 output_dpi = output.info.get("dpi")
                 restore_icc = bool(source_icc and not output_icc)
                 restore_dpi = source_dpi is not None and output_dpi is None
-                if restore_icc or restore_dpi:
+                # NCNN/Vulkan upscalers often discard the alpha channel.
+                # Rebuild it from the ORIGINAL cutout, never the inferred pixels.
+                restore_alpha = original.mode == "RGBA"
+                if restore_alpha and output.mode not in ("RGB", "RGBA"):
+                    raise ValueError("RGBA input requires RGB/RGBA engine output")
+                if restore_alpha or restore_icc or restore_dpi:
                     if destination.suffix.lower() != ".png":
-                        raise ValueError("print metadata restoration requires PNG engine output")
+                        raise ValueError("print metadata/alpha restoration requires PNG engine output")
                     output.load()
+                    restored = output.copy()
+                    if restore_alpha:
+                        source_alpha = original.getchannel("A").resize(
+                            output.size, resample=Image.Resampling.LANCZOS
+                        )
+                        restored = restored.convert("RGBA")
+                        restored.putalpha(source_alpha)
                     fd, temp_name = tempfile.mkstemp(
                         prefix=".v211_metadata_", suffix=".png", dir=destination.parent
                     )
@@ -99,7 +111,7 @@ def make_processors(commands: Mapping[str, EngineCommand]):
                             options["dpi"] = source_dpi
                         elif output_dpi is not None:
                             options["dpi"] = output_dpi
-                        output.save(temp_path, format="PNG", **options)
+                        restored.save(temp_path, format="PNG", **options)
                         os.replace(temp_path, destination)
                     finally:
                         temp_path.unlink(missing_ok=True)
