@@ -7,12 +7,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
 from pathlib import Path
 
 from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand, make_processors
 from tools.v211_real_engine_manifest import load_real_engine_manifest
 from tools.v211_four_engine_safe_selection import select_conservative_candidate
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None) -> dict:
@@ -39,6 +48,8 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         "fusion_implemented": False,
         "ready_for_fusion_research": result["ready_for_fusion_research"],
         "quality_certified": False,
+        "source_sha256": _sha256(source),
+        "candidate_sha256": {item.engine: _sha256(item.path) for item in result["candidates"]},
         "candidates": {item.engine: str(item.path) for item in result["candidates"]},
         "failures": result["failures"],
     }
