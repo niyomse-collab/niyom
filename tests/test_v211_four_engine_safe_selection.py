@@ -22,6 +22,9 @@ def test_four_engine_selection_preserves_alpha_and_uses_fallback(tmp_path):
     source = tmp_path / "source.png"
     _write(source, src)
     v2 = np.repeat(np.repeat(src, 2, axis=0), 2, axis=1)
+    # Match the coordinator's exact LANCZOS alpha contract.
+    v2[..., 3] = np.asarray(Image.fromarray(src[..., 3], "L").resize(
+        (8, 8), Image.Resampling.LANCZOS))
     reference = tmp_path / "v2.png"
     _write(reference, v2)
     candidates = {}
