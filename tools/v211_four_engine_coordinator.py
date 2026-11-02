@@ -32,12 +32,19 @@ def validate_candidate(source: Path, candidate: Path, target_size: tuple[int, in
             raise ValueError("candidate changed image mode or transparency")
         if original.info.get("icc_profile") != output.info.get("icc_profile"):
             raise ValueError("candidate lost or altered ICC profile")
-        if original.mode == "RGBA" and original.getchannel("A").tobytes() != (
-            output.getchannel("A").resize(original.size).tobytes()
-            if output.size == original.size else b""
-        ):
-            # Alpha at upscaled size needs a separately validated resizing policy.
-            raise ValueError("RGBA requires explicit alpha-preservation validator")
+        if original.mode == "RGBA":
+            # All engines must preserve the original cutout rather than invent alpha.
+            # Compare at output resolution: downsampling an upscaled alpha back to
+            # source resolution can conceal fringe and transparency corruption.
+            expected_alpha = original.getchannel("A").resize(
+                target_size, resample=Image.Resampling.LANCZOS
+            )
+            actual_alpha = output.getchannel("A")
+            if actual_alpha.tobytes() != expected_alpha.tobytes():
+                raise ValueError(
+                    "RGBA alpha differs from source resized with LANCZOS; "
+                    "engine output cannot be used without alpha restoration"
+                )
 
 
 def run_candidates(
