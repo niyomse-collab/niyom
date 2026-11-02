@@ -36,6 +36,7 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
         source_size = img.size
         source_alpha = "A" in img.getbands()
         source_icc = img.info.get("icc_profile")
+        source_alpha_image = img.getchannel("A").copy() if source_alpha else None
     output_dir.mkdir(parents=True, exist_ok=True)
     report = {
         "real_inference_verified": False,
@@ -58,13 +59,18 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
                     raise ValueError(engine + ": invalid PNG output")
                 if source_alpha and "A" not in image.getbands():
                     raise ValueError(engine + ": alpha channel lost")
+                if source_alpha_image is not None:
+                    expected_alpha = source_alpha_image.resize(image.size, Image.Resampling.LANCZOS)
+                    if image.getchannel("A").tobytes() != expected_alpha.tobytes():
+                        raise ValueError(engine + ": alpha pixels differ from original cutout")
                 if source_icc and image.info.get("icc_profile") != source_icc:
                     raise ValueError(engine + ": ICC changed or lost")
                 report["engines"][engine] = {
                     "sha256": sha256(destination),
                     "size": list(image.size),
                     "mode": image.mode,
-                    "alpha_preserved": not source_alpha or "A" in image.getbands(),
+                    "alpha_preserved": True,
+                    "alpha_pixels_match_source": True,
                     "icc_preserved": not source_icc or image.info.get("icc_profile") == source_icc,
                 }
         report["real_inference_verified"] = True
