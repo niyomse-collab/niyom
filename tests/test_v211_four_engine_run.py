@@ -25,7 +25,7 @@ def test_four_engine_runner_produces_four_valid_candidates(tmp_path):
             for name in ENGINES
         }), encoding="utf-8"
     )
-    result = run(source, tmp_path / "outputs", config, (8, 8))
+    result = run(source, tmp_path / "outputs", config, (8, 8), real_engines=False)
     assert result["ready_for_fusion_research"]
     assert not result["fusion_implemented"]
     assert not result["quality_certified"]
@@ -50,7 +50,7 @@ def test_runner_reports_failed_engine(tmp_path):
     }
     commands["anime4k"] = [sys.executable, "-c", "import sys;sys.exit(4)", "{input}", "{output}"]
     config.write_text(json.dumps(commands), encoding="utf-8")
-    result = run(source, tmp_path / "outputs", config, (8, 8))
+    result = run(source, tmp_path / "outputs", config, (8, 8), real_engines=False)
     assert not result["ready_for_fusion_research"]
     assert "anime4k" in result["failures"]
     assert len(result["candidates"]) == 3
