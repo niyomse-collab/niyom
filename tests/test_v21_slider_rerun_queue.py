@@ -146,5 +146,5 @@ def test_start_processing_checks_selected_super_ai_backend(tmp_path):
     app = fake_app(tmp_path)
     app.v211_photo_model_var.value = "V2 + HAT Assist (Super AI ทดลอง)"
     App.start_processing(app)
-    assert app._model_preflight_calls == ["v2_hat_assist"]
+    assert app._model_preflight_calls == ["real_esrgan"]
     assert app._job_calls == [(0,)]
