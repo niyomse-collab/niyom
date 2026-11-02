@@ -15,18 +15,22 @@ from pathlib import Path
 
 from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand, make_processors
+from tools.v211_real_engine_manifest import load_real_engine_manifest
 
 
-def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int]) -> dict:
-    raw = json.loads(config.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or set(raw) != set(ENGINES):
-        raise ValueError("config must contain exactly the four engines")
-    commands = {}
-    for name in ENGINES:
-        argv = raw[name]
-        if not isinstance(argv, list) or not argv or not all(isinstance(v, str) for v in argv):
-            raise ValueError("invalid argv for " + name)
-        commands[name] = EngineCommand(tuple(argv))
+def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = False) -> dict:
+    if real_engines:
+        commands = load_real_engine_manifest(config)
+    else:
+        raw = json.loads(config.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or set(raw) != set(ENGINES):
+            raise ValueError("config must contain exactly the four engines")
+        commands = {}
+        for name in ENGINES:
+            argv = raw[name]
+            if not isinstance(argv, list) or not argv or not all(isinstance(v, str) for v in argv):
+                raise ValueError("invalid argv for " + name)
+            commands[name] = EngineCommand(tuple(argv))
     result = run_candidates(source, output_dir, size, make_processors(commands))
     report = {
         "research_only": True,
@@ -48,10 +52,11 @@ def main() -> None:
     parser.add_argument("source", type=Path)
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("config", type=Path)
+    parser.add_argument("--real-engines", action="store_true", help="Require installed real engine binaries and checkpoint files")
     parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--height", type=int, required=True)
     args = parser.parse_args()
-    report = run(args.source, args.output_dir, args.config, (args.width, args.height))
+    report = run(args.source, args.output_dir, args.config, (args.width, args.height), real_engines=args.real_engines)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if not report["ready_for_fusion_research"]:
         raise SystemExit(1)
