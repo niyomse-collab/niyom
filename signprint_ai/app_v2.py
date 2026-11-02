@@ -1389,8 +1389,7 @@ class App(tk.Tk):
         chosen_model = (
             "v2_nafnet_deblur" if self.v211_photo_model_var.get().startswith("V2 + NAFNet ")
             else ("v2_swinir_pre" if self.v211_photo_model_var.get().startswith("V2 + SwinIR ")
-                  else ("v2_hat_assist" if self.v211_photo_model_var.get().startswith("V2 + HAT ")
-                        else "real_esrgan"))
+                  else "real_esrgan")
         )
         if requested_scale > 1 and not self.pipeline.selected_model_available(chosen_model):
             guidance = (
