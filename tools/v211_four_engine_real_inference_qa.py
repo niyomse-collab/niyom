@@ -45,8 +45,10 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
         "engines": {},
     }
     report_path = output_dir / "real_inference_report.json"
+    current_engine = None
     try:
         for engine in ENGINES:
+            current_engine = engine
             destination = output_dir / (engine + ".png")
             destination.unlink(missing_ok=True)
             processors[engine](source, destination)
@@ -67,6 +69,12 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
                 }
         report["real_inference_verified"] = True
         return report
+    except Exception as exc:
+        # Record the failing engine without claiming a successful four-engine run.
+        # Do not embed subprocess stderr, paths or customer image content in artifacts.
+        report["failed_engine"] = current_engine
+        report["failure_type"] = type(exc).__name__
+        raise
     finally:
         # Persist partial evidence on failure; the CLI still exits nonzero.
         report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
