@@ -26,8 +26,21 @@ def sha256(path: Path) -> str:
 
 
 def run(manifest: Path, source: Path, output_dir: Path) -> dict:
-    # Validate ALL executable/model hashes before running ANY inference.
-    processors = make_processors(load_real_engine_manifest(manifest))
+    # A missing or untrusted installation must still leave a failure report.
+    # Do not create output images or invoke any executable until all hashes pass.
+    output_dir.mkdir(parents=True, exist_ok=True)
+    report_path = output_dir / "real_inference_report.json"
+    try:
+        processors = make_processors(load_real_engine_manifest(manifest))
+    except Exception as exc:
+        report_path.write_text(json.dumps({
+            "real_inference_verified": False,
+            "quality_improvement_verified": False,
+            "failed_stage": "manifest_preflight",
+            "failure_type": type(exc).__name__,
+            "engines": {},
+        }, indent=2) + "\n", encoding="utf-8")
+        raise
     with Image.open(source) as img:
         img.verify()
     with Image.open(source) as img:
