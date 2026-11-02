@@ -1,15 +1,14 @@
-"""Four-engine subprocess adapters for experimental V2.1.1 integration.
+"""Subprocess adapters for the four real V2.1.1 enhancement engines.
 
-Each command is explicitly configured against independently licensed, installed
-executables and checkpoints. No shell interpolation, downloads or bundled weights.
-Commands must contain {input} and {output} placeholders as separate arguments.
+No models are bundled. Each engine must be independently installed and
+licensed; subprocess invocation does not prove image quality.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
-from typing import Mapping, Sequence
+from typing import Mapping
 
 ENGINES = ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
 
@@ -29,7 +28,7 @@ class EngineCommand:
 
 
 def make_processors(commands: Mapping[str, EngineCommand]):
-    """Produce callbacks compatible with run_candidates; require all four engines."""
+    """Make engine callbacks, failing closed when any engine is unconfigured."""
     if set(commands) != set(ENGINES):
         raise ValueError("exactly four configured engines are required")
     processors = {}
@@ -39,7 +38,12 @@ def make_processors(commands: Mapping[str, EngineCommand]):
         def process(source: Path, destination: Path, *, _spec=spec) -> None:
             source = Path(source).resolve(strict=True)
             destination = Path(destination).resolve()
+            if source == destination:
+                raise ValueError("engine output must not overwrite its source")
             destination.parent.mkdir(parents=True, exist_ok=True)
+            # Prevent an earlier output from being mistaken for successful
+            # inference if the executable exits 0 without writing a new file.
+            destination.unlink(missing_ok=True)
             argv = [
                 part.replace("{input}", str(source)).replace("{output}", str(destination))
                 for part in _spec.argv
@@ -49,12 +53,20 @@ def make_processors(commands: Mapping[str, EngineCommand]):
                     argv, check=True, shell=False, timeout=_spec.timeout_seconds,
                     capture_output=True, text=True,
                 )
+            except subprocess.TimeoutExpired as exc:
+                destination.unlink(missing_ok=True)
+                raise RuntimeError("engine timed out") from exc
             except subprocess.CalledProcessError as exc:
+                destination.unlink(missing_ok=True)
                 raise RuntimeError(
                     "engine exited with code " + str(exc.returncode) + ": "
                     + (exc.stderr or "")[-1000:]
                 ) from exc
+            except OSError:
+                destination.unlink(missing_ok=True)
+                raise
             if not destination.is_file() or destination.stat().st_size == 0:
+                destination.unlink(missing_ok=True)
                 raise RuntimeError("engine produced no usable output")
 
         processors[engine] = process
