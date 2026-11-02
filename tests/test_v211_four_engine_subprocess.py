@@ -18,8 +18,9 @@ def test_missing_placeholders_rejected():
 
 
 def test_four_real_subprocess_invocations(tmp_path):
-    source = tmp_path / "source.txt"
-    source.write_text("sample", encoding="utf-8")
+    source = tmp_path / "source.png"
+    from PIL import Image
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
     script = "import pathlib,sys; pathlib.Path(sys.argv[2]).write_bytes(pathlib.Path(sys.argv[1]).read_bytes())"
     commands = {
         engine: EngineCommand((sys.executable, "-c", script, "{input}", "{output}"))
@@ -27,6 +28,8 @@ def test_four_real_subprocess_invocations(tmp_path):
     }
     processors = make_processors(commands)
     for engine in ENGINES:
-        target = tmp_path / (engine + ".txt")
+        target = tmp_path / (engine + ".png")
         processors[engine](source, target)
-        assert target.read_bytes() == b"sample"
+        with Image.open(target) as output:
+            assert output.size == (4, 4)
+            assert output.getpixel((0, 0)) == (20, 40, 60)
