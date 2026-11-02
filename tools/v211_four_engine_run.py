@@ -32,7 +32,10 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
     result = run_candidates(source, output_dir, size, make_processors(commands))
     report = {
         "research_only": True,
-        "real_engines_configured": real_engines,
+        "real_engine_manifest_preflight_passed": real_engines,
+        "real_engine_inference_proven": False,  # Successful subprocess output alone cannot prove model inference.
+        "completed_engine_count": len(result["candidates"]),
+        "completed_engine_names": [item.engine for item in result["candidates"]],
         "fusion_implemented": False,
         "ready_for_fusion_research": result["ready_for_fusion_research"],
         "quality_certified": False,
