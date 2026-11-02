@@ -8,6 +8,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
+import os
+import tempfile
+
+from PIL import Image
 from typing import Mapping
 
 ENGINES = ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
@@ -68,6 +72,29 @@ def make_processors(commands: Mapping[str, EngineCommand]):
             if not destination.is_file() or destination.stat().st_size == 0:
                 destination.unlink(missing_ok=True)
                 raise RuntimeError("engine produced no usable output")
+            # External upscalers commonly strip ICC. Restore the source
+            # profile only when missing, never overwrite a conflicting profile.
+            # Coordinator still rejects changed mode or alpha.
+            with Image.open(source) as original, Image.open(destination) as output:
+                source_icc = original.info.get("icc_profile")
+                output_icc = output.info.get("icc_profile")
+                if source_icc and not output_icc:
+                    if destination.suffix.lower() != ".png":
+                        raise ValueError("ICC restoration requires PNG engine output")
+                    output.load()
+                    fd, temp_name = tempfile.mkstemp(
+                        prefix=".v211_icc_", suffix=".png", dir=destination.parent
+                    )
+                    os.close(fd)
+                    temp_path = Path(temp_name)
+                    try:
+                        options = {"icc_profile": source_icc}
+                        if "dpi" in output.info:
+                            options["dpi"] = output.info["dpi"]
+                        output.save(temp_path, format="PNG", **options)
+                        os.replace(temp_path, destination)
+                    finally:
+                        temp_path.unlink(missing_ok=True)
 
         processors[engine] = process
     return processors
