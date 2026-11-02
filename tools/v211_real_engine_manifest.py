@@ -41,8 +41,7 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
             for key in ("source_url", "license_name", "license_url")
         ):
             raise ValueError(engine + ": source_url, license_name and license_url provenance required")
-        if "executable_sha256" in item:
-            _verify_hash(executable, item["executable_sha256"], engine)
+        _verify_hash(executable, item.get("executable_sha256"), engine)
         assets = item.get("model_assets", [])
         if not isinstance(assets, list) or not assets or not all(isinstance(a, str) or (isinstance(a, dict) and isinstance(a.get('path'), str)) for a in assets):
             raise ValueError(engine + ": real model assets must be declared")
@@ -59,10 +58,9 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
                 valid = False
             if not valid:
                 raise FileNotFoundError(engine + ": empty model asset: " + str(model))
-            if isinstance(asset, dict) and "sha256" in asset:
-                if not model.is_file():
-                    raise ValueError(engine + ": directory hashes unsupported; hash individual files")
-                _verify_hash(model, asset["sha256"], engine)
+            if not isinstance(asset, dict) or not model.is_file():
+                raise ValueError(engine + ": model assets must be individual files with SHA256")
+            _verify_hash(model, asset.get("sha256"), engine)
         args = item.get("args")
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
             raise ValueError(engine + ": args must be a string array")
