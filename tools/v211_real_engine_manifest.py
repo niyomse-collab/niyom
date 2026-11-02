@@ -25,15 +25,26 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
         if not executable.is_absolute() or not executable.is_file():
             raise FileNotFoundError(engine + ": executable not installed: " + str(executable))
         assets = item.get("model_assets", [])
-        if not isinstance(assets, list) or not assets:
+        if not isinstance(assets, list) or not assets or not all(isinstance(a, str) for a in assets):
             raise ValueError(engine + ": real model assets must be declared")
         for asset in assets:
             model = Path(asset)
-            if not model.is_absolute() or not model.is_file() or model.stat().st_size == 0:
+            if not model.is_absolute() or not model.exists():
                 raise FileNotFoundError(engine + ": missing model asset: " + str(model))
+            if model.is_file():
+                valid = model.stat().st_size > 0
+            elif model.is_dir():
+                # NCNN Vulkan engines commonly distribute model files in a directory.
+                valid = any(p.is_file() and p.stat().st_size > 0 for p in model.rglob("*"))
+            else:
+                valid = False
+            if not valid:
+                raise FileNotFoundError(engine + ": empty model asset: " + str(model))
         args = item.get("args")
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
             raise ValueError(engine + ": args must be a string array")
+        if not any("{input}" in a for a in args) or not any("{output}" in a for a in args):
+            raise ValueError(engine + ": args must include input/output placeholders")
         commands[engine] = EngineCommand(
             (str(executable), *args), timeout_seconds=int(item.get("timeout_seconds", 1800))
         )
