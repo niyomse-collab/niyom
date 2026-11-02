@@ -3,7 +3,8 @@
 Usage:
  python -m tools.v211_four_engine_run input.png output_dir engines.json --width 1024 --height 1024
 
-By default engines.json is a real-engine manifest with installed executables\nand model assets. With --research-commands it instead maps the four names to arrays of
+By default engines.json is a real-engine manifest with installed executables
+and model assets. With --research-commands it instead maps the four names to arrays of
 executable arguments with {input} and {output} placeholders.
 No checkpoint is downloaded or implicitly licensed by this tool.
 """
