@@ -72,25 +72,33 @@ def make_processors(commands: Mapping[str, EngineCommand]):
             if not destination.is_file() or destination.stat().st_size == 0:
                 destination.unlink(missing_ok=True)
                 raise RuntimeError("engine produced no usable output")
-            # External upscalers commonly strip ICC. Restore the source
-            # profile only when missing, never overwrite a conflicting profile.
-            # Coordinator still rejects changed mode or alpha.
+            # Preserve print metadata without changing image pixels. An external
+            # engine may drop PNG ICC/DPI even when its inference is valid.
+            # A conflicting ICC is never overwritten: the coordinator rejects it.
             with Image.open(source) as original, Image.open(destination) as output:
                 source_icc = original.info.get("icc_profile")
                 output_icc = output.info.get("icc_profile")
-                if source_icc and not output_icc:
+                source_dpi = original.info.get("dpi")
+                output_dpi = output.info.get("dpi")
+                restore_icc = bool(source_icc and not output_icc)
+                restore_dpi = source_dpi is not None and output_dpi is None
+                if restore_icc or restore_dpi:
                     if destination.suffix.lower() != ".png":
-                        raise ValueError("ICC restoration requires PNG engine output")
+                        raise ValueError("print metadata restoration requires PNG engine output")
                     output.load()
                     fd, temp_name = tempfile.mkstemp(
-                        prefix=".v211_icc_", suffix=".png", dir=destination.parent
+                        prefix=".v211_metadata_", suffix=".png", dir=destination.parent
                     )
                     os.close(fd)
                     temp_path = Path(temp_name)
                     try:
-                        options = {"icc_profile": source_icc}
-                        if "dpi" in output.info:
-                            options["dpi"] = output.info["dpi"]
+                        options = {}
+                        if source_icc and (restore_icc or output_icc):
+                            options["icc_profile"] = source_icc if restore_icc else output_icc
+                        if restore_dpi:
+                            options["dpi"] = source_dpi
+                        elif output_dpi is not None:
+                            options["dpi"] = output_dpi
                         output.save(temp_path, format="PNG", **options)
                         os.replace(temp_path, destination)
                     finally:
