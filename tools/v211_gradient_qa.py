@@ -50,6 +50,7 @@ def compare_gradient_roi(v2_path, candidate_path, roi, axis="x"):
     v2, new = metrics(a), metrics(b)
     return {
         "roi": list(roi), "axis": axis, "v2": v2, "candidate": new,
+        "new_moderate_jumps_review_required": new["adjacent_jump_gt_8_pct"] > v2["adjacent_jump_gt_8_pct"],
         "new_large_jumps_review_required": new["adjacent_jump_gt_16_pct"] > v2["adjacent_jump_gt_16_pct"],
         "quality_improvement_certified": False,
         "note": "Inspect approved smooth gradients at equal pixels; exclude intentional effects and texture.",
