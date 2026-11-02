@@ -23,3 +23,10 @@ Owner request (2026-11-02): enhance the accepted V2 using Waifu2x, Real-ESRGAN, 
 5. Only after approval, release as V2.1; existing PR #18 retains its experimental identity until naming and code migration are explicitly completed.
 
 Current status: integration not yet implemented; this document specifies the work and release gates.
+
+## Owner UI correction — 2026-11-02
+- Product version target is **V2.1.1**, not V2.1. The earlier V2.1 label above is superseded.
+- All four engines are **internal background processors**. Do not add engine names, model selection buttons, or four-model status panels to the customer-facing interface.
+- Preserve existing V2 user workflow and controls. Internal routing may select or combine compatible processing stages only when proven safe; preserve baseline and fallback.
+- Background quality checks must be bounded and non-destructive; log per-engine selection, elapsed time, failures and output validation for diagnostics without exposing technical details to customers.
+- Never imply that running four models guarantees better output. Require image-level A/B evidence and preserve manual quality controls already present in V2.
