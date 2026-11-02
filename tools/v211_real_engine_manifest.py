@@ -6,10 +6,21 @@ absolute paths to the four installed engines and their model assets.
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
-from typing import Mapping
 
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand
+
+
+def _verify_hash(path: Path, expected: str, engine: str) -> None:
+    if not isinstance(expected, str) or len(expected) != 64 or any(c not in "0123456789abcdefABCDEF" for c in expected):
+        raise ValueError(engine + ": expected_sha256 must be a 64-character hex digest")
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != expected.lower():
+        raise ValueError(engine + ": SHA256 mismatch for " + str(path))
 
 
 def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
@@ -24,11 +35,19 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
         executable = Path(item["executable"])
         if not executable.is_absolute() or not executable.is_file():
             raise FileNotFoundError(engine + ": executable not installed: " + str(executable))
+        provenance = item.get("provenance")
+        if not isinstance(provenance, dict) or not all(
+            isinstance(provenance.get(key), str) and provenance[key].strip()
+            for key in ("source_url", "license_name", "license_url")
+        ):
+            raise ValueError(engine + ": source_url, license_name and license_url provenance required")
+        if "executable_sha256" in item:
+            _verify_hash(executable, item["executable_sha256"], engine)
         assets = item.get("model_assets", [])
-        if not isinstance(assets, list) or not assets or not all(isinstance(a, str) for a in assets):
+        if not isinstance(assets, list) or not assets or not all(isinstance(a, str) or (isinstance(a, dict) and isinstance(a.get('path'), str)) for a in assets):
             raise ValueError(engine + ": real model assets must be declared")
         for asset in assets:
-            model = Path(asset)
+            model = Path(asset['path'] if isinstance(asset, dict) else asset)
             if not model.is_absolute() or not model.exists():
                 raise FileNotFoundError(engine + ": missing model asset: " + str(model))
             if model.is_file():
@@ -40,6 +59,10 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
                 valid = False
             if not valid:
                 raise FileNotFoundError(engine + ": empty model asset: " + str(model))
+            if isinstance(asset, dict) and "sha256" in asset:
+                if not model.is_file():
+                    raise ValueError(engine + ": directory hashes unsupported; hash individual files")
+                _verify_hash(model, asset["sha256"], engine)
         args = item.get("args")
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
             raise ValueError(engine + ": args must be a string array")
