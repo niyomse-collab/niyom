@@ -46,3 +46,28 @@ def test_bad_roi_and_axis_rejected(tmp_path):
         compare_gradient_roi(*paths, (0, 0, 65, 12))
     with pytest.raises(ValueError, match="axis"):
         compare_gradient_roi(*paths, (0, 0, 64, 12), axis="diagonal")
+
+
+def test_moderate_banding_is_reported_separately(tmp_path):
+    x = np.linspace(20, 220, 128).astype(np.uint8)
+    a = np.empty((12, 128, 4), dtype=np.uint8)
+    a[..., :3] = x[None, :, None]
+    a[..., 3] = 255
+    b = a.copy()
+    b[..., :3] = (b[..., :3] // 12) * 12
+    report = compare_gradient_roi(*save_pair(tmp_path, a, b), (0, 0, 128, 12))
+    assert report["new_moderate_jumps_review_required"]
+    assert not report["new_large_jumps_review_required"]
+    assert not report["quality_improvement_certified"]
+
+
+def test_vertical_gradient_moderate_banding(tmp_path):
+    y = np.linspace(20, 220, 128).astype(np.uint8)
+    a = np.empty((128, 12, 4), dtype=np.uint8)
+    a[..., :3] = y[:, None, None]
+    a[..., 3] = 255
+    b = a.copy()
+    b[..., :3] = (b[..., :3] // 12) * 12
+    report = compare_gradient_roi(*save_pair(tmp_path, a, b), (0, 0, 12, 128), axis="y")
+    assert report["new_moderate_jumps_review_required"]
+    assert not report["quality_improvement_certified"]
