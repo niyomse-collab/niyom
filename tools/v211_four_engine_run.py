@@ -3,7 +3,7 @@
 Usage:
  python -m tools.v211_four_engine_run input.png output_dir engines.json --width 1024 --height 1024
 
-engines.json maps real_esrgan, waifu2x, real_cugan, anime4k to arrays of
+By default engines.json is a real-engine manifest with installed executables\nand model assets. With --research-commands it instead maps the four names to arrays of
 executable arguments with {input} and {output} placeholders.
 No checkpoint is downloaded or implicitly licensed by this tool.
 """
@@ -18,7 +18,7 @@ from tools.v211_four_engine_subprocess import ENGINES, EngineCommand, make_proce
 from tools.v211_real_engine_manifest import load_real_engine_manifest
 
 
-def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = False) -> dict:
+def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True) -> dict:
     if real_engines:
         commands = load_real_engine_manifest(config)
     else:
@@ -52,11 +52,11 @@ def main() -> None:
     parser.add_argument("source", type=Path)
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("config", type=Path)
-    parser.add_argument("--real-engines", action="store_true", help="Require installed real engine binaries and checkpoint files")
+    parser.add_argument("--research-commands", action="store_true", help="Explicitly allow generic research commands; default requires installed real AI engines")
     parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--height", type=int, required=True)
     args = parser.parse_args()
-    report = run(args.source, args.output_dir, args.config, (args.width, args.height), real_engines=args.real_engines)
+    report = run(args.source, args.output_dir, args.config, (args.width, args.height), real_engines=not args.research_commands)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if not report["ready_for_fusion_research"]:
         raise SystemExit(1)
