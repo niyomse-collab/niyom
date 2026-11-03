@@ -53,6 +53,8 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
             img.verify()
         with Image.open(source) as img:
             source_size = img.size
+            if "transparency" in img.info and "A" not in img.getbands():
+                raise ValueError("palette/tRNS PNG transparency requires RGBA conversion before QA")
             source_alpha = "A" in img.getbands()
             source_icc = img.info.get("icc_profile")
             source_dpi = img.info.get("dpi")
