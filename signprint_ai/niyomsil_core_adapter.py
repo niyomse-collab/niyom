@@ -464,14 +464,22 @@ class NiyomSilpCoreAdapter:
                 icc_profile_path=settings.icc_profile_path,
             )
 
-        # Experimental V2.1.1 hook: optional four-engine research runs only
-        # AFTER V2 has exported the accepted image. It never overwrites it.
-        # The gate is disabled for every normal V2 installation.
+        # The V2.1.1 experiment automatically executes all four externally
+        # installed models after trusted V2 output has been saved. Its separate
+        # candidate/fusion PNG is never the accepted print export until QA.
+        # Without a locally provisioned manifest, the V2 path is unchanged.
         four_engine_evidence = None
-        if use_ai and os.environ.get("NIYOMSIL_V211_FOUR_AI") == "1":
+        if use_ai:
             from .v211_four_engine_bridge import maybe_run_four_engine_assist
+            mapped_faces = (
+                tuple(settings.face_regions or ())
+                if face_info.get("applied") and getattr(settings, "face_regions", None)
+                else ()
+            )
             four_engine_evidence = maybe_run_four_engine_assist(
-                src, dst, use_ai=use_ai, cancel=cancel
+                src, dst, use_ai=use_ai, cancel=cancel,
+                protected_regions=mapped_faces,
+                preserve_all_v2_faces=bool(face_info.get("applied") and not mapped_faces),
             )
 
         if progress:
