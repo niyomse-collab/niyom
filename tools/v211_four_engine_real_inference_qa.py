@@ -68,17 +68,22 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
         })
         report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         raise
-    current_engine = None
-    try:
-        for engine in ENGINES:
-            current_engine = engine
-            destination = output_dir / (engine + ".png")
-            destination.unlink(missing_ok=True)
+    # Always attempt all four independent executables. One missing Vulkan
+    # driver on a CI runner must not hide results for the other three engines.
+    # A failure is still a failing exit status and can never certify a release.
+    report["failures"] = {}
+    report["completed_engine_count"] = 0
+    for engine in ENGINES:
+        destination = output_dir / (engine + ".png")
+        destination.unlink(missing_ok=True)
+        try:
             processors[engine](source, destination)
             with Image.open(destination) as image:
                 image.load()
-                if image.format != "PNG" or min(image.size) <= 0:
-                    raise ValueError(engine + ": invalid PNG output")
+                if image.format != "PNG" or image.size != tuple(d * 2 for d in source_size):
+                    raise ValueError(engine + ": expected a valid exact 2x PNG")
+                if image.mode not in ("RGB", "RGBA"):
+                    raise ValueError(engine + ": invalid colour mode")
                 if source_alpha and "A" not in image.getbands():
                     raise ValueError(engine + ": alpha channel lost")
                 if source_alpha_image is not None:
@@ -93,6 +98,7 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
                     any(abs(float(a) - float(b)) > 0.1 for a, b in zip(source_dpi, output_dpi))):
                     raise ValueError(engine + ": print DPI changed or lost")
                 report["engines"][engine] = {
+                    "status": "binary_executed_and_2x_output_validated",
                     "sha256": sha256(destination),
                     "size": list(image.size),
                     "mode": image.mode,
@@ -101,17 +107,21 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
                     "icc_preserved": not source_icc or image.info.get("icc_profile") == source_icc,
                     "dpi_preserved": source_dpi is None or output_dpi is not None,
                 }
-        report["real_inference_verified"] = True
-        return report
-    except Exception as exc:
-        # Record the failing engine without claiming a successful four-engine run.
-        # Do not embed subprocess stderr, paths or customer image content in artifacts.
-        report["failed_engine"] = current_engine
-        report["failure_type"] = type(exc).__name__
-        raise
-    finally:
-        # Persist partial evidence on failure; the CLI still exits nonzero.
-        report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+                report["completed_engine_count"] += 1
+        except Exception as exc:
+            destination.unlink(missing_ok=True)
+            # Save only type and a bounded generic description. Windows error
+            # stderr may contain local paths or other private information.
+            report["failures"][engine] = {
+                "error_type": type(exc).__name__,
+                "error_class": (
+                    "timeout" if isinstance(exc, TimeoutError)
+                    else "subprocess_or_candidate_failure"
+                ),
+            }
+    report["real_inference_verified"] = report["completed_engine_count"] == len(ENGINES)
+    report_path.write_text(json.dumps(report, indent=2) + "\\n", encoding="utf-8")
+    return report
 
 
 def main() -> None:
@@ -122,6 +132,8 @@ def main() -> None:
     args = parser.parse_args()
     result = run(args.manifest, args.input, args.output_dir)
     print(json.dumps(result, indent=2))
+    if not result["real_inference_verified"]:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
