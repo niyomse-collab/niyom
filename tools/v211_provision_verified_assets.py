@@ -26,10 +26,16 @@ def digest(path: Path) -> str:
     return h.hexdigest()
 
 
+def _reject_symlink_components(path: Path, label: str) -> None:
+    """Reject linked path components before any read, copy, or directory creation."""
+    for component in (path, *path.parents):
+        if component.is_symlink():
+            raise ValueError(label + ": symlink path component is forbidden")
+
+
 def provision(lock_path: Path, destination: Path) -> Path:
-    # Reject symlink destinations rather than silently following them.
-    if destination.is_symlink():
-        raise ValueError("destination symlink is forbidden")
+    _reject_symlink_components(lock_path, "lock")
+    _reject_symlink_components(destination, "destination")
     destination = destination.resolve()
     if destination.exists():
         raise FileExistsError("destination must not already exist")
@@ -66,8 +72,7 @@ def provision(lock_path: Path, destination: Path) -> Path:
                 raise ValueError(engine + ": file and hash required")
             src = Path(spec.get("source", ""))
             expected = spec.get("sha256")
-            if src.is_symlink():
-                raise ValueError(engine + ": symlink source is forbidden")
+            _reject_symlink_components(src, engine + ": source")
             if not src.is_absolute() or not src.is_file() or src.stat().st_size == 0:
                 raise FileNotFoundError(engine + ": missing nonempty local file")
             if not isinstance(expected, str) or len(expected) != 64 or any(
