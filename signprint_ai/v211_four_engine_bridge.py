@@ -131,6 +131,8 @@ def maybe_run_four_engine_assist(
                 if fusion.get("fusion_implemented")
                 else "three_engine_priority_preview_ready"
                 if selection is not None
+                else "candidate_research_complete"
+                if result.get("ready_for_fusion_research")
                 else "incomplete_four_engine_candidates"
             ),
             "completed_engine_count": result.get("completed_engine_count", 0),
