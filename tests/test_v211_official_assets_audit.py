@@ -79,3 +79,16 @@ def test_archive_rejects_unix_symlink(tmp_path):
         archive.writestr(info, "../outside.bin")
     with pytest.raises(ValueError, match="symbolic link"):
         audit_archive(path)
+
+
+@pytest.mark.parametrize("member", [
+    "CON.txt", "models/NUL.bin", "models/COM1.param",
+    "models/weights.bin:stream", "models/weights.bin.",
+    "models/weights.bin ", "models/weights?.bin",
+])
+def test_archive_rejects_unsafe_windows_member_names(tmp_path, member):
+    path = tmp_path / "unsafe.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(member, b"not safe on Windows")
+    with pytest.raises(ValueError, match="unsafe Windows path"):
+        audit_archive(path)
