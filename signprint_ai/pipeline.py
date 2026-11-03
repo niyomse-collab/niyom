@@ -59,11 +59,11 @@ class PrintEnhancementPipeline:
         if use_ai and settings.ai_scale > 1:
             if not selected_ai.available:
                 raise RuntimeError(
-                    "ไม่พบ Real-ESRGAN AI backend ในชุดโปรแกรม รุ่นนี้จะไม่ใช้ Lanczos แทน AI โดยอัตโนมัติ "
+                    f"ไม่พบ {ai_engine} AI backend ในชุดโปรแกรม รุ่นนี้จะไม่ใช้ Lanczos แทน AI โดยอัตโนมัติ "
                     "กรุณาใช้ Build ที่แพ็ก AI backend ครบ"
                 )
             if progress:
-                progress(8, "เริ่ม Real-ESRGAN AI Upscale — รักษารายละเอียดต้นฉบับ")
+                progress(8, f"เริ่ม {ai_engine} AI Upscale — รักษารายละเอียดต้นฉบับ")
             rgb = selected_ai.upscale_array(rgb, settings.ai_scale, progress, cancel)
             if alpha is not None:
                 alpha = cv2.resize(alpha, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_LANCZOS4)
