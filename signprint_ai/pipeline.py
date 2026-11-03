@@ -16,6 +16,7 @@ from .processing import (
     save_image,
 )
 from .realesrgan_ncnn import RealESRGANNCNN
+from .waifu2x_ncnn import Waifu2xNCNN
 
 ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
@@ -30,6 +31,7 @@ def app_root() -> Path:
 class PrintEnhancementPipeline:
     def __init__(self):
         self.ai = RealESRGANNCNN(app_root())
+        self.waifu2x = Waifu2xNCNN(app_root())
 
     def process(
         self,
@@ -39,6 +41,7 @@ class PrintEnhancementPipeline:
         progress: ProgressFn = None,
         cancel: CancelFn = None,
         use_ai: bool = True,
+        ai_engine: str = "realesrgan",
     ) -> dict:
         rgb, alpha = load_image(input_path)
         original_h, original_w = rgb.shape[:2]
@@ -49,15 +52,19 @@ class PrintEnhancementPipeline:
         if cancel and cancel():
             raise InterruptedError("Processing cancelled")
 
+        if ai_engine not in ("realesrgan", "waifu2x"):
+            raise ValueError(f"Unknown AI engine: {ai_engine}")
+        selected_ai = self.ai if ai_engine == "realesrgan" else self.waifu2x
+
         if use_ai and settings.ai_scale > 1:
-            if not self.ai.available:
+            if not selected_ai.available:
                 raise RuntimeError(
                     "ไม่พบ Real-ESRGAN AI backend ในชุดโปรแกรม รุ่นนี้จะไม่ใช้ Lanczos แทน AI โดยอัตโนมัติ "
                     "กรุณาใช้ Build ที่แพ็ก AI backend ครบ"
                 )
             if progress:
                 progress(8, "เริ่ม Real-ESRGAN AI Upscale — รักษารายละเอียดต้นฉบับ")
-            rgb = self.ai.upscale_array(rgb, settings.ai_scale, progress, cancel)
+            rgb = selected_ai.upscale_array(rgb, settings.ai_scale, progress, cancel)
             if alpha is not None:
                 alpha = cv2.resize(alpha, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_LANCZOS4)
         else:
@@ -106,7 +113,8 @@ class PrintEnhancementPipeline:
             "output": str(output_path),
             "original_size": (original_w, original_h),
             "output_size": (rgb.shape[1], rgb.shape[0]),
-            "ai_available": self.ai.available,
+            "ai_available": selected_ai.available,
+            "ai_engine": ai_engine,
             "ai_scale": settings.ai_scale if use_ai else 1,
             "dpi": settings.dpi,
         }
