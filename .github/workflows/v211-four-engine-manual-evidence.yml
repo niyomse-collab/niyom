@@ -6,7 +6,10 @@ permissions:
 jobs:
   evidence:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
         with:
@@ -15,30 +18,42 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Prepare private evidence directory
+        run: New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP/v211-evidence" | Out-Null
       - name: Audit removal of active HAT references
-        shell: pwsh
-        run: python tools/v211_hat_reference_audit.py
-      - name: Require independently approved assets
-        shell: pwsh
         run: |
-          if (-not (Test-Path env:V211_VERIFIED_MANIFEST)) {
-            throw 'BLOCKED: no approved asset manifest provisioned on this runner; cannot claim four-engine inference'
+          python tools/v211_hat_reference_audit.py > "$env:RUNNER_TEMP/v211-evidence/hat_audit.json"
+          if ($LASTEXITCODE -ne 0) { throw 'BLOCKED: active HAT references or audit error; see artifact' }
+      - name: Require independently approved local assets
+        run: |
+          $report = @{
+            real_inference_verified = $false
+            quality_improvement_verified = $false
+            failed_stage = 'runner_asset_preflight'
+            reason = 'Missing approved local assets or QA input on this Windows runner'
           }
-          if (-not (Test-Path env:V211_QA_SOURCE)) {
-            throw 'BLOCKED: no approved test image provisioned on this runner'
+          $reportPath = "$env:RUNNER_TEMP/v211-evidence/real_inference_report.json"
+          $report | ConvertTo-Json | Set-Content -Path $reportPath -Encoding utf8
+          if (-not $env:V211_VERIFIED_MANIFEST -or -not (Test-Path -LiteralPath $env:V211_VERIFIED_MANIFEST -PathType Leaf)) {
+            throw 'BLOCKED: approved manifest not provisioned on this runner'
           }
-          if (-not (Test-Path $env:V211_VERIFIED_MANIFEST -PathType Leaf)) { throw 'Manifest missing' }
-          if (-not (Test-Path $env:V211_QA_SOURCE -PathType Leaf)) { throw 'Source image missing' }
+          if (-not $env:V211_QA_SOURCE -or -not (Test-Path -LiteralPath $env:V211_QA_SOURCE -PathType Leaf)) {
+            throw 'BLOCKED: approved QA PNG not provisioned on this runner'
+          }
+          # Manifest verification and four-engine hashes are checked by the Python QA.
       - name: Run real inference (never mocks)
-        shell: pwsh
         run: |
           python -m pip install --disable-pip-version-check Pillow
+          if ($LASTEXITCODE -ne 0) { throw 'Pillow installation failed' }
           python -m tools.v211_four_engine_real_inference_qa --manifest "$env:V211_VERIFIED_MANIFEST" --input "$env:V211_QA_SOURCE" --output-dir "$env:RUNNER_TEMP/v211-evidence"
-      - name: Preserve failure or success report
+          if ($LASTEXITCODE -ne 0) { throw 'Real four-engine QA failed' }
+      - name: Preserve redacted audit and verification report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: v211-four-engine-evidence
-          path: ${{ runner.temp }}/v211-evidence/real_inference_report.json
+          path: |
+            ${{ runner.temp }}/v211-evidence/hat_audit.json
+            ${{ runner.temp }}/v211-evidence/real_inference_report.json
           if-no-files-found: warn
           retention-days: 7
