@@ -6,6 +6,9 @@ on:
     paths:
       - 'tools/v211_official_assets_audit.py'
       - 'tests/test_v211_official_assets_audit.py'
+      - 'tools/v211_provision_four_engines.py'
+      - 'tests/test_v211_provision_four_engines.py'
+      - 'tools/v211_real_engine_manifest.py'
       - '.github/workflows/v211-official-four-engine-assets.yml'
   workflow_dispatch:
 permissions:
@@ -25,12 +28,22 @@ jobs:
         shell: pwsh
         run: |
           python -m py_compile tools/v211_official_assets_audit.py
-          python -m pip install --disable-pip-version-check pytest
+          python -m pip install --disable-pip-version-check pytest Pillow
           python -m pytest -q tests/test_v211_official_assets_audit.py
       - name: Download and hash four original developer ZIPs without executing code
         shell: pwsh
         run: |
           python -m tools.v211_official_assets_audit --download-dir "$env:RUNNER_TEMP/v211-official-downloads" --report "$env:RUNNER_TEMP/v211-four-engine-official-archives.json"
+      - name: Verify four-engine installer manifest generator using fake ZIPs
+        shell: pwsh
+        run: |
+          python -m py_compile tools/v211_provision_four_engines.py tools/v211_real_engine_manifest.py
+          python -m pytest -q tests/test_v211_provision_four_engines.py
+      - name: Provision four hash-verified real Windows engines in ephemeral QA directory
+        shell: pwsh
+        run: |
+          python -m tools.v211_provision_four_engines --archives-dir "$env:RUNNER_TEMP/v211-official-downloads" --install-dir "$env:RUNNER_TEMP/v211-installed-engines" --manifest "$env:RUNNER_TEMP/v211-four-engine-manifest.json"
+          python -c "from tools.v211_real_engine_manifest import load_real_engine_manifest; from pathlib import Path; import os; commands=load_real_engine_manifest(Path(os.environ['RUNNER_TEMP'])/'v211-four-engine-manifest.json'); print('MANIFEST READY: '+','.join(commands)); assert len(commands)==4"
       - name: Print archive hashes for provenance pin review (no customer images)
         if: always()
         shell: pwsh
