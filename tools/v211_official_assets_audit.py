@@ -99,6 +99,17 @@ def audit_archive(path: Path) -> dict:
                     or any(part in ("", ".") for part in p.parts)
                     or ":" in p.parts[0] or normalized.startswith("//")):
                 raise ValueError("archive contains unsafe path")
+            # Windows silently aliases trailing dots/spaces, rejects device names,
+            # and interprets ':' as an alternate data stream in any component.
+            # Reject these before extraction rather than trusting POSIX ZIP names.
+            reserved = {"CON", "PRN", "AUX", "NUL", *("COM" + str(i) for i in range(1, 10)), *("LPT" + str(i) for i in range(1, 10))}
+            if any(
+                part.endswith((".", " ")) or ":" in part
+                or part.split(".", 1)[0].upper() in reserved
+                or any(ord(ch) < 32 or ch in '<>"|?*' for ch in part)
+                for part in p.parts
+            ):
+                raise ValueError("archive contains unsafe Windows path")
             key = normalized.rstrip("/").casefold()
             if key in seen:
                 raise ValueError("archive contains duplicate Windows path")
