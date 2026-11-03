@@ -55,6 +55,7 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
             source_size = img.size
             source_alpha = "A" in img.getbands()
             source_icc = img.info.get("icc_profile")
+            source_dpi = img.info.get("dpi")
             source_alpha_image = img.getchannel("A").copy() if source_alpha else None
         report["source_sha256"] = sha256(source)
         report["source_size"] = source_size
@@ -84,6 +85,11 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
                         raise ValueError(engine + ": alpha pixels differ from original cutout")
                 if source_icc and image.info.get("icc_profile") != source_icc:
                     raise ValueError(engine + ": ICC changed or lost")
+                output_dpi = image.info.get("dpi")
+                if source_dpi is not None and (output_dpi is None or
+                    len(output_dpi) != len(source_dpi) or
+                    any(abs(float(a) - float(b)) > 0.1 for a, b in zip(source_dpi, output_dpi))):
+                    raise ValueError(engine + ": print DPI changed or lost")
                 report["engines"][engine] = {
                     "sha256": sha256(destination),
                     "size": list(image.size),
@@ -91,6 +97,7 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
                     "alpha_preserved": not source_alpha or "A" in image.getbands(),
                     "alpha_pixels_match_source": source_alpha_image is not None,
                     "icc_preserved": not source_icc or image.info.get("icc_profile") == source_icc,
+                    "dpi_preserved": source_dpi is None or output_dpi is not None,
                 }
         report["real_inference_verified"] = True
         return report
