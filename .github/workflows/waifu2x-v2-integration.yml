@@ -20,6 +20,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force smoke-results | Out-Null
+          try {
           $releases=Invoke-RestMethod 'https://api.github.com/repos/nihui/waifu2x-ncnn-vulkan/releases?per_page=15'
           $asset=$null
           foreach($release in $releases) {
@@ -33,6 +35,11 @@ jobs:
           if(-not $exe){ throw 'Waifu2x executable missing' }
           echo "SIGNPRINT_WAIFU2X_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
           Write-Host "Found Waifu2x: $($exe.FullName)"
+          "Found Waifu2x: $($exe.FullName)" | Set-Content smoke-results/provision.log
+          } catch {
+            ($_ | Out-String) | Set-Content smoke-results/provision.log
+            throw
+          }
       - name: Process real image through V2 pipeline with Waifu2x
         shell: pwsh
         run: |
@@ -56,8 +63,10 @@ jobs:
               assert img.mode=='RGBA',img.mode
           print('V2 + Waifu2x integration PASS',result)
           '@ | Set-Content -Encoding utf8 smoke_integration.py
-          python smoke_integration.py 2>&1 | Tee-Object -FilePath smoke-results/integration.log
-          if ($LASTEXITCODE -ne 0) { throw "V2 + Waifu2x failed; see smoke-results/integration.log artifact" }
+          python smoke_integration.py *> smoke-results/integration.log
+          $exit = $LASTEXITCODE
+          Get-Content smoke-results/integration.log
+          if ($exit -ne 0) { throw "V2 + Waifu2x failed (exit $exit); see integration.log artifact" }
       - name: Upload integration evidence
         if: always()
         uses: actions/upload-artifact@v4
