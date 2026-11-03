@@ -1,0 +1,41 @@
+name: Provision four AI engines (experimental)
+on:
+  workflow_dispatch:
+jobs:
+  fetch-engines:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download upstream Windows engine archives
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force engines | Out-Null
+          $sources = @(
+            @{name='real-esrgan'; repo='nihui/realesrgan-ncnn-vulkan'; pattern='win'},
+            @{name='waifu2x'; repo='nihui/waifu2x-ncnn-vulkan'; pattern='win'},
+            @{name='real-cugan'; repo='nihui/realcugan-ncnn-vulkan'; pattern='win'},
+            @{name='anime4k'; repo='TianZerL/Anime4KCPP'; pattern='win'}
+          )
+          $manifest = @()
+          foreach ($source in $sources) {
+            $name = $source.name
+            $url = "https://api.github.com/repos/$($source.repo)/releases/latest"
+            $release = Invoke-RestMethod -Uri $url -Headers @{Authorization="Bearer $env:GH_TOKEN";'User-Agent'='NiyomSilp-Provision'}
+            $asset = $release.assets | Where-Object { $_.name -match $source.pattern -and $_.name -match '\.(zip|7z)$' } | Select-Object -First 1
+            if (-not $asset) { throw "No compatible Windows archive found for $name in $($source.repo) release $($release.tag_name)" }
+            $target = Join-Path engines $asset.name
+            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $target
+            $hash = (Get-FileHash -Path $target -Algorithm SHA256).Hash
+            $manifest += [pscustomobject]@{engine=$name; repository=$source.repo; version=$release.tag_name; asset=$asset.name; sha256=$hash}
+          }
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content engines/manifest.json
+      - name: Upload downloaded engine archives and hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: niyomsil-four-ai-engines-windows
+          path: engines/
+          retention-days: 7
