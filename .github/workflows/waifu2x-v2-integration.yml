@@ -75,7 +75,14 @@ jobs:
           python smoke_integration.py *> smoke-results/integration.log
           $exit = $LASTEXITCODE
           Get-Content smoke-results/integration.log
-          if ($exit -ne 0) { throw "V2 + Waifu2x failed (exit $exit); see integration.log artifact" }
+          if ($exit -ne 0) {
+            $log = Get-Content smoke-results/integration.log -Raw
+            if ($log -match 'vkCreateInstance failed -9') {
+              'BLOCKED: GitHub-hosted Windows runner cannot initialize Vulkan. Run inference on Windows with a Vulkan-capable GPU; do not treat this as V2 integration failure.' | Set-Content smoke-results/environment-blocker.txt
+              throw 'ENVIRONMENT BLOCKED: Vulkan initialization failed on GitHub-hosted runner. See environment-blocker.txt artifact.'
+            }
+            throw "V2 + Waifu2x failed (exit $exit); see integration.log artifact"
+          }
       - name: Upload integration evidence
         if: always()
         uses: actions/upload-artifact@v4
