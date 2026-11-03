@@ -56,6 +56,9 @@ def make_processors(commands: Mapping[str, EngineCommand]):
                 subprocess.run(
                     argv, check=True, shell=False, timeout=_spec.timeout_seconds,
                     capture_output=True, text=True,
+                    # NCNN model paths and Anime4KCPP runtime DLLs resolve
+                    # relative to their verified portable executable folder.
+                    cwd=str(Path(argv[0]).resolve().parent),
                 )
             except subprocess.TimeoutExpired as exc:
                 destination.unlink(missing_ok=True)
