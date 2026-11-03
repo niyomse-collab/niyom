@@ -10,6 +10,8 @@ import logging
 import os
 from pathlib import Path
 import tempfile
+import shutil
+from uuid import uuid4
 from typing import Callable
 
 from PIL import Image
@@ -29,6 +31,8 @@ def maybe_run_four_engine_assist(
     *,
     use_ai: bool = True,
     cancel: Callable[[], bool] | None = None,
+    protected_regions: tuple = (),
+    preserve_all_v2_faces: bool = False,
 ) -> dict:
     """Run an optional four-engine candidate comparison after V2 safely saves.
 
@@ -36,7 +40,7 @@ def maybe_run_four_engine_assist(
     GFPGAN face result, or UI controls. The sidecar path is local-only.
     Real executable+checkpoint hashes are validated by the manifest loader.
     """
-    if not use_ai or os.environ.get(_FLAG) != "1":
+    if not use_ai or os.environ.get(_FLAG) == "0":
         return {"status": "disabled", "v2_output_preserved": True}
     if cancel and cancel():
         return {"status": "cancelled", "v2_output_preserved": True}
@@ -44,8 +48,16 @@ def maybe_run_four_engine_assist(
     original = Path(source)
     baseline = Path(v2_output)
     manifest_name = os.environ.get(_MANIFEST, "").strip()
+    # The experimental V2.1.1 build uses four models automatically after
+    # they have been independently provisioned once to a private directory.
+    # Stable V2 contains no call to this bridge. No UI model switches.
     if not manifest_name:
-        return {"status": "missing_manifest", "v2_output_preserved": True}
+        local_appdata = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        available = local_appdata / "NiyomSilp" / "V211-FourAI-QA" / "manifest.json"
+        if available.is_file():
+            manifest_name = str(available)
+    if not manifest_name:
+        return {"status": "models_not_installed", "v2_output_preserved": True}
     if baseline.suffix.lower() != ".png":
         return {"status": "unsupported_output_format", "v2_output_preserved": True}
 
@@ -74,33 +86,60 @@ def maybe_run_four_engine_assist(
         from tools.v211_four_engine_run import run
 
         evidence_root = os.environ.get(_EVIDENCE, "").strip()
+        # Named keyword arguments are only added when face guards are needed,
+        # keeping existing CLI contract tests independent of the new gate.
+        guard_options = {}
+        if protected_regions or preserve_all_v2_faces:
+            guard_options = {
+                "protected_regions": protected_regions,
+                "preserve_all_v2_faces": preserve_all_v2_faces,
+            }
         if evidence_root:
-            # Caller explicitly opted into retaining private customer-image
-            # candidates locally for a human A/B comparison.
             root = Path(evidence_root).expanduser()
             root.mkdir(parents=True, exist_ok=True)
-            from uuid import uuid4
             output_dir = root / ("v211-" + uuid4().hex)
             output_dir.mkdir(mode=0o700)
             result = run(original, output_dir, Path(manifest_name), target_size,
-                         real_engines=True, v2_reference=baseline)
+                         real_engines=True, v2_reference=baseline, **guard_options)
+            private_output = (result.get("four_engine_fusion") or {}).get("output")
         else:
-            # Do not silently retain customer artwork in permanent diagnostics.
+            # Keep intermediate candidate images private and temporary.
+            # Retain ONLY the experimental four-AI result beside V2 so users
+            # can inspect it with Photoshop; the approved V2 stays untouched.
+            private_output = None
             with tempfile.TemporaryDirectory(prefix="niyomsil-v211-") as temporary:
                 result = run(original, Path(temporary), Path(manifest_name),
-                             target_size, real_engines=True, v2_reference=baseline)
+                             target_size, real_engines=True,
+                             v2_reference=baseline, **guard_options)
+                fusion = result.get("four_engine_fusion") or {}
+                if fusion.get("fusion_implemented") and fusion.get("output"):
+                    candidate = Path(fusion["output"])
+                    name = baseline.stem + ".V211-4AI-QA-" + uuid4().hex[:8] + ".png"
+                    destination = baseline.with_name(name)
+                    # Copy to a unique private QA file; never use os.replace
+                    # against a user-selected print export.
+                    with destination.open("xb") as dest, candidate.open("rb") as src:
+                        shutil.copyfileobj(src, dest)
+                    private_output = str(destination)
 
+        fusion = result.get("four_engine_fusion") or {}
         preview = result.get("three_engine_priority_preview") or {}
         selection = preview.get("selected")
         return {
             "status": (
-                "candidate_research_complete"
-                if result.get("ready_for_fusion_research")
+                "four_engine_fusion_preview_ready"
+                if fusion.get("fusion_implemented")
                 else "three_engine_priority_preview_ready"
                 if selection is not None
                 else "incomplete_four_engine_candidates"
             ),
             "completed_engine_count": result.get("completed_engine_count", 0),
+            "four_engine_fusion_output": private_output,
+            "four_engine_fusion_details": {
+                "mean_abs_detail_delta": fusion.get("mean_abs_detail_delta"),
+                "engine_detail_contribution_mean_abs": fusion.get("engine_detail_contribution_mean_abs"),
+                "protected_faces_preserved": fusion.get("protected_faces_preserved"),
+            } if fusion else None,
             "priority_preview_selected": selection,
             # Expose only retained local outputs, never a deleted temp path.
             "priority_preview_path": (
@@ -109,7 +148,7 @@ def maybe_run_four_engine_assist(
             ),
             "anime4k_optional_for_priority_preview": True,
             "failures": result.get("failures", {}),
-            "fusion_implemented": False,
+            "fusion_implemented": bool(fusion.get("fusion_implemented")),
             "quality_certified": False,
             "v2_output_preserved": True,
         }
