@@ -89,12 +89,25 @@ def audit_archive(path: Path) -> dict:
         if sum(x.file_size for x in members) > MAX_UNCOMPRESSED_BYTES:
             raise ValueError("ZIP uncompressed size exceeds audit limit")
         names = []
+        seen = set()
         for info in members:
             p = PurePosixPath(info.filename.replace("\\", "/"))
-            if p.is_absolute() or ".." in p.parts:
+            normalized = p.as_posix()
+            # Reject Windows drive/UNC paths, ambiguous names and symlinks before
+            # any downstream extractor can be allowed to consume this archive.
+            if (p.is_absolute() or ".." in p.parts or not p.parts
+                    or any(part in ("", ".") for part in p.parts)
+                    or ":" in p.parts[0] or normalized.startswith("//")):
                 raise ValueError("archive contains unsafe path")
+            key = normalized.rstrip("/").casefold()
+            if key in seen:
+                raise ValueError("archive contains duplicate Windows path")
+            seen.add(key)
+            mode = (info.external_attr >> 16) & 0o170000
+            if mode == 0o120000:
+                raise ValueError("archive contains symbolic link")
             if not info.is_dir():
-                names.append(p.as_posix())
+                names.append(normalized)
     executables = sorted(n for n in names if n.lower().endswith(".exe"))
     # NCNN model files and common neural-network formats; do not pretend
     # that a filename alone proves a working checkpoint or license.
