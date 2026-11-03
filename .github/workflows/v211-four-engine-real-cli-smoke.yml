@@ -1,0 +1,91 @@
+name: V2.1.1 actual engine CLI smoke on Windows (non-certifying)
+on:
+  push:
+    branches:
+      - work/v211-four-engine-v2-bridge-20261103
+    paths:
+      - 'tools/v211_four_engine_real_inference_qa.py'
+      - 'tools/v211_four_engine_subprocess.py'
+      - 'tools/v211_provision_four_engines.py'
+      - 'tests/test_v211_real_inference_qa_coverage.py'
+      - '.github/workflows/v211-four-engine-real-cli-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: v211-real-cli-smoke
+  cancel-in-progress: true
+
+jobs:
+  windows-synthetic-real-cli:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test QA report logic (mock executables, not evidence)
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest Pillow
+          python -m pytest -q tests/test_v211_real_inference_qa_coverage.py
+      - name: Download and verify the four official Windows releases into temporary QA storage
+        shell: pwsh
+        run: |
+          python -m tools.v211_provision_four_engines --archives-dir "$env:RUNNER_TEMP/v211-zip" --install-dir "$env:RUNNER_TEMP/v211-models" --manifest "$env:RUNNER_TEMP/v211-manifest.json" --download-missing
+      - name: Generate harmless, original synthetic PNG test (not customer artwork)
+        shell: pwsh
+        run: |
+          @'
+          import os
+          from pathlib import Path
+          from PIL import Image, ImageDraw
+          p = Path(os.environ["RUNNER_TEMP"]) / "v211-original-test.png"
+          im = Image.new("RGB", (128, 96), (20, 128, 54))
+          draw = ImageDraw.Draw(im)
+          for x in range(128):
+              draw.line((x, 0, x, 45), fill=(20, 100 + (x * 110 // 127), 45))
+          draw.rectangle((9, 52, 96, 78), fill=(237, 14, 17))
+          draw.ellipse((101, 50, 124, 73), fill=(19, 55, 216))
+          im.save(p, dpi=(300, 300))
+          print("Synthetic input prepared, pixels:", im.size)
+          '@ | python -
+      - name: Run actual official binaries on the synthetic image (Windows runner may lack Vulkan GPU)
+        id: real_cli
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $manifest = Join-Path $env:RUNNER_TEMP 'v211-manifest.json'
+          $source = Join-Path $env:RUNNER_TEMP 'v211-original-test.png'
+          $reportDir = Join-Path $env:RUNNER_TEMP 'v211-real-cli-results'
+          $m = Get-Content $manifest -Raw | ConvertFrom-Json
+          foreach ($entry in $m.PSObject.Properties) { $entry.Value.timeout_seconds = 120 }
+          $m | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 $manifest
+          python -m tools.v211_four_engine_real_inference_qa --manifest "$manifest" --input "$source" --output-dir "$reportDir"
+      - name: Summarize real CLI outcomes without exposing image files
+        if: always()
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'v211-real-cli-results/real_inference_report.json'
+          if (Test-Path $path) {
+            $r = Get-Content $path -Raw | ConvertFrom-Json
+            Write-Host ("Real 4 CLI successful: " + $r.real_inference_verified)
+            Write-Host ("Completed: " + $r.completed_engine_count)
+            Write-Host ("Successful engines: " + ($r.engines.PSObject.Properties.Name -join ', '))
+            Write-Host ("Blocked engines: " + ($r.failures.PSObject.Properties.Name -join ', '))
+            Write-Host "Note: GitHub-hosted Windows may lack usable Vulkan; shop NVIDIA GPU results are a separate requirement."
+          } else {
+            Write-Host 'No valid report: provisioning or manifest failed; no inference can be claimed.'
+          }
+      - name: Retain JSON evidence only, not model packages or images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v211-real-cli-windows-synthetic-only-report
+          path: ${{ runner.temp }}/v211-real-cli-results/real_inference_report.json
+          if-no-files-found: warn
+          retention-days: 7
