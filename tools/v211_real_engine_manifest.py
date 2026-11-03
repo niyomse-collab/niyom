@@ -42,9 +42,18 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
         ):
             raise ValueError(engine + ": source_url, license_name and license_url provenance required")
         _verify_hash(executable, item.get("executable_sha256"), engine)
+        # Anime4KCPP v3.2.0 implements its algorithms in the shipped CLI.
+        # Its official Windows archive has no separate .bin/.param model
+        # weights; verification is anchored to the executable SHA-256 instead.
+        # Never silently grant this exemption to a different engine.
+        embedded_algorithm = item.get("embedded_algorithm") is True
+        if embedded_algorithm and engine != "anime4k":
+            raise ValueError(engine + ": embedded algorithm exemption forbidden")
         assets = item.get("model_assets", [])
-        if not isinstance(assets, list) or not assets or not all(isinstance(a, str) or (isinstance(a, dict) and isinstance(a.get('path'), str)) for a in assets):
-            raise ValueError(engine + ": real model assets must be declared")
+        if not isinstance(assets, list) or (not assets and not embedded_algorithm) or (
+            embedded_algorithm and assets
+        ) or not all(isinstance(a, dict) and isinstance(a.get("path"), str) for a in assets):
+            raise ValueError(engine + ": verified model assets required unless Anime4KCPP is embedded")
         for asset in assets:
             model = Path(asset['path'] if isinstance(asset, dict) else asset)
             if not model.is_absolute() or not model.exists():
