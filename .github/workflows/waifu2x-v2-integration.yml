@@ -23,7 +23,7 @@ jobs:
           $releases=Invoke-RestMethod 'https://api.github.com/repos/nihui/waifu2x-ncnn-vulkan/releases?per_page=15'
           $asset=$null
           foreach($release in $releases) {
-            $asset=@($release.assets | Where-Object { $_.name -match 'windows\\.zip$' } | Select-Object -First 1)
+            $asset=@($release.assets | Where-Object { $_.name -match '(?i)(win|windows).*\.zip$' } | Select-Object -First 1)
             if($asset.Count -gt 0){ $asset=$asset[0]; break }
           }
           if(-not $asset){ throw 'No Windows Waifu2x release archive found' }
