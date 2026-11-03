@@ -34,9 +34,12 @@ jobs:
           if(-not $asset){ throw ('No Windows Waifu2x release archive found. Assets: ' + ($releaseAssets -join ', ')) }
           ('Selected asset: ' + $asset.name + ' URL: ' + $asset.browser_download_url) | Add-Content smoke-results/provision.log
           Invoke-WebRequest $asset.browser_download_url -OutFile waifu2x.zip
+          New-Item -ItemType Directory -Force tools/waifu2x | Out-Null
           Expand-Archive waifu2x.zip -DestinationPath tools/waifu2x -Force
           $exe=Get-ChildItem tools/waifu2x -Recurse -Filter waifu2x-ncnn-vulkan.exe | Select-Object -First 1
           if(-not $exe){ throw 'Waifu2x executable missing' }
+          $modelDirs = @(Get-ChildItem $exe.DirectoryName -Directory | Where-Object { $_.Name -match '(?i)model' })
+          if ($modelDirs.Count -eq 0) { throw "Waifu2x model directories missing beside executable: $($exe.FullName)" }
           echo "SIGNPRINT_WAIFU2X_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
           Write-Host "Found Waifu2x: $($exe.FullName)"
           "Found Waifu2x: $($exe.FullName)" | Add-Content smoke-results/provision.log
@@ -65,6 +68,8 @@ jobs:
           with Image.open('smoke-results/output.png') as img:
               assert img.size==(128,96),img.size
               assert img.mode=='RGBA',img.mode
+          assert result['ai_engine']=='waifu2x', result
+          assert result['ai_available'] is True, result
           print('V2 + Waifu2x integration PASS',result)
           '@ | Set-Content -Encoding utf8 smoke_integration.py
           python smoke_integration.py *> smoke-results/integration.log
