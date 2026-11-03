@@ -1,0 +1,66 @@
+name: Waifu2x V2 integration smoke (experimental)
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/v211-v2-first-real-esrgan-smoke]
+    paths:
+      - 'signprint_ai/**'
+      - '.github/workflows/waifu2x-v2-integration.yml'
+jobs:
+  waifu2x-v2:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install V2 image pipeline dependencies
+        run: python -m pip install pillow numpy opencv-python
+      - name: Fetch official Waifu2x Windows package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $releases=Invoke-RestMethod 'https://api.github.com/repos/nihui/waifu2x-ncnn-vulkan/releases?per_page=15'
+          $asset=$null
+          foreach($release in $releases) {
+            $asset=@($release.assets | Where-Object { $_.name -match 'windows\\.zip$' } | Select-Object -First 1)
+            if($asset.Count -gt 0){ $asset=$asset[0]; break }
+          }
+          if(-not $asset){ throw 'No Windows Waifu2x release archive found' }
+          Invoke-WebRequest $asset.browser_download_url -OutFile waifu2x.zip
+          Expand-Archive waifu2x.zip -DestinationPath tools/waifu2x -Force
+          $exe=Get-ChildItem tools/waifu2x -Recurse -Filter waifu2x-ncnn-vulkan.exe | Select-Object -First 1
+          if(-not $exe){ throw 'Waifu2x executable missing' }
+          echo "SIGNPRINT_WAIFU2X_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
+          Write-Host "Found Waifu2x: $($exe.FullName)"
+      - name: Process real image through V2 pipeline with Waifu2x
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          import numpy as np
+          from PIL import Image
+          from signprint_ai.pipeline import PrintEnhancementPipeline
+          from signprint_ai.processing import EnhanceSettings
+          Path('smoke-results').mkdir(exist_ok=True)
+          a=np.zeros((48,64,4),dtype=np.uint8)
+          a[:,:,0]=210; a[:,:,1]=55; a[:,:,2]=75
+          a[4:44,4:60,3]=255
+          Image.fromarray(a,'RGBA').save('smoke-results/input.png')
+          pipeline=PrintEnhancementPipeline()
+          assert pipeline.waifu2x.available, 'Waifu2x not detected by V2'
+          settings=EnhanceSettings(ai_scale=2,dpi=300,export_format='PNG')
+          result=pipeline.process('smoke-results/input.png','smoke-results/output.png',settings,ai_engine='waifu2x')
+          with Image.open('smoke-results/output.png') as img:
+              assert img.size==(128,96),img.size
+              assert img.mode=='RGBA',img.mode
+          print('V2 + Waifu2x integration PASS',result)
+          '@ | Set-Content -Encoding utf8 smoke_integration.py
+          python smoke_integration.py
+      - name: Upload integration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2-waifu2x-integration-evidence
+          path: smoke-results/
+          if-no-files-found: ignore
