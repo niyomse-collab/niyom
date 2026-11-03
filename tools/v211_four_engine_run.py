@@ -13,7 +13,7 @@ from pathlib import Path
 from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand, make_processors
 from tools.v211_real_engine_manifest import load_real_engine_manifest
-from tools.v211_four_engine_safe_selection import select_conservative_candidate
+from tools.v211_three_engine_priority_preview import PRIMARY_ENGINES, select_three_engine_preview
 
 
 def _sha256(path: Path) -> str:
@@ -54,20 +54,23 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         "failures": result["failures"],
     }
     if v2_reference is not None:
-        if result["ready_for_fusion_research"]:
+        available = {item.engine: item.path for item in result["candidates"]}
+        if set(PRIMARY_ENGINES).issubset(available):
             try:
-                selection = select_conservative_candidate(
-                    source, v2_reference,
-                    {item.engine: item.path for item in result["candidates"]},
-                    output_dir / "four_engine_selected.png",
+                # The shop preferred Real-ESRGAN, Waifu2x and Real-CUGAN in
+                # actual Windows comparisons; Anime4K remains diagnostic only.
+                selection = select_three_engine_preview(
+                    source, v2_reference, available,
+                    output_dir / "three_engine_priority_preview.png",
                 )
-                report["conservative_selection"] = selection
+                report["three_engine_priority_preview"] = selection
             except (OSError, ValueError, RuntimeError) as exc:
-                report["selection_error"] = type(exc).__name__ + ": " + str(exc)
-                report["ready_for_fusion_research"] = False
-                (output_dir / "four_engine_selected.png").unlink(missing_ok=True)
+                report["priority_preview_error"] = type(exc).__name__ + ": " + str(exc)
+                (output_dir / "three_engine_priority_preview.png").unlink(missing_ok=True)
         else:
-            report["selection_error"] = "All four valid engine outputs required"
+            report["priority_preview_error"] = "Three priority candidates required; Anime4K optional"
+        # Only four actual candidates allow the full four-engine research gate.
+        # A valid three-engine preview is distinct from fusion approval.
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "four_engine_report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
