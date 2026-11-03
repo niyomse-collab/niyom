@@ -15,7 +15,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force engines | Out-Null
           $sources = @(
-            @{name='real-esrgan'; repo='xinntao/Real-ESRGAN-ncnn-vulkan'; pattern='win'},
+            @{name='real-esrgan'; repo='nihui/realesrgan-ncnn-vulkan'; pattern='win'},
             @{name='waifu2x'; repo='nihui/waifu2x-ncnn-vulkan'; pattern='win'},
             @{name='real-cugan'; repo='nihui/realcugan-ncnn-vulkan'; pattern='win'},
             @{name='anime4k'; repo='TianZerL/Anime4KCPP'; pattern='win'}
