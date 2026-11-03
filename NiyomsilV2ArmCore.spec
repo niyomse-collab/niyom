@@ -18,6 +18,13 @@ hiddenimports = [
     "realesrgan.archs.srvgg_arch",
     "pyvips",
     "_libvips",
+    # Included for the explicit V2.1.1 research opt-in; not activated by default.
+    "signprint_ai.v211_four_engine_bridge",
+    "tools.v211_four_engine_run",
+    "tools.v211_four_engine_coordinator",
+    "tools.v211_four_engine_subprocess",
+    "tools.v211_real_engine_manifest",
+    "tools.v211_four_engine_safe_selection",
 ]
 # BasicSR discovers several modules dynamically (including basicsr.ops).
 # Freeze the complete Python module graph so the packaged EXE does not fail
