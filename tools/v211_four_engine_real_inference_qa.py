@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import os
 
 from PIL import Image
 
@@ -112,13 +113,19 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
             destination.unlink(missing_ok=True)
             # Save only type and a bounded generic description. Windows error
             # stderr may contain local paths or other private information.
-            report["failures"][engine] = {
+            failure = {
                 "error_type": type(exc).__name__,
                 "error_class": (
                     "timeout" if isinstance(exc, TimeoutError)
                     else "subprocess_or_candidate_failure"
                 ),
             }
+            # ONLY the public GitHub workflow's deliberately synthetic test
+            # permits a short diagnostic excerpt to help debug CLI arguments.
+            # All customer jobs keep raw stderr and local file paths private.
+            if os.environ.get("NIYOMSIL_V211_SYNTHETIC_CI_DEBUG") == "1":
+                failure["synthetic_test_diagnostic"] = str(exc)[-600:]
+            report["failures"][engine] = failure
     report["real_inference_verified"] = report["completed_engine_count"] == len(ENGINES)
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return report
