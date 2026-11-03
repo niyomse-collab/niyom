@@ -50,9 +50,11 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
         if embedded_algorithm and engine != "anime4k":
             raise ValueError(engine + ": embedded algorithm exemption forbidden")
         assets = item.get("model_assets", [])
-        if not isinstance(assets, list) or (not assets and not embedded_algorithm) or (
-            embedded_algorithm and assets
-        ) or not all(isinstance(a, dict) and isinstance(a.get("path"), str) for a in assets):
+        if not isinstance(assets, list) or not all(
+            isinstance(a, dict) and isinstance(a.get("path"), str) for a in assets
+        ):
+            raise ValueError(engine + ": model assets must be individual files with SHA256")
+        if (not assets and not embedded_algorithm) or (assets and embedded_algorithm):
             raise ValueError(engine + ": verified model assets required unless Anime4KCPP is embedded")
         for asset in assets:
             model = Path(asset['path'] if isinstance(asset, dict) else asset)
