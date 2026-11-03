@@ -500,6 +500,16 @@ class NiyomSilpCoreAdapter:
                 icc_profile_path=settings.icc_profile_path,
             )
 
+        # Experimental V2.1.1 hook: optional four-engine research runs only
+        # AFTER V2 has exported the accepted image. It never overwrites it.
+        # The gate is disabled for every normal V2 installation.
+        four_engine_evidence = None
+        if use_ai and os.environ.get("NIYOMSIL_V211_FOUR_AI") == "1":
+            from .v211_four_engine_bridge import maybe_run_four_engine_assist
+            four_engine_evidence = maybe_run_four_engine_assist(
+                src, dst, use_ai=use_ai, cancel=cancel
+            )
+
         if progress:
             progress(100, "เสร็จแล้ว")
 
@@ -529,5 +539,6 @@ class NiyomSilpCoreAdapter:
             "runtime": "PyTorch",
             "face_protection": face_info,
             "photo_preflight": photo_preflight,
+            "four_engine_research": four_engine_evidence,
             "verified_exact_text": None,  # image-only: no raster text rewriting
         }
