@@ -71,6 +71,35 @@ jobs:
           foreach ($entry in $m.PSObject.Properties) { $entry.Value.timeout_seconds = 120 }
           $m | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 $manifest
           python -m tools.v211_four_engine_real_inference_qa --manifest "$manifest" --input "$source" --output-dir "$reportDir"
+      - name: Generate synthetic RGBA cutout with embedded ICC and 300 DPI
+        if: always()
+        shell: pwsh
+        run: |
+          @'
+          import os
+          from pathlib import Path
+          from PIL import Image, ImageCms, ImageDraw
+          p = Path(os.environ["RUNNER_TEMP"]) / "v211-original-alpha-icc.png"
+          im = Image.new("RGBA", (128, 96), (0, 0, 0, 0))
+          draw = ImageDraw.Draw(im)
+          draw.rectangle((12, 12, 116, 84), fill=(230, 35, 50, 255))
+          draw.ellipse((28, 22, 100, 76), fill=(30, 100, 230, 130))
+          profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+          im.save(p, dpi=(300, 300), icc_profile=profile)
+          print("Synthetic RGBA/ICC input prepared:", im.size)
+          '@ | python -
+      - name: Run actual official binaries on synthetic RGBA ICC PNG (separate evidence)
+        if: always()
+        id: real_cli_alpha
+        shell: pwsh
+        env:
+          NIYOMSIL_V211_SYNTHETIC_CI_DEBUG: '1'
+        run: |
+          $manifest = Join-Path $env:RUNNER_TEMP 'v211-manifest.json'
+          $source = Join-Path $env:RUNNER_TEMP 'v211-original-alpha-icc.png'
+          $reportDir = Join-Path $env:RUNNER_TEMP 'v211-real-cli-alpha-results'
+          if (-not (Test-Path $manifest)) { throw 'BLOCKED: verified manifest missing' }
+          python -m tools.v211_four_engine_real_inference_qa --manifest "$manifest" --input "$source" --output-dir "$reportDir"
       - name: Summarize real CLI outcomes without exposing image files
         if: always()
         shell: pwsh
@@ -94,6 +123,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: v211-real-cli-windows-synthetic-only-report
-          path: ${{ runner.temp }}/v211-real-cli-results/real_inference_report.json
+          path: |
+            ${{ runner.temp }}/v211-real-cli-results/real_inference_report.json
+            ${{ runner.temp }}/v211-real-cli-alpha-results/real_inference_report.json
           if-no-files-found: warn
           retention-days: 7
