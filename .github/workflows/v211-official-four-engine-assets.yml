@@ -31,6 +31,19 @@ jobs:
         shell: pwsh
         run: |
           python -m tools.v211_official_assets_audit --download-dir "$env:RUNNER_TEMP/v211-official-downloads" --report "$env:RUNNER_TEMP/v211-four-engine-official-archives.json"
+      - name: Print archive hashes for provenance pin review (no customer images)
+        if: always()
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'v211-four-engine-official-archives.json'
+          if (Test-Path $path) {
+            $report = Get-Content $path -Raw | ConvertFrom-Json
+            foreach ($entry in $report.packages.PSObject.Properties) {
+              Write-Host ($entry.Name + ' SHA256=' + $entry.Value.archive_sha256 + ' published=' + $entry.Value.release_digest_published + ' result=' + $entry.Value.status)
+              Write-Host ('executables=' + ($entry.Value.candidate_executables -join ','))
+              Write-Host ('model_files=' + $entry.Value.model_or_binary_file_count)
+            }
+          }
       - name: Upload provenance-only report, never large binaries or private images
         if: always()
         uses: actions/upload-artifact@v4
