@@ -16,8 +16,8 @@ import zipfile
 
 PACKAGES = {
     "real_esrgan": {
-        "release": "v0.2.0",
-        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v0.2.0/realesrgan-ncnn-vulkan-v0.2.0-windows.zip",
+        "release": "v0.2.5.0",
+        "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
         "release_sha256": None,  # Release API does not publish a digest.
         "license": "MIT (upstream repository LICENSE; verify model-weights rights)",
         "license_url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/blob/master/LICENSE",
