@@ -1579,8 +1579,18 @@ class App(tk.Tk):
                         self.tree.item(str(idx), values=vals)
 
                     if idx == self.current_index:
-                        self._last_result = Path(path)
+                        four_ai = result.get("four_engine_research") or {}
+                        qa_file = four_ai.get("four_engine_fusion_output")
+                        show_ai_preview = bool(qa_file and Path(qa_file).is_file())
+                        # Display the real combined four-AI pixels on the right
+                        # only after all candidate processes and fusion succeed.
+                        # The saved V2 print export remains at the chosen path.
+                        self._last_result = Path(qa_file) if show_ai_preview else Path(path)
                         caption = f"ผลลัพธ์จริง: {result['output_size'][0]:,} × {result['output_size'][1]:,} px"
+                        if show_ai_preview:
+                            caption += " • ตัวอย่าง AI 4 ตัวรวมแล้ว (QA) • ไฟล์ V2 เดิมยังอยู่ ไม่ใช่ผลรับรองคุณภาพ"
+                        elif four_ai.get("status") == "models_not_installed":
+                            caption += " • AI 4 ตัว: ยังไม่มีโมเดลที่ติดตั้งสำหรับ V2.1.1"
                         if result["output_size"][0] < result["original_size"][0] or result["output_size"][1] < result["original_size"][1]:
                             caption += " • ลดพิกเซลตามขนาด/DPI ที่ตั้ง"
                         if face.get("enabled"):
