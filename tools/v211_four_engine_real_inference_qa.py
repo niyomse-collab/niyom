@@ -120,7 +120,7 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
                 ),
             }
     report["real_inference_verified"] = report["completed_engine_count"] == len(ENGINES)
-    report_path.write_text(json.dumps(report, indent=2) + "\\n", encoding="utf-8")
+    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return report
 
 
