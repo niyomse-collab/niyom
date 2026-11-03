@@ -33,3 +33,31 @@ def test_four_real_subprocess_invocations(tmp_path):
         with Image.open(target) as output:
             assert output.size == (4, 4)
             assert output.getpixel((0, 0)) == (20, 40, 60)
+
+
+def test_real_portable_engine_runs_with_models_relative_to_its_binary(tmp_path, monkeypatch):
+    from PIL import Image
+    from tools import v211_four_engine_subprocess as module
+    install = tmp_path / "Portable" / "bin"
+    install.mkdir(parents=True)
+    executable = install / "realesrgan-ncnn-vulkan.exe"
+    executable.write_bytes(b"hash-pinned test placeholder, not real inference")
+    source = tmp_path / "source.png"
+    Image.new("RGB", (4, 4), (50, 70, 90)).save(source)
+    destination = tmp_path / "output.png"
+    calls = []
+
+    def stub(argv, **kwargs):
+        calls.append((argv, kwargs))
+        assert kwargs["cwd"] == str(install.resolve())
+        assert kwargs["shell"] is False
+        Image.open(source).save(destination)
+
+    monkeypatch.setattr(module.subprocess, "run", stub)
+    commands = {
+        name: EngineCommand((str(executable), "-i", "{input}", "-o", "{output}"))
+        for name in ENGINES
+    }
+    module.make_processors(commands)["real_esrgan"](source, destination)
+    assert len(calls) == 1
+    assert destination.is_file()
