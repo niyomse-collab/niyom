@@ -25,6 +25,7 @@ hiddenimports = [
     "tools.v211_four_engine_subprocess",
     "tools.v211_real_engine_manifest",
     "tools.v211_four_engine_safe_selection",
+    "tools.v211_three_engine_priority_preview",
 ]
 # BasicSR discovers several modules dynamically (including basicsr.ops).
 # Freeze the complete Python module graph so the packaged EXE does not fail
