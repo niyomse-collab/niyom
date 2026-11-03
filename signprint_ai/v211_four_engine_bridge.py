@@ -78,11 +78,24 @@ def maybe_run_four_engine_assist(
                 result = run(original, Path(temporary), Path(manifest_name),
                              target_size, real_engines=True, v2_reference=baseline)
 
+        preview = result.get("three_engine_priority_preview") or {}
+        selection = preview.get("selected")
         return {
-            "status": "candidate_research_complete"
-                      if result.get("ready_for_fusion_research")
-                      else "incomplete_four_engine_candidates",
+            "status": (
+                "candidate_research_complete"
+                if result.get("ready_for_fusion_research")
+                else "three_engine_priority_preview_ready"
+                if selection is not None
+                else "incomplete_four_engine_candidates"
+            ),
             "completed_engine_count": result.get("completed_engine_count", 0),
+            "priority_preview_selected": selection,
+            # Expose only retained local outputs, never a deleted temp path.
+            "priority_preview_path": (
+                preview.get("output") if evidence_root and selection is not None
+                else None
+            ),
+            "anime4k_optional_for_priority_preview": True,
             "failures": result.get("failures", {}),
             "fusion_implemented": False,
             "quality_certified": False,
