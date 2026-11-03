@@ -51,9 +51,8 @@ class NiyomSilpCoreAdapter:
     def selected_model_available(self, model_name: str = "real_esrgan") -> bool:
         """Check the chosen model, not an unrelated mandatory ESRGAN weight.
 
-        This is a lightweight presence preflight for the desktop UI. HAT still
-        verifies SHA-256, architecture and runtime dependencies when loaded;
-        a file on disk does not imply a working or licensed model.
+        This lightweight preflight checks availability for the selected V2 engine;
+        a checkpoint on disk does not by itself prove licensed inference.
         """
         if model_name == "real_esrgan":
             return self.available
@@ -69,13 +68,6 @@ class NiyomSilpCoreAdapter:
                 return self.available and nafnet_checkpoint_path().is_file()
             except (OSError, RuntimeError):
                 return False
-        if model_name in ("hat", "v2_hat_assist"):
-            try:
-                from .v211_hat_engine import checkpoint_path
-                hat_ready = checkpoint_path().is_file()
-                return hat_ready and (self.available if model_name == "v2_hat_assist" else True)
-            except (OSError, RuntimeError):
-                return False
         raise ValueError("V2.1.1: unknown photo model: " + str(model_name))
 
     def default_device(self):
@@ -83,35 +75,7 @@ class NiyomSilpCoreAdapter:
 
     def create_job_engine(self, settings):
         selected_model = getattr(settings, "v211_photo_model", "real_esrgan")
-        if selected_model == "hat":
-            from .v211_hat_engine import HATModelEngine
-            device_manager = self.engine_manager.device_manager
-            selected = (device_manager.get_default_device() if settings.device == "AUTO"
-                        else device_manager.get_device(settings.device))
-            engine = HATModelEngine(selected)
-            self.engine_manager.engine = engine
-        elif selected_model == "v2_hat_assist":
-            # V2 remains the *primary* neural processor. HAT sees the same
-            # input, and its bounded detail augments the V2 output; it never
-            # replaces V2 image geometry, colour, or the GFPGAN face pass.
-            from .v211_hat_engine import HATModelEngine
-            from .v211_hat_assist import HATAssistEngine
-            v2_engine = self.engine_manager.create_engine(settings.device)
-            base = v2_engine
-            if getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0:
-                from .v21_graphics_ai import GraphicDetailEngine
-                base = GraphicDetailEngine(
-                    base, settings.text_graphic_boost / 100.,
-                    settings.face_regions if settings.face_protection else ()
-                )
-            assist = HATModelEngine(v2_engine.selected)
-            engine = HATAssistEngine(
-                base, assist,
-                strength=float(getattr(settings, "v211_hat_assist_strength", 0.85)),
-                protected_regions=(settings.face_regions if settings.face_protection else ())
-            )
-            return engine
-        elif selected_model in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
+        if selected_model in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
             # Motion deblurring occurs on the original source, BEFORE the
             # approved V2 Real-ESRGAN upscaler and untouched GFPGAN face pass.
             # This is opt-in and never runs a second time on an 8x intermediate.
@@ -534,7 +498,15 @@ class NiyomSilpCoreAdapter:
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",
-            "model": ("V2 RealESRGAN_x4plus + NAFNet photo-only deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_photo_only" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + NAFNet GoPro deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + SwinIR pre-denoise" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1 else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus"))))),
+            "model": (
+                "V2 RealESRGAN_x4plus + NAFNet photo-only deblur"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_photo_only" and use_ai and model_scale > 1
+                else "V2 RealESRGAN_x4plus + NAFNet GoPro deblur"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" and use_ai and model_scale > 1
+                else "V2 RealESRGAN_x4plus + SwinIR pre-denoise"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1
+                else "RealESRGAN_x4plus"
+            ),
             "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
