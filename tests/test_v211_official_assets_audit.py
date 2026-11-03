@@ -51,3 +51,31 @@ def test_archive_non_zip_rejected(tmp_path):
     path.write_bytes(b"not zip")
     with pytest.raises(ValueError, match="ZIP"):
         audit_archive(path)
+
+
+def test_archive_rejects_duplicate_windows_casefolded_paths(tmp_path):
+    path = tmp_path / "duplicate.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("models/Net.bin", b"a")
+        archive.writestr("models/net.bin", b"b")
+    with pytest.raises(ValueError, match="duplicate Windows path"):
+        audit_archive(path)
+
+
+def test_archive_rejects_windows_drive_path(tmp_path):
+    path = tmp_path / "drive.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("C:/Windows/untrusted.exe", b"x")
+    with pytest.raises(ValueError, match="unsafe path"):
+        audit_archive(path)
+
+
+def test_archive_rejects_unix_symlink(tmp_path):
+    path = tmp_path / "symlink.zip"
+    info = zipfile.ZipInfo("models/link.bin")
+    info.create_system = 3
+    info.external_attr = (0o120777 << 16)
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(info, "../outside.bin")
+    with pytest.raises(ValueError, match="symbolic link"):
+        audit_archive(path)
