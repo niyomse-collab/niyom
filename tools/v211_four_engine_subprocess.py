@@ -67,7 +67,7 @@ def make_processors(commands: Mapping[str, EngineCommand]):
                 destination.unlink(missing_ok=True)
                 raise RuntimeError(
                     "engine exited with code " + str(exc.returncode) + ": "
-                    + (exc.stderr or "")[-1000:]
+                    + (exc.stderr or exc.stdout or "")[-1000:]
                 ) from exc
             except OSError:
                 destination.unlink(missing_ok=True)
