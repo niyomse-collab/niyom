@@ -14,6 +14,7 @@ from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand, make_processors
 from tools.v211_real_engine_manifest import load_real_engine_manifest
 from tools.v211_three_engine_priority_preview import PRIMARY_ENGINES, select_three_engine_preview
+from tools.v211_four_engine_fusion import fuse_four_engine_details
 
 
 def _sha256(path: Path) -> str:
@@ -24,7 +25,7 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None) -> dict:
+def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None, protected_regions: tuple = (), preserve_all_v2_faces: bool = False) -> dict:
     output_dir = Path(output_dir)
     if real_engines:
         commands = load_real_engine_manifest(config)
@@ -69,8 +70,24 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
                 (output_dir / "three_engine_priority_preview.png").unlink(missing_ok=True)
         else:
             report["priority_preview_error"] = "Three priority candidates required; Anime4K optional"
+        if result["ready_for_fusion_research"]:
+            try:
+                fusion = fuse_four_engine_details(
+                    source, v2_reference, available,
+                    output_dir / "four_engine_fused_preview.png",
+                    protected_regions=protected_regions,
+                    preserve_all_v2_faces=preserve_all_v2_faces,
+                )
+                report["four_engine_fusion"] = fusion
+                report["fusion_implemented"] = bool(fusion["fusion_implemented"])
+            except (OSError, ValueError, RuntimeError, MemoryError) as exc:
+                report["fusion_error"] = type(exc).__name__ + ": " + str(exc)
+                (output_dir / "four_engine_fused_preview.png").unlink(missing_ok=True)
+                # Keep four candidate images for private analysis, but do
+                # not describe an incomplete fusion as a release-capable job.
+                report["fusion_implemented"] = False
         # Only four actual candidates allow the full four-engine research gate.
-        # A valid three-engine preview is distinct from fusion approval.
+        # A valid three-engine preview is distinct from production approval.
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "four_engine_report.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
