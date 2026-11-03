@@ -1,0 +1,65 @@
+name: V2.1.1 four-AI bridge Windows candidate
+on:
+  push:
+    branches:
+      - work/v211-four-engine-v2-bridge-20261103
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: niyomsil-v211-bridge-windows
+  cancel-in-progress: false
+
+jobs:
+  bridge-tests:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check source syntax
+        shell: pwsh
+        run: python -m compileall -q signprint_ai tools tests
+      - name: Install bridge test dependencies
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check pytest numpy Pillow
+      - name: Verify V2 output preservation and four-engine coordination contracts
+        shell: pwsh
+        run: |
+          python -m pytest -q tests/test_v211_four_engine_bridge.py tests/test_v211_four_engine_run.py tests/test_v211_four_engine_safe_selection.py tests/test_v211_four_engine_subprocess.py
+
+  windows-v2-candidate:
+    needs: bridge-tests
+    runs-on: windows-latest
+    timeout-minutes: 150
+    env:
+      PIP_NO_CACHE_DIR: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Windows installer compiler
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+      - name: Build V2-based experimental candidate
+        shell: powershell
+        run: .\build_windows.ps1 -Channel v2 -Version 2.1.1-beta.${{ github.run_number }}
+      - name: Check packaged V2 imports without claiming real four-engine inference
+        shell: powershell
+        run: |
+          .\tools\Test-V2-Package.ps1 -Exe '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe' -OutputDir package-smoke -Mode imports -TimeoutSeconds 180
+      - name: Upload experimental package; no release published
+        uses: actions/upload-artifact@v4
+        with:
+          name: NiyomSilp-V2.1.1-four-engine-bridge-EXPERIMENTAL
+          compression-level: 0
+          path: |
+            release/NiyomSilp-Design-v2-Setup*
+            dist/NiyomsilAIEnhancer/BUILD_PROOF.txt
+            docs/V211_FOUR_ENGINE_BRIDGE_BUILD_STATUS_TH.md
+          if-no-files-found: error
+          retention-days: 7
