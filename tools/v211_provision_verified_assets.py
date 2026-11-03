@@ -50,6 +50,9 @@ def provision(lock_path: Path, destination: Path) -> Path:
             raise ValueError(engine + ": invalid arguments")
         if not any("{input}" in a for a in args) or not any("{output}" in a for a in args):
             raise ValueError(engine + ": input/output placeholders required")
+        timeout = item.get("timeout_seconds", 1800)
+        if type(timeout) is not int or not 1 <= timeout <= 3600:
+            raise ValueError(engine + ": timeout_seconds must be an integer from 1 to 3600")
         assets = item.get("model_assets")
         if not isinstance(assets, list) or not assets:
             raise ValueError(engine + ": model files required")
