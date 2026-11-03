@@ -3,13 +3,22 @@ on:
   push:
     branches:
       - work/v211-four-engine-v2-bridge-20261103
+    paths:
+      - 'signprint_ai/**'
+      - 'tools/v211_*.py'
+      - 'tests/test_v211_*.py'
+      - 'NiyomsilV2ArmCore.spec'
+      - 'build_windows.ps1'
+      - 'run.py'
+      - 'requirements_v2_large_images.txt'
+      - '.github/workflows/v211-four-engine-bridge-windows.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 concurrency:
   group: niyomsil-v211-bridge-windows
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   bridge-tests:
