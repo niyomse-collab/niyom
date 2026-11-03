@@ -63,7 +63,7 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
             "failed_stage": "source_preflight",
             "failure_type": type(exc).__name__,
         })
-        report_path.write_text(json.dumps(report, indent=2) + "\\n", encoding="utf-8")
+        report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         raise
     current_engine = None
     try:
