@@ -27,6 +27,9 @@ def digest(path: Path) -> str:
 
 
 def provision(lock_path: Path, destination: Path) -> Path:
+    # Reject symlink destinations rather than silently following them.
+    if destination.is_symlink():
+        raise ValueError("destination symlink is forbidden")
     destination = destination.resolve()
     if destination.exists():
         raise FileExistsError("destination must not already exist")
@@ -63,6 +66,8 @@ def provision(lock_path: Path, destination: Path) -> Path:
                 raise ValueError(engine + ": file and hash required")
             src = Path(spec.get("source", ""))
             expected = spec.get("sha256")
+            if src.is_symlink():
+                raise ValueError(engine + ": symlink source is forbidden")
             if not src.is_absolute() or not src.is_file() or src.stat().st_size == 0:
                 raise FileNotFoundError(engine + ": missing nonempty local file")
             if not isinstance(expected, str) or len(expected) != 64 or any(
