@@ -26,3 +26,21 @@ def test_existing_nonempty_destination_is_preserved(tmp_path: Path) -> None:
     with pytest.raises(FileExistsError):
         provision(lock, destination)
     assert marker.read_text(encoding="utf-8") == "do not delete"
+
+
+def test_symlink_destination_is_rejected_without_touching_target(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    marker = target / "keep.txt"
+    marker.write_text("untouched", encoding="utf-8")
+    link = tmp_path / "linked"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation unavailable on this runner")
+    lock = tmp_path / "lock.json"
+    lock.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="symlink"):
+        provision(lock, link)
+    assert link.is_symlink()
+    assert marker.read_text(encoding="utf-8") == "untouched"
