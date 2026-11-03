@@ -1,0 +1,187 @@
+"""Audit official four-engine Windows archives without executing or redistributing them.
+
+Downloads official release ZIPs into an ephemeral CI directory, checks release
+SHA-256 when GitHub publishes one, reports older unpinned archives for review,
+and inspects candidate EXE and model filenames. THIS IS NOT INFERENCE PROOF.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path, PurePosixPath
+import urllib.request
+import zipfile
+
+
+PACKAGES = {
+    "real_esrgan": {
+        "release": "v0.2.0",
+        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v0.2.0/realesrgan-ncnn-vulkan-v0.2.0-windows.zip",
+        "release_sha256": None,  # Release API does not publish a digest.
+        "license": "MIT (upstream repository LICENSE; verify model-weights rights)",
+        "license_url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/blob/master/LICENSE",
+    },
+    "waifu2x": {
+        "release": "20250915",
+        "url": "https://github.com/nihui/waifu2x-ncnn-vulkan/releases/download/20250915/waifu2x-ncnn-vulkan-20250915-windows.zip",
+        "release_sha256": "7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87",
+        "license": "MIT (verify included models' third-party rights)",
+        "license_url": "https://github.com/nihui/waifu2x-ncnn-vulkan/blob/master/LICENSE",
+    },
+    "real_cugan": {
+        "release": "20220728",
+        "url": "https://github.com/nihui/realcugan-ncnn-vulkan/releases/download/20220728/realcugan-ncnn-vulkan-20220728-windows.zip",
+        "release_sha256": None,  # Release API does not publish a digest.
+        "license": "MIT (verify included model-weights rights)",
+        "license_url": "https://github.com/nihui/realcugan-ncnn-vulkan/blob/master/LICENSE",
+    },
+    "anime4k": {
+        "release": "v3.2.0",
+        "url": "https://github.com/TianZerL/Anime4KCPP/releases/download/v3.2.0/Anime4KCPP-CLI-v3.2.0-x64-MSVC.zip",
+        "release_sha256": "82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19",
+        "license": "GPL-3.0 (no redistribution or installer bundling approved)",
+        "license_url": "https://github.com/TianZerL/Anime4KCPP/blob/master/LICENSE",
+    },
+}
+MAX_ARCHIVE_BYTES = 300 * 1024 * 1024
+MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_archive_hash(path: Path, expected: str | None) -> dict:
+    actual = file_sha256(path)
+    if expected is not None:
+        if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
+            raise ValueError("invalid release SHA-256 pin")
+        if actual != expected:
+            raise ValueError("official release SHA-256 mismatch: " + path.name)
+    return {
+        "archive_sha256": actual,
+        "release_digest_published": expected is not None,
+        "release_digest_verified": expected is not None and actual == expected,
+        "requires_independent_digest_approval": expected is None,
+    }
+
+
+def audit_archive(path: Path) -> dict:
+    if not zipfile.is_zipfile(path):
+        raise ValueError("not a ZIP archive")
+    with zipfile.ZipFile(path) as archive:
+        members = archive.infolist()
+        if len(members) > 20000:
+            raise ValueError("ZIP contains too many files")
+        if sum(x.file_size for x in members) > MAX_UNCOMPRESSED_BYTES:
+            raise ValueError("ZIP uncompressed size exceeds audit limit")
+        names = []
+        for info in members:
+            p = PurePosixPath(info.filename.replace("\\", "/"))
+            if p.is_absolute() or ".." in p.parts:
+                raise ValueError("archive contains unsafe path")
+            if not info.is_dir():
+                names.append(p.as_posix())
+    executables = sorted(n for n in names if n.lower().endswith(".exe"))
+    # NCNN model files and common neural-network formats; do not pretend
+    # that a filename alone proves a working checkpoint or license.
+    model_files = sorted(n for n in names if n.lower().endswith(
+        (".param", ".bin", ".onnx", ".pth", ".safetensors", ".weights")
+    ) and not n.lower().endswith((".dll.bin",)))
+    notices = sorted(n for n in names if any(
+        key in PurePosixPath(n).name.lower()
+        for key in ("license", "copying", "third_party", "notice")
+    ))
+    return {
+        "entries": len(names),
+        "candidate_executables": executables[:50],
+        "model_or_binary_files_sample": model_files[:80],
+        "model_or_binary_file_count": len(model_files),
+        "license_and_notice_files": notices[:50],
+        "archive_member_audit_passed": True,
+    }
+
+
+def download_archive(url: str, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    request = urllib.request.Request(url, headers={"User-Agent": "NiyomSilp-v211-asset-provenance-QA"})
+    downloaded = 0
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response, target.open("wb") as out:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                downloaded += len(chunk)
+                if downloaded > MAX_ARCHIVE_BYTES:
+                    raise ValueError("archive exceeded download limit")
+                out.write(chunk)
+    except BaseException:
+        target.unlink(missing_ok=True)
+        raise
+    if downloaded == 0:
+        target.unlink(missing_ok=True)
+        raise ValueError("empty official archive")
+
+
+def audit_official_releases(destination: Path, report_path: Path) -> dict:
+    destination.mkdir(parents=True, exist_ok=True)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report = {
+        "purpose": "official Windows archive provenance audit only",
+        "all_four_real_inference_proven": False,
+        "model_weights_and_license_certified": False,
+        "included_in_customer_installer": False,
+        "packages": {},
+    }
+    for name, package in PACKAGES.items():
+        target = destination / (name + ".zip")
+        entry = {
+            "release": package["release"],
+            "source_url": package["url"],
+            "license_name": package["license"],
+            "license_url": package["license_url"],
+            "verified_for_inference": False,
+        }
+        try:
+            download_archive(package["url"], target)
+            entry.update(verify_archive_hash(target, package["release_sha256"]))
+            entry.update(audit_archive(target))
+            entry["status"] = "archive_audited_not_inference_verified"
+        except Exception as exc:
+            entry.update({"status": "failed", "error_type": type(exc).__name__, "error": str(exc)[:240]})
+        report["packages"][name] = entry
+    report["all_archives_audited"] = all(
+        p["status"] == "archive_audited_not_inference_verified"
+        for p in report["packages"].values()
+    )
+    report["all_upstream_digests_pinned"] = all(
+        p.get("release_digest_verified", False) for p in report["packages"].values()
+    )
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--download-dir", type=Path, required=True)
+    parser.add_argument("--report", type=Path, required=True)
+    args = parser.parse_args()
+    report = audit_official_releases(args.download_dir, args.report)
+    print(json.dumps({
+        "all_archives_audited": report["all_archives_audited"],
+        "all_upstream_digests_pinned": report["all_upstream_digests_pinned"],
+        "packages": {k: v["status"] for k, v in report["packages"].items()},
+        "real_inference_verified": False,
+    }, indent=2))
+    if not report["all_archives_audited"]:
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()
