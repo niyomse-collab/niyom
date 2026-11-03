@@ -41,24 +41,30 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
             "engines": {},
         }, indent=2) + "\n", encoding="utf-8")
         raise
-    with Image.open(source) as img:
-        img.verify()
-    with Image.open(source) as img:
-        if img.format != "PNG":
-            raise ValueError("source must be PNG")
-        source_size = img.size
-        source_alpha = "A" in img.getbands()
-        source_icc = img.info.get("icc_profile")
-        source_alpha_image = img.getchannel("A").copy() if source_alpha else None
-    output_dir.mkdir(parents=True, exist_ok=True)
     report = {
         "real_inference_verified": False,
         "quality_improvement_verified": False,
-        "source_sha256": sha256(source),
-        "source_size": source_size,
         "engines": {},
     }
-    report_path = output_dir / "real_inference_report.json"
+    try:
+        with Image.open(source) as img:
+            if img.format != "PNG":
+                raise ValueError("source must be PNG")
+            img.verify()
+        with Image.open(source) as img:
+            source_size = img.size
+            source_alpha = "A" in img.getbands()
+            source_icc = img.info.get("icc_profile")
+            source_alpha_image = img.getchannel("A").copy() if source_alpha else None
+        report["source_sha256"] = sha256(source)
+        report["source_size"] = source_size
+    except Exception as exc:
+        report.update({
+            "failed_stage": "source_preflight",
+            "failure_type": type(exc).__name__,
+        })
+        report_path.write_text(json.dumps(report, indent=2) + "\\n", encoding="utf-8")
+        raise
     current_engine = None
     try:
         for engine in ENGINES:
@@ -82,8 +88,8 @@ def run(manifest: Path, source: Path, output_dir: Path) -> dict:
                     "sha256": sha256(destination),
                     "size": list(image.size),
                     "mode": image.mode,
-                    "alpha_preserved": True,
-                    "alpha_pixels_match_source": True,
+                    "alpha_preserved": not source_alpha or "A" in image.getbands(),
+                    "alpha_pixels_match_source": source_alpha_image is not None,
                     "icc_preserved": not source_icc or image.info.get("icc_profile") == source_icc,
                 }
         report["real_inference_verified"] = True
