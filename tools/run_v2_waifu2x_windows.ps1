@@ -1,14 +1,22 @@
 param(
   [Parameter(Mandatory=$true)][string]$InputImage,
-  [Parameter(Mandatory=$true)][string]$WaifuExe,
+  [string]$WaifuExe = "",
   [string]$OutputDir = "waifu2x-v2-evidence"
 )
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $inputFull = (Resolve-Path $InputImage).Path
-$exeFull = (Resolve-Path $WaifuExe).Path
 if (-not (Test-Path $inputFull -PathType Leaf)) { throw "Input image missing" }
+if ($WaifuExe) {
+  $exeFull = (Resolve-Path $WaifuExe).Path
+} else {
+  $found = Get-ChildItem -Path $repo -Recurse -File -Filter waifu2x-ncnn-vulkan.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $found) { throw "Waifu2x executable missing. Extract the downloaded Windows archive into the repository folder, or pass -WaifuExe path\\waifu2x-ncnn-vulkan.exe" }
+  $exeFull = $found.FullName
+}
 if (-not (Test-Path $exeFull -PathType Leaf)) { throw "Waifu2x executable missing" }
+$modelDirs = @(Get-ChildItem -Path (Split-Path $exeFull) -Directory | Where-Object { $_.Name -match '(?i)model' })
+if ($modelDirs.Count -eq 0) { throw "Waifu2x model directories missing next to executable: $exeFull" }
 $env:SIGNPRINT_WAIFU2X_EXE = $exeFull
 $env:PYTHONPATH = $repo
 New-Item -ItemType Directory -Force $OutputDir | Out-Null
