@@ -57,6 +57,18 @@ def maybe_run_four_engine_assist(
             if target_size[0] * target_size[1] > _AUXILIARY_MAX_PIXELS:
                 return {"status": "auxiliary_image_too_large", "v2_output_preserved": True}
 
+        # Current NCNN/Anime4KCPP adapters are deliberately configured for
+        # EXACT 2x. Do not start four expensive external processes for V2
+        # resize/print modes such as 1x, 3x, 4x, 8x, TIFF, or PDF.
+        # V2 retains its original large-format route unaffected.
+        if original.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+            return {"status": "unsupported_source_format", "v2_output_preserved": True}
+        with Image.open(original) as source_image:
+            if source_image.mode not in ("RGB", "RGBA"):
+                return {"status": "unsupported_source_mode", "v2_output_preserved": True}
+            if target_size != (source_image.width * 2, source_image.height * 2):
+                return {"status": "auxiliary_engine_scale_mismatch", "v2_output_preserved": True}
+
         # Import only after the explicit opt-in. Default V2 never needs optional
         # engine packages and stays unchanged when this feature is unavailable.
         from tools.v211_four_engine_run import run
