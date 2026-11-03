@@ -1,0 +1,75 @@
+name: V2.1.1 real V2 plus HAT A/B inference (research only)
+
+on:
+  push:
+    branches: [feature/v2.1.1-super-ai]
+    paths:
+      - 'signprint_ai/v211_hat_assist.py'
+      - 'signprint_ai/v211_hat_engine.py'
+      - 'signprint_ai/niyomsil_core_adapter.py'
+      - 'tools/v211_real_dual_model_qa.py'
+      - 'tools/v211_generate_ab.py'
+      - 'tools/v211_ab_report.py'
+      - '.github/workflows/verify-v211-real-dual-inference.yml'
+  # This pinned-weight CPU job is expensive. PR path filtering checks the
+  # entire PR diff against its base and would rerun for documentation-only
+  # updates. Push-path filters trigger only when these model/QA files change.
+  # Maintainers may also start it manually with workflow_dispatch.
+  workflow_dispatch:
+
+jobs:
+  real-dual-cpu:
+    name: Real V2 + HAT CPU/checkpoint A-B
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned research-only CPU runtime (no CUDA)
+        run: |
+          python -m pip install 'torch==2.5.1+cpu' 'torchvision==0.20.1+cpu' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'spandrel==0.4.2' 'basicsr==1.4.2' 'realesrgan==0.3.0' --no-deps
+          python -m pip install 'numpy==2.2.6' 'opencv-python-headless==4.12.0.88' 'Pillow==12.3.0' 'einops==0.8.1' 'safetensors==0.5.3' addict future lmdb pyyaml requests scipy tqdm yapf
+          python -c "import torch; assert torch.version.cuda is None; print('CPU:', torch.__version__)"
+      - name: Download both checkpoint files and verify exact SHA256
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, urllib.request
+          sources = [
+              (
+                  "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+                  Path("models/RealESRGAN_x4plus.pth"),
+                  "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1",
+              ),
+              (
+                  "https://huggingface.co/Acly/hat/resolve/8403819bcbf5959d54c72383f0725f2525472d30/HAT_SRx4_ImageNet-pretrain.pth",
+                  Path("models/experimental/HAT_SRx4_ImageNet-pretrain.pth"),
+                  "4ee053c42461187846dc0e93aa5abd34591c0725a8e044a59000e92ee215e833",
+              ),
+          ]
+          for url, path, expected in sources:
+              path.parent.mkdir(parents=True, exist_ok=True)
+              digest = hashlib.sha256()
+              with urllib.request.urlopen(url, timeout=180) as incoming, path.open("wb") as dest:
+                  while chunk := incoming.read(1024 * 1024):
+                      digest.update(chunk)
+                      dest.write(chunk)
+              if digest.hexdigest() != expected:
+                  path.unlink(missing_ok=True)
+                  raise RuntimeError("Checkpoint SHA256 mismatch: " + path.name)
+              print(path.name, "SHA256 verified")
+      - name: Execute actual V2 and HAT together on a synthetic sign/photo crop
+        run: python -m tools.v211_real_dual_model_qa
+      - name: Upload only generated A-B samples and diagnostics, never model weights
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: V211-Real-V2-Plus-HAT-CPU-AB-Synthetic
+          path: v211-dual-model-proof/*
+          retention-days: 14
+          if-no-files-found: error

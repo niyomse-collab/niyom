@@ -48,11 +48,123 @@ class NiyomSilpCoreAdapter:
         except Exception:
             return False
 
+    def selected_model_available(self, model_name: str = "real_esrgan") -> bool:
+        """Check the chosen model, not an unrelated mandatory ESRGAN weight.
+
+        This is a lightweight presence preflight for the desktop UI. HAT still
+        verifies SHA-256, architecture and runtime dependencies when loaded;
+        a file on disk does not imply a working or licensed model.
+        """
+        if model_name == "real_esrgan":
+            return self.available
+        if model_name == "v2_swinir_pre":
+            try:
+                from .v211_swinir_preprocess import swinir_checkpoint_path
+                return self.available and swinir_checkpoint_path().is_file()
+            except (OSError, RuntimeError):
+                return False
+        if model_name in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
+            try:
+                from .v211_nafnet_deblur import nafnet_checkpoint_path
+                return self.available and nafnet_checkpoint_path().is_file()
+            except (OSError, RuntimeError):
+                return False
+        if model_name in ("hat", "v2_hat_assist"):
+            try:
+                from .v211_hat_engine import checkpoint_path
+                hat_ready = checkpoint_path().is_file()
+                return hat_ready and (self.available if model_name == "v2_hat_assist" else True)
+            except (OSError, RuntimeError):
+                return False
+        raise ValueError("V2.1.1: unknown photo model: " + str(model_name))
+
     def default_device(self):
         return self.engine_manager.device_manager.get_default_device()
 
     def create_job_engine(self, settings):
-        engine = self.engine_manager.create_engine(settings.device)
+        selected_model = getattr(settings, "v211_photo_model", "real_esrgan")
+        if selected_model == "hat":
+            from .v211_hat_engine import HATModelEngine
+            device_manager = self.engine_manager.device_manager
+            selected = (device_manager.get_default_device() if settings.device == "AUTO"
+                        else device_manager.get_device(settings.device))
+            engine = HATModelEngine(selected)
+            self.engine_manager.engine = engine
+        elif selected_model == "v2_hat_assist":
+            # V2 remains the *primary* neural processor. HAT sees the same
+            # input, and its bounded detail augments the V2 output; it never
+            # replaces V2 image geometry, colour, or the GFPGAN face pass.
+            from .v211_hat_engine import HATModelEngine
+            from .v211_hat_assist import HATAssistEngine
+            v2_engine = self.engine_manager.create_engine(settings.device)
+            base = v2_engine
+            if getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0:
+                from .v21_graphics_ai import GraphicDetailEngine
+                base = GraphicDetailEngine(
+                    base, settings.text_graphic_boost / 100.,
+                    settings.face_regions if settings.face_protection else ()
+                )
+            assist = HATModelEngine(v2_engine.selected)
+            engine = HATAssistEngine(
+                base, assist,
+                strength=float(getattr(settings, "v211_hat_assist_strength", 0.85)),
+                protected_regions=(settings.face_regions if settings.face_protection else ())
+            )
+            return engine
+        elif selected_model in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
+            # Motion deblurring occurs on the original source, BEFORE the
+            # approved V2 Real-ESRGAN upscaler and untouched GFPGAN face pass.
+            # This is opt-in and never runs a second time on an 8x intermediate.
+            from .v211_nafnet_deblur import (
+                NAFNetGoProDeblurrer, blend_photo_deblur, blend_photo_only
+            )
+            from .v211_swinir_preprocess import PreRestoreV2Engine
+            v2 = self.engine_manager.create_engine(settings.device)
+            denoiser = NAFNetGoProDeblurrer(v2.selected)
+            photo_only = selected_model == "v2_nafnet_photo_only"
+            if photo_only:
+                # Whole-image photograph benchmark uses one real receptive
+                # field for <=192 source pixels; production uses bounded tiles.
+                # Never apply this full transfer to mixed graphic artwork.
+                denoiser.upsampler.tile_size = 192
+                denoiser.upsampler.tile_pad = 32
+            return PreRestoreV2Engine(
+                v2, denoiser,
+                strength=float(getattr(settings,
+                                       "v211_nafnet_photo_strength" if photo_only
+                                       else "v211_nafnet_pre_strength",
+                                       1.0 if photo_only else .85)),
+                protected_regions=(settings.face_regions
+                                   if settings.face_protection else ()),
+                blend_callback=(blend_photo_only if photo_only
+                                else blend_photo_deblur),
+            )
+        elif selected_model == "v2_swinir_pre":
+            # A distinct, 1x neural denoiser prepares source photographs
+            # BEFORE the exact accepted V2 upscaler. Selected faces/text
+            # regions are protected; V2 GFPGAN still runs afterward.
+            from .v211_swinir_preprocess import SwinIRColorDenoiser, PreRestoreV2Engine
+            v2_engine = self.engine_manager.create_engine(settings.device)
+            if (getattr(settings, "graphic_ai", False)
+                    and settings.text_graphic_boost > 0):
+                from .v21_graphics_ai import GraphicDetailEngine
+                graphics = GraphicDetailEngine(
+                    v2_engine, settings.text_graphic_boost / 100.,
+                    settings.face_regions if settings.face_protection else ()
+                )
+            else:
+                graphics = v2_engine
+            denoiser = SwinIRColorDenoiser(v2_engine.selected)
+            return PreRestoreV2Engine(
+                graphics, denoiser,
+                strength=float(getattr(settings, "v211_swinir_pre_strength", .70)),
+                protected_regions=(settings.face_regions
+                                   if settings.face_protection else ()),
+            )
+        elif selected_model == "real_esrgan":
+            engine = self.engine_manager.create_engine(settings.device)
+        else:
+            raise ValueError("V2.1.1: unknown photo model: " + str(selected_model))
         if (getattr(settings, "graphic_ai", False)
                 and settings.text_graphic_boost > 0):
             from .v21_graphics_ai import GraphicDetailEngine
@@ -126,9 +238,49 @@ class NiyomSilpCoreAdapter:
 
         validate_export(dst, target_size, settings)
 
+        # Operator visually rejected the old LR-guided red-ink experiment:
+        # black/blue stains remain in SALE 30 and true glyph quality regresses.
+        # Do not let an internal flag accidentally ship this bad candidate.
+        if getattr(settings, "v211_source_guided_ink", False):
+            raise RuntimeError(
+                "V2.1.1 Source-Ink ไม่ผ่านการตรวจคุณภาพภาพจริง "
+                "โปรดใช้ V2 เดิม หรือโหมดข้อความต้นฉบับที่ยืนยันแล้ว"
+            )
+
+        # PRINT-IMAGE-ONLY CONTRACT: The owner wants raster recovery, never
+        # rewriting/overlaying letters or prices, in any script or font.
+        # Fail closed even if a stale GUI/CLI supplies legacy text regions.
+        if getattr(settings, "v211_verified_text_regions", ()):
+            raise ValueError(
+                "V2.1.1 image-only enhancement forbids text replacement or overlays"
+            )
+
+        # V2.1.1 research-only photo NAFNet must never touch already-sharp
+        # photographs, RGBA logo cutouts, or unconfirmed face selections.
+        # Decide before creating AI weights or disk-backed print rasters.
+        from .v211_blur_gate import select_photo_restoration
+        settings, photo_preflight = select_photo_restoration(
+            settings, src, use_ai=use_ai, model_scale=model_scale
+        )
+        if photo_preflight and photo_preflight["actual_model"] == "real_esrgan":
+            if progress:
+                progress(1, "Photo AI ไม่เหมาะกับภาพนี้ — ใช้ V2 เดิมเพื่อรักษาคุณภาพ")
+
         if needs_streaming(source_size, target_size, model_scale if use_ai else 1):
-            return process_large(self, src, dst, settings, source_size, target_size,
-                                 model_scale, progress, cancel, use_ai)
+            # Text redrawing was rejected at preflight for ALL image sizes.
+            # Large-format image enhancement remains available unchanged.
+            if getattr(settings, "v211_source_guided_ink", False):
+                raise RuntimeError(
+                    "V2.1.1 Source Ink เป็นโหมดวิจัยขนาดเล็กเท่านั้น "
+                    "ยังไม่ผ่านการทดสอบงานไวนิลใหญ่ กรุณาปิดโหมดนี้และใช้ V2"
+                )
+            large_result = process_large(
+                self, src, dst, settings, source_size, target_size,
+                model_scale, progress, cancel, use_ai
+            )
+            if photo_preflight is not None:
+                large_result["photo_preflight"] = photo_preflight
+            return large_result
 
         # Only small images reach Pillow. Large masters must use libvips for
         # RGB and alpha, without allocating a full RGBA canvas or triggering
@@ -182,7 +334,11 @@ class NiyomSilpCoreAdapter:
                         raise InterruptedError("Processing stopped by user")
                     if progress:
                         progress(48, "NiyomSilp Design Engine · pass 2/2 · 2x")
-                    engine.enhance(
+                    # Pre-restoration is source-only. Do NOT denoise the
+                    # already-upscaled 4x image during the second 8x pass.
+                    followup_engine = (engine.next_pass_engine()
+                                       if hasattr(engine, "next_pass_engine") else engine)
+                    followup_engine.enhance(
                         stage4,
                         final_ai,
                         scale=2,
@@ -276,6 +432,11 @@ class NiyomSilpCoreAdapter:
                 if progress:
                     progress(94, "Face Protect ข้าม — ใช้ผลจาก NiyomSilp Design Engine เดิม")
 
+        from .v211_face_contract import enforce_requested_face_restoration
+        enforce_requested_face_restoration(
+            settings, face_info, use_ai=use_ai, model_scale=model_scale
+        )
+
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
@@ -363,8 +524,10 @@ class NiyomSilpCoreAdapter:
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",
-            "model": "RealESRGAN_x4plus",
+            "model": ("V2 RealESRGAN_x4plus + NAFNet photo-only deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_photo_only" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + NAFNet GoPro deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + SwinIR pre-denoise" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1 else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus"))))),
             "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
+            "photo_preflight": photo_preflight,
+            "verified_exact_text": None,  # image-only: no raster text rewriting
         }

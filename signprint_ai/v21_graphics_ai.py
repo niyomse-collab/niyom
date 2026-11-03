@@ -18,17 +18,45 @@ GRAPHIC_MODEL_SHA256 = 'f872d837d3c90ed2e05227bed711af5671a6fd1c9f7d7e91c911a61f
 @dataclass
 class V21Settings(EnhanceSettings):
     # Restore accepted V2 print-pass and edge finishing semantics by default.
-    # Experimental V2.1 text reconstruction must be explicitly selected.
+    # V2.1.1 public processing is strictly raster enhancement, never retyping.
     v21_v2_quality_baseline: bool = True
     # Independent, operator-controlled improvement above the accepted V2
     # edge path; off by default in scripts, on by default in the desktop UI.
     v21_precision_ink: bool = False
+    # Research-only colour-coverage contour restoration on flat graphic ink.
+    # Never enable by default before real V2 and Thai print acceptance.
+    v211_ink_geometry: bool = False
+    v211_ink_geometry_strength: float = 1.0
+    # Experimental low-resolution source-constrained ink colour correction.
+    # OFF until real V2, Thai glyph, portrait and print acceptance.
+    v211_source_guided_ink: bool = False
+    v211_source_guided_ink_strength: float = 1.0
+    # Deprecated legacy configuration retained for deserialization only.
+    # Any nonempty value is rejected before inference by the image-only adapter.
+    v211_verified_text_regions: tuple = ()
+
     # Experimental transfer is opt-in; preserve the established photo core by default.
     graphic_ai: bool = False
     # V2.1-only experimental flat-fill cleanup. Legacy EnhanceSettings has no flag.
     v21_color_cleanup: bool = True
     # V2.1 disk-tile RGBA resize: guard partially transparent print edges.
     v21_alpha_safe_resize: bool = True
+    # V2.1.1: do not silently export when a requested face pass was skipped.
+    v211_require_face_restore: bool = True
+    # Stop V2.1.1 export if the actual GFPGAN face audit reports damage
+    # (eye/mouth collapse, face colour drift); never veto to blurred V2 face.
+    v211_reject_failed_face_audit: bool = True
+    # V2 is the accepted baseline; optional HAT can ASSIST V2 rather than
+    # replacing it. A stand-alone HAT mode is reserved for QA comparisons.
+    v211_photo_model: str = "real_esrgan"  # real_esrgan | v2_hat_assist | v2_swinir_pre | hat
+    v211_hat_assist_strength: float = 0.85
+    # SwinIR 1x denoise BEFORE V2 Real-ESRGAN (experimental; never default).
+    v211_swinir_pre_strength: float = 0.70
+    # Photo-only motion deblur -> V2 (experimental; no model bundled).
+    v211_nafnet_pre_strength: float = 0.85
+    # Explicit photographic input only, full raw 1x NAFNet recovery.
+    # Never default-on or apply to text-rich signage without segmentation.
+    v211_nafnet_photo_strength: float = 1.0
 
 
 def blend_graphic_detail(photo, graphic, strength=1., protected_regions=()):

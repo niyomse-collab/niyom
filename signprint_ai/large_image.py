@@ -652,7 +652,7 @@ def process_large(adapter, src, dst, settings, source_size, target_size,
         "output_size": target_size, "ai_available": adapter.available,
         "ai_scale": model_scale if engine else 1, "requested_ai_scale": settings.ai_scale,
         "dpi": settings.dpi, "device": engine.device_name() if engine else "CPU",
-        "engine": "NiyomSilp Design Engine", "model": "RealESRGAN_x4plus" if engine else None,
+        "engine": "NiyomSilp Design Engine", "model": ("V2 RealESRGAN_x4plus + NAFNet GoPro deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" else (("V2 RealESRGAN_x4plus + SwinIR pre-denoise" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" else ("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" else "RealESRGAN_x4plus"))) ) if engine else None),
         "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch", "processing_mode": "disk_tiles", "face_protection": face_info,
     }
@@ -678,6 +678,11 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
             if current != source_raw:
                 current.unlink()
             current = next_raw
+            # A SwinIR pre-restoration stage is valid only on source pixels.
+            # For 8x images, the second 2x pass must use the approved V2
+            # engine, not denoise the already-upscaled intermediate again.
+            if hasattr(engine, "next_pass_engine"):
+                engine = engine.next_pass_engine()
     image = None
     try:
         image = read_raster(current, size)
@@ -689,6 +694,10 @@ def _large_job(adapter, engine, src, dst, settings, target_size, model_scale, fo
             from .large_faces import apply_faces
             image, face_info = apply_faces(adapter, image, read_raster(source_raw, image_size(src)),
                                            settings, folder, progress, cancel)
+        from .v211_face_contract import enforce_requested_face_restoration
+        enforce_requested_face_restoration(
+            settings, face_info, use_ai=use_ai, model_scale=model_scale
+        )
         if getattr(settings, "v21_alpha_safe_resize", False):
             # V2.1 only: interpolate cutout colours premultiplied with alpha.
             # The legacy V2 path below is unchanged for EnhanceSettings.

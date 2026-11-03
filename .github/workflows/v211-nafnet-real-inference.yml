@@ -1,0 +1,97 @@
+name: V2.1.1 NAFNet motion-deblur + V2 real-weight QA (research only)
+
+on:
+  push:
+    branches: [feature/v2.1.1-super-ai]
+    paths:
+      - 'signprint_ai/v211_nafnet_deblur.py'
+      - 'signprint_ai/v211_swinir_preprocess.py'
+      - 'signprint_ai/niyomsil_core_adapter.py'
+      - 'tools/v211_nafnet_real_qa.py'
+      - 'tools/v211_nafnet_photo_qa.py'
+      - 'tools/v211_generate_ab.py'
+  # Checkpoint research runs only when model/QA code changes on this
+  # isolated branch, or when a maintainer explicitly dispatches a run.
+  # Deliberately omit workflow-only edits and pull_request diff triggers:
+  # a PR remains dirty for weeks and would re-download weights needlessly.
+  workflow_dispatch:
+
+jobs:
+  real-neural-deblur-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated pinned CPU runtime (no CUDA)
+        run: |
+          python -m pip install 'torch==2.5.1+cpu' 'torchvision==0.20.1+cpu' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'spandrel==0.4.2' 'basicsr==1.4.2' 'realesrgan==0.3.0' --no-deps
+          python -m pip install 'numpy==2.2.6' 'opencv-python-headless==4.12.0.88' 'Pillow==12.3.0' 'einops==0.8.1' 'safetensors==0.5.3' addict future lmdb pyyaml requests scipy tqdm yapf 'scikit-image==0.25.2'
+      - name: Verify exact upstream Real-ESRGAN and NAFNet-GoPro weight SHA256
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib
+          import urllib.request
+          sources = [
+            (
+              "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+              Path("models/RealESRGAN_x4plus.pth"),
+              "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
+            ),
+            (
+              # HF mirror of the official GoPro-width64 pretrained checkpoint.
+              # Independent same-file SHA256 confirmation is required;
+              # neither the checkpoint nor private images are uploaded.
+              "https://huggingface.co/nyanko7/nafnet-models/resolve/main/NAFNet-GoPro-width64.pth",
+              Path("models/experimental/NAFNet-GoPro-width64.pth"),
+              "329d3ab4077b8d6b7ff61de376e483714667960bf85be027bf4335cda701196f"
+            )
+          ]
+          for url, destination, expected in sources:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            digest = hashlib.sha256()
+            with urllib.request.urlopen(url, timeout=180) as src, destination.open("wb") as out:
+              while chunk := src.read(1024*1024):
+                digest.update(chunk)
+                out.write(chunk)
+            if digest.hexdigest() != expected:
+              destination.unlink(missing_ok=True)
+              raise RuntimeError("Checkpoint hash mismatch: " + destination.name)
+            print(destination.name, destination.stat().st_size, "SHA256 verified")
+      - name: TRUE native high-resolution A-B with actual V2 and NAFNet inference
+        run: python -m tools.v211_nafnet_real_qa
+      - name: Photo-only NAFNet ablation (genuine photo, raw vs guarded vs V2)
+        run: python -m tools.v211_nafnet_photo_qa
+      - name: Preserve research evidence even when quality loses to V2
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: V211-NAFNet-GoPro-V2-TrueHR-AB-Research
+          path: |
+            v211-nafnet-true-hr-proof/**
+            v211-nafnet-photo-proof/**
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Enforce native-HR quality gate — never call a regression a pass
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          art = json.loads(Path("v211-nafnet-true-hr-proof/SUMMARY.json").read_text(encoding="utf-8"))
+          photo = json.loads(Path("v211-nafnet-photo-proof/PHOTO_QA.json").read_text(encoding="utf-8"))
+          art_passed = bool(art["provisional_release_quality"])
+          photo_passed = bool(photo["multiple_photo_and_clean_control"]["provisional_domain_gate_passed"])
+          print("Pinned checkpoint inference passed:", art["real_weight_inference_passed"])
+          print("Mixed sign/flat ink native-HR quality gate passed:", art_passed)
+          print("Blurred photos + sharp clean-control quality gate passed:", photo_passed)
+          # A model that improves one blurred portrait but degrades a clean
+          # input or exact graphic ink must NOT be approved automatically.
+          if not (art_passed and photo_passed):
+            raise SystemExit("V2.1.1 REJECTED: at least one print/photo quality domain regressed vs approved V2")
+

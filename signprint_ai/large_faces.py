@@ -5,12 +5,28 @@ import math
 import numpy as np
 
 
+def append_selected_face_audit(info, result, selected_index):
+    """Link GFPGAN crop audit back to the correct confirmed large-image ROI.
+
+    Multiple confirmed faces are processed as separate disk tiles. GFPGAN
+    numbers each local crop starting from one, so simply concatenating those
+    records makes every failure appear to be "face 1". Keep the selected
+    region's original index and never treat missing audit evidence as proof
+    of portrait sharpness.
+    """
+    for audit in getattr(result, "face_audit", ()) or ():
+        record = dict(audit)
+        record["index"] = int(selected_index) + 1
+        record["source"] = "large_selected_face_roi"
+        info.setdefault("face_audit", []).append(record)
+
+
 def apply_faces(adapter, image, source, settings, folder, progress, cancel):
     from .large_image import check_cancel, resize_image, to_pillow, vips
 
     info = {"enabled": True, "applied": False, "face_count": 0,
             "mode": settings.face_mode, "strength": settings.face_strength,
-            "skipped_reason": None}
+            "skipped_reason": None, "face_audit": []}
     regions = settings.face_regions
     if regions is None:
         info["skipped_reason"] = "ภาพใหญ่ต้องเลือกและยืนยันบริเวณใบหน้าก่อนปรับใบหน้า"
@@ -74,6 +90,8 @@ def apply_faces(adapter, image, source, settings, folder, progress, cancel):
             image = image.insert(mixed, left, top)
             info["applied"] = True
             info["face_count"] += 1
+            if settings.face_mode != "protect":
+                append_selected_face_audit(info, face_result, index)
         except InterruptedError:
             raise
         except Exception as exc:

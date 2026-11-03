@@ -32,6 +32,13 @@ def refine_sign_edges(
             finished = precision_ink_finish(
                 finished, settings, protected_regions=protected_regions
             )
+        if getattr(settings, "v211_ink_geometry", False):
+            from .v211_ink_geometry import finish_flat_ink_geometry
+            finished, _ = finish_flat_ink_geometry(
+                finished, strength=float(
+                    getattr(settings, "v211_ink_geometry_strength", 1.0)
+                ), protected_regions=protected_regions
+            )
         return finished
 
     # None retains the standalone refinement API; V2 always passes UI settings.

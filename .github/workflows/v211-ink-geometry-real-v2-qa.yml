@@ -1,0 +1,66 @@
+name: V2.1.1 real V2 versus ink geometry native-HR proof (research only)
+
+on:
+  push:
+    branches: [feature/v2.1.1-super-ai]
+    paths:
+      - 'signprint_ai/v211_ink_geometry.py'
+      - 'signprint_ai/v2_graphic_edges.py'
+      - 'tools/v211_ink_real_v2_qa.py'
+  # Experimental real-weight QA is now restricted to model/QA code pushes
+  # and explicit manual dispatch; unrelated PR edits must not redownload.
+  workflow_dispatch:
+
+jobs:
+  real-v2-ink-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install isolated REAL V2 CPU runtime
+        run: |
+          python -m pip install 'torch==2.5.1+cpu' 'torchvision==0.20.1+cpu' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'spandrel==0.4.2' 'basicsr==1.4.2' 'realesrgan==0.3.0' --no-deps
+          python -m pip install 'numpy==2.2.6' 'opencv-python-headless==4.12.0.88' 'Pillow==12.3.0' 'einops==0.8.1' 'safetensors==0.5.3' 'scikit-image==0.25.2' addict future lmdb pyyaml requests scipy tqdm yapf
+      - name: Obtain official V2 Real-ESRGAN weight and check pinned SHA256
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, urllib.request
+          url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
+          weight = Path("models/RealESRGAN_x4plus.pth")
+          expected = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
+          weight.parent.mkdir(parents=True, exist_ok=True)
+          digest = hashlib.sha256()
+          with urllib.request.urlopen(url, timeout=180) as response, weight.open("wb") as out:
+            while chunk := response.read(1024*1024):
+              digest.update(chunk)
+              out.write(chunk)
+          if digest.hexdigest() != expected:
+            weight.unlink(missing_ok=True)
+            raise RuntimeError("Real-ESRGAN checkpoint digest mismatch")
+          print("Original official V2 checkpoint SHA256 verified", weight.stat().st_size)
+      - name: A-B actual V2 and ink geometry against native HR reference
+        run: python -m tools.v211_ink_real_v2_qa
+      - name: Archive synthetic visual proof and per-region metrics, never weights
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: V211-Real-V2-InkGeometry-TrueHR-Research
+          path: v211-ink-real-v2-proof/**
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Reject if native-HR and photo non-regression screen did not pass
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          report = json.loads(Path("v211-ink-real-v2-proof/SUMMARY.json").read_text(encoding="utf8"))
+          if not report["provisional_synthetic_geometry_screen_passed"]:
+            raise SystemExit("QUALITY FAIL: opt-in ink geometry has not beaten real V2 without damaging photo controls")
+          print("PROVISIONAL synthetic screen passed — production print/Thai/face acceptance remains UNVERIFIED")
