@@ -1,0 +1,41 @@
+name: V2.1.1 official engine archive provenance audit
+on:
+  push:
+    branches:
+      - work/v211-four-engine-v2-bridge-20261103
+    paths:
+      - 'tools/v211_official_assets_audit.py'
+      - 'tests/test_v211_official_assets_audit.py'
+      - '.github/workflows/v211-official-four-engine-assets.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive-provenance:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Static syntax and audit-tool contract tests
+        shell: pwsh
+        run: |
+          python -m py_compile tools/v211_official_assets_audit.py
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest -q tests/test_v211_official_assets_audit.py
+      - name: Download and hash four original developer ZIPs without executing code
+        shell: pwsh
+        run: |
+          python -m tools.v211_official_assets_audit --download-dir "$env:RUNNER_TEMP/v211-official-downloads" --report "$env:RUNNER_TEMP/v211-four-engine-official-archives.json"
+      - name: Upload provenance-only report, never large binaries or private images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v211-four-engine-official-archives-sha256-audit
+          path: ${{ runner.temp }}/v211-four-engine-official-archives.json
+          if-no-files-found: warn
+          retention-days: 14
