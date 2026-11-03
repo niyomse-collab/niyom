@@ -27,12 +27,12 @@ def digest(path: Path) -> str:
 
 
 def provision(lock_path: Path, destination: Path) -> Path:
-    lock = json.loads(lock_path.read_text(encoding="utf-8"))
-    if not isinstance(lock, dict) or set(lock) != set(ENGINES):
-        raise ValueError("lock must define exactly four engines")
     destination = destination.resolve()
     if destination.exists():
         raise FileExistsError("destination must not already exist")
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    if not isinstance(lock, dict) or set(lock) != set(ENGINES):
+        raise ValueError("lock must define exactly four engines")
     # Validate every source BEFORE copying anything. Never download or execute.
     validated = {}
     for engine in ENGINES:
