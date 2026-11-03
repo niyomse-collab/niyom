@@ -31,8 +31,8 @@ def provision(lock_path: Path, destination: Path) -> Path:
     if not isinstance(lock, dict) or set(lock) != set(ENGINES):
         raise ValueError("lock must define exactly four engines")
     destination = destination.resolve()
-    if destination.exists() and any(destination.iterdir()):
-        raise FileExistsError("destination must be empty")
+    if destination.exists():
+        raise FileExistsError("destination must not already exist")
     # Validate every source BEFORE copying anything. Never download or execute.
     validated = {}
     for engine in ENGINES:
@@ -70,7 +70,7 @@ def provision(lock_path: Path, destination: Path) -> Path:
                 raise ValueError(engine + ": SHA256 mismatch")
             checked.append((src, expected.lower()))
         validated[engine] = (item, checked)
-    destination.mkdir(parents=True, exist_ok=True)
+    destination.mkdir(parents=True, exist_ok=False)
     manifest = {}
     try:
         for engine, (item, checked) in validated.items():
