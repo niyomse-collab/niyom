@@ -7,6 +7,10 @@ on:
       - 'tools/v211_four_engine_real_inference_qa.py'
       - 'tools/v211_four_engine_subprocess.py'
       - 'tools/v211_provision_four_engines.py'
+      - 'tools/v211_official_assets_audit.py'
+      - 'tools/v211_real_engine_manifest.py'
+      - 'tests/test_v211_provision_four_engines.py'
+      - 'tests/test_v211_official_assets_audit.py'
       - 'tests/test_v211_real_inference_qa_coverage.py'
       - '.github/workflows/v211-four-engine-real-cli-smoke.yml'
   workflow_dispatch:
