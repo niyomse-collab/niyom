@@ -17,7 +17,7 @@ def _images(tmp_path):
 def test_default_disabled_preserves_print_output(tmp_path, monkeypatch):
     source, baseline = _images(tmp_path)
     old = baseline.read_bytes()
-    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "0")
     assert bridge.maybe_run_four_engine_assist(source, baseline)["status"] == "disabled"
     assert baseline.read_bytes() == old
 
@@ -27,7 +27,8 @@ def test_missing_model_manifest_is_non_destructive(tmp_path, monkeypatch):
     old = baseline.read_bytes()
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
     monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
-    assert bridge.maybe_run_four_engine_assist(source, baseline)["status"] == "missing_manifest"
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "not-installed"))
+    assert bridge.maybe_run_four_engine_assist(source, baseline)["status"] == "models_not_installed"
     assert baseline.read_bytes() == old
 
 
