@@ -18,7 +18,8 @@ PACKAGES = {
     "real_esrgan": {
         "release": "v0.2.5.0",
         "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
-        "release_sha256": None,  # Release API does not publish a digest.
+        "release_sha256": None,  # Upstream release API has no digest.
+        "observed_sha256": "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d",  # Reproducible Windows Actions audit 2026-11-03.
         "license": "MIT (upstream repository LICENSE; verify model-weights rights)",
         "license_url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/blob/master/LICENSE",
     },
@@ -32,7 +33,8 @@ PACKAGES = {
     "real_cugan": {
         "release": "20220728",
         "url": "https://github.com/nihui/realcugan-ncnn-vulkan/releases/download/20220728/realcugan-ncnn-vulkan-20220728-windows.zip",
-        "release_sha256": None,  # Release API does not publish a digest.
+        "release_sha256": None,  # Upstream release API has no digest.
+        "observed_sha256": "c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01",  # Reproducible Windows Actions audit 2026-11-03.
         "license": "MIT (verify included model-weights rights)",
         "license_url": "https://github.com/nihui/realcugan-ncnn-vulkan/blob/master/LICENSE",
     },
@@ -56,15 +58,21 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_archive_hash(path: Path, expected: str | None) -> dict:
+def verify_archive_hash(path: Path, expected: str | None, observed_pin: str | None = None) -> dict:
     actual = file_sha256(path)
     if expected is not None:
         if len(expected) != 64 or any(c not in "0123456789abcdef" for c in expected):
             raise ValueError("invalid release SHA-256 pin")
         if actual != expected:
             raise ValueError("official release SHA-256 mismatch: " + path.name)
+    if observed_pin is not None:
+        if len(observed_pin) != 64 or any(c not in "0123456789abcdef" for c in observed_pin):
+            raise ValueError("invalid prior-audit SHA-256 pin")
+        if actual != observed_pin:
+            raise ValueError("Windows archive changed since independently recorded CI audit")
     return {
         "archive_sha256": actual,
+        "matches_recorded_ci_sha256": observed_pin is not None and actual == observed_pin,
         "release_digest_published": expected is not None,
         "release_digest_verified": expected is not None and actual == expected,
         "requires_independent_digest_approval": expected is None,
@@ -150,7 +158,7 @@ def audit_official_releases(destination: Path, report_path: Path) -> dict:
         }
         try:
             download_archive(package["url"], target)
-            entry.update(verify_archive_hash(target, package["release_sha256"]))
+            entry.update(verify_archive_hash(target, package["release_sha256"], package.get("observed_sha256")))
             entry.update(audit_archive(target))
             entry["status"] = "archive_audited_not_inference_verified"
         except Exception as exc:
@@ -158,6 +166,10 @@ def audit_official_releases(destination: Path, report_path: Path) -> dict:
         report["packages"][name] = entry
     report["all_archives_audited"] = all(
         p["status"] == "archive_audited_not_inference_verified"
+        for p in report["packages"].values()
+    )
+    report["all_archives_match_release_or_recorded_hash"] = all(
+        p.get("release_digest_verified", False) or p.get("matches_recorded_ci_sha256", False)
         for p in report["packages"].values()
     )
     report["all_upstream_digests_pinned"] = all(
@@ -176,6 +188,7 @@ def main():
     print(json.dumps({
         "all_archives_audited": report["all_archives_audited"],
         "all_upstream_digests_pinned": report["all_upstream_digests_pinned"],
+        "all_archives_match_release_or_recorded_hash": report["all_archives_match_release_or_recorded_hash"],
         "packages": {k: v["status"] for k, v in report["packages"].items()},
         "real_inference_verified": False,
     }, indent=2))
