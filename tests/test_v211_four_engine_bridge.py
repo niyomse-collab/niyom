@@ -80,3 +80,51 @@ def test_faulty_engine_does_not_fail_v2_job(tmp_path, monkeypatch):
     result = bridge.maybe_run_four_engine_assist(source, baseline)
     assert result["status"] == "error"
     assert baseline.read_bytes() == old
+
+
+def test_opt_in_skips_unsupported_four_times_scale_without_running_engines(tmp_path, monkeypatch):
+    source, baseline = _images(tmp_path)
+    with Image.open(baseline) as image:
+        rgba = image.copy()
+    rgba.resize((32, 32), Image.Resampling.LANCZOS).save(baseline)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+    from tools import v211_four_engine_run
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("2x auxiliary engines must never launch for 4x V2")
+
+    monkeypatch.setattr(v211_four_engine_run, "run", must_not_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+    assert result["status"] == "auxiliary_engine_scale_mismatch"
+    assert baseline.read_bytes() == before
+
+
+def test_opt_in_three_primary_candidates_do_not_require_anime_preview(tmp_path, monkeypatch):
+    source, baseline = _images(tmp_path)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
+    from tools import v211_four_engine_run
+
+    def fake_run(*args, **kwargs):
+        return {
+            "ready_for_fusion_research": False,
+            "completed_engine_count": 3,
+            "failures": {"anime4k": "optional engine unavailable"},
+            "three_engine_priority_preview": {
+                "selected": "real_cugan",
+                "output": "/private/tmp/deleted-preview.png",
+            },
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+    assert result["status"] == "three_engine_priority_preview_ready"
+    assert result["priority_preview_selected"] == "real_cugan"
+    assert result["priority_preview_path"] is None  # temp folder was deleted
+    assert result["quality_certified"] is False
+    assert result["v2_output_preserved"]
+    assert baseline.read_bytes() == before
