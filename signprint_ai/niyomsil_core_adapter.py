@@ -63,10 +63,18 @@ class NiyomSilpCoreAdapter:
             except (OSError, RuntimeError):
                 return False
         if model_name in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
+            # An arbitrary file called NAFNet-GoPro-width64.pth is NOT a
+            # valid model. Verify the expected full SHA256 before enabling
+            # optional photo deblur in the UI; do not allow a late crash.
             try:
-                from .v211_nafnet_deblur import nafnet_checkpoint_path
-                return self.available and nafnet_checkpoint_path().is_file()
-            except (OSError, RuntimeError):
+                if not self.available:
+                    return False
+                from .v211_nafnet_deblur import (
+                    nafnet_checkpoint_path, verify_nafnet_checkpoint
+                )
+                verify_nafnet_checkpoint(nafnet_checkpoint_path())
+                return True
+            except (OSError, RuntimeError, ValueError):
                 return False
         raise ValueError("V2.1.1: unknown photo model: " + str(model_name))
 
