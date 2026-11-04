@@ -1434,7 +1434,7 @@ class App(tk.Tk):
                 if not self.pipeline.selected_model_available("real_esrgan"):
                     messagebox.showerror(
                         APP_NAME,
-                        "ไม่พบโมเดล Real-ESRGAN หลักของ V2\\n\\n"
+                        "ไม่พบโมเดล Real-ESRGAN หลักของ V2\n\n"
                         "ต้องซ่อมชุดโมเดล V2 ก่อนเริ่มประมวลผล",
                     )
                     return
@@ -1445,12 +1445,12 @@ class App(tk.Tk):
                     reason = str(exc)
                 approved = messagebox.askyesno(
                     APP_NAME,
-                    "โหมด V2 + NAFNet Deblur ยังไม่พร้อมใช้งาน\\n"
+                    "โหมด V2 + NAFNet Deblur ยังไม่พร้อมใช้งาน\n"
                     + reason
-                    + "\\n\\nตำแหน่งไฟล์ NAFNet ที่ต้องใช้:\\n"
+                    + "\n\nตำแหน่งไฟล์ NAFNet ที่ต้องใช้:\n"
                     + str(checkpoint)
-                    + "\\n\\nต้องการเปลี่ยนกลับไปใช้ V2 Real-ESRGAN (เดิม) "
-                    "แล้วดำเนินการประมวลผลต่อหรือไม่?\\n\\n"
+                    + "\n\nต้องการเปลี่ยนกลับไปใช้ V2 Real-ESRGAN (เดิม) "
+                    "แล้วดำเนินการประมวลผลต่อหรือไม่?\n\n"
                     "ระบบ AI 4 ตัวแยกจาก NAFNet และจะทำงานเองเมื่อมีโมเดลครบ "
                     "และไฟล์ตรงเงื่อนไข 2×",
                 )
@@ -1460,10 +1460,10 @@ class App(tk.Tk):
                 chosen_model = "real_esrgan"
             else:
                 guidance = (
-                    "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\\n\\n"
+                    "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\n\n"
                     "โปรดติดตั้งโมเดลเสริมเฉพาะที่ต้องใช้ ไม่ดาวน์โหลดอัตโนมัติ"
                     if chosen_model == "v2_swinir_pre" else
-                    "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\\n\\n"
+                    "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\n\n"
                     "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน"
                 )
                 messagebox.showerror(APP_NAME, guidance)
