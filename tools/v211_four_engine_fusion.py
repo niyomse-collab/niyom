@@ -150,7 +150,12 @@ def fuse_four_engine_details(
                     effective_contributions["anime4k"] += float(
                         np.abs(anime_delta[edge_gate]).sum()
                     )
-                rgb = np.clip(np.rint(base_c + delta[..., None]), 0, 255).astype("uint8")
+                # Shared luminance must fit every RGB channel; clipping channels
+                # independently shifts hue at saturated print edges.
+                upward = np.min(255.0 - base_c, axis=2)
+                downward = np.min(base_c, axis=2)
+                safe_delta = np.minimum(np.maximum(delta, -downward), upward)
+                rgb = np.rint(base_c + safe_delta[..., None]).astype("uint8")
                 if base.mode == "RGBA":
                     # Alpha is copied unchanged from V2; prevents fringe and
                     # satisfies PSD/AI transparent print workflow.
@@ -160,7 +165,7 @@ def fuse_four_engine_details(
                     output_array = rgb
                 fused.paste(Image.fromarray(output_array, mode=base.mode), (x, y))
                 edge_pixels += int(edge_gate.sum())
-                mean_delta_sum += float(np.abs(delta).sum())
+                mean_delta_sum += float(np.abs(safe_delta).sum())
         output.parent.mkdir(parents=True, exist_ok=True)
         # Never write an incomplete PNG into the user-visible QA location.
         with NamedTemporaryFile(suffix=".png", prefix=".v211_fusion_", dir=output.parent, delete=False) as fh:
