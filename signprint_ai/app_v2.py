@@ -101,6 +101,37 @@ class App(tk.Tk):
         self.after(80, self._drain_events)
         self.after(1000, self._tick_elapsed)
         self._set_status("พร้อมใช้งาน")
+        # Only the experimental V2.1.1 build offers one-time acquisition
+        # of independently licensed engines. No surprise downloads.
+        if APP_VERSION == "v2.1.1":
+            self.after(1500, self._offer_v211_four_ai_setup)
+
+    def _offer_v211_four_ai_setup(self):
+        """Ask once before downloading official native engines/weights."""
+        from .v211_auto_setup import needs_initial_setup
+        if not needs_initial_setup():
+            return
+        allowed = messagebox.askyesno(
+            "V2.1.1 · ติดตั้ง AI 4 ตัวครั้งแรก",
+            "ติดตั้ง Real-ESRGAN, Waifu2x, Real-CUGAN และ Anime4K "
+            "จาก GitHub ต้นทางที่ตรวจ SHA-256 ก่อนใช้งานหรือไม่?\n\n"
+            "ดาวน์โหลดครั้งแรกต้องใช้อินเทอร์เน็ต หลังจากนั้นใช้งานได้ออฟไลน์ "
+            "ไฟล์จะเก็บใน LOCALAPPDATA ของเครื่อง ไม่แก้ V2 Stable "
+            "และไม่ส่งรูปภาพลูกค้าออกจากเครื่อง",
+        )
+        if not allowed:
+            self._set_status("ใช้ V2 เดิมได้ • ยังไม่ได้ติดตั้ง AI 4 ตัวสำหรับ V2.1.1")
+            return
+        self._set_status("กำลังดาวน์โหลด/ตรวจสอบ AI ทั้ง 4 ตัวสำหรับ V2.1.1")
+        def setup_worker():
+            try:
+                from .v211_auto_setup import provision_after_consent
+                result = provision_after_consent()
+                self._events.put(("four_ai_setup_done", result))
+            except Exception as exc:
+                self._events.put(("four_ai_setup_failed", type(exc).__name__ + ": " + str(exc)))
+        threading.Thread(target=setup_worker, name="v211-four-ai-provision",
+                         daemon=True).start()
 
     def _pick_ui_font(self) -> str:
         """Choose a Thai-friendly Windows UI font and avoid italic fallback."""
@@ -1553,6 +1584,15 @@ class App(tk.Tk):
                     _, generation, preview_index, error = ev
                     if generation == self._preview_generation and preview_index == self.current_index:
                         self.right_caption.configure(text="Preview ผิดพลาด: " + error)
+                elif kind == "four_ai_setup_done":
+                    self._set_status("AI 4 ตัวติดตั้งและตรวจ SHA-256 ครบ • ใช้งานออฟไลน์ได้ • ยังต้องทดสอบคุณภาพภาพจริง")
+                elif kind == "four_ai_setup_failed":
+                    self._set_status("ติดตั้ง AI 4 ตัวไม่สำเร็จ • V2 เดิมยังใช้งานได้")
+                    messagebox.showwarning(
+                        "V2.1.1 · AI 4 ตัว",
+                        "ยังไม่สามารถติดตั้ง AI ทั้ง 4 ตัวได้\n" + str(ev[1])[:320]
+                        + "\n\nงาน V2 เดิมไม่ถูกเปลี่ยน",
+                    )
                 elif kind == "result_done":
                     _, idx, path, result = ev
                     face = result.get("face_protection") or {}
