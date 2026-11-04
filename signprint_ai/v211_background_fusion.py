@@ -136,7 +136,10 @@ def maybe_enhance_v2_image(
             if cancel and cancel():
                 raise InterruptedError("Processing stopped by user")
             candidate.info.update(base.info)
-            # Experimental quality has not been approved: never substitute the\n            # candidate into the normal print/export pipeline. The separate\n            # bridge remains responsible for writing QA sidecars.\n            return base, {\n                "status": "four_engine_candidate_not_promoted",\n                "four_engines_applied": False,
+            # Experimental quality has not been approved: never substitute the
+            # candidate into the normal print/export pipeline. The separate
+            # bridge remains responsible for writing QA sidecars.
+            return base, {\n                "status": "four_engine_candidate_not_promoted",\n                "four_engines_applied": False,
                 "completed_engine_count": 4,
                 "v2_output_preserved": True,
                 "fusion_implemented": True,
