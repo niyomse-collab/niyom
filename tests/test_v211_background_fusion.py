@@ -288,3 +288,53 @@ def test_missing_fusion_output_fails_closed_without_mutating_v2(tmp_path, monkey
     assert report["four_engines_applied"] is False
     assert report["v2_output_preserved"] is True
     assert not list(tmp_path.glob("*V211-4AI-QA*"))
+
+
+def test_fusion_wrong_mode_fails_closed_and_preserves_v2(tmp_path, monkeypatch):
+    source, original = _base_and_source(tmp_path, rgba=True)
+    snapshot = original.tobytes()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test-only", encoding="utf8")
+    monkeypatch.setattr(background, "default_manifest", lambda: manifest)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+
+    def wrong_mode_run(seed, output_dir, config, size, **kwargs):
+        output_dir.mkdir(parents=True)
+        fused = output_dir / "rgb_without_alpha.png"
+        Image.new("RGB", size, (40, 90, 120)).save(fused)
+        return {"completed_engine_count": 4, "failures": {},
+                "four_engine_fusion": {"fusion_implemented": True, "output": str(fused)}}
+
+    monkeypatch.setattr(v211_four_engine_run, "run", wrong_mode_run)
+    output, report = background.maybe_enhance_v2_image(source, original)
+    assert output is original and original.tobytes() == snapshot
+    assert report["status"] == "four_engine_error"
+    assert report["v2_output_preserved"] is True
+    assert report["four_engines_applied"] is False
+    assert report["error"].startswith("ValueError:")
+
+
+def test_fusion_undersized_output_fails_closed_and_preserves_v2(tmp_path, monkeypatch):
+    source, original = _base_and_source(tmp_path)
+    snapshot = original.tobytes()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test-only", encoding="utf8")
+    monkeypatch.setattr(background, "default_manifest", lambda: manifest)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+
+    def undersized_run(seed, output_dir, config, size, **kwargs):
+        output_dir.mkdir(parents=True)
+        fused = output_dir / "undersized.png"
+        Image.new("RGB", (size[0] - 2, size[1] - 2), (40, 90, 120)).save(fused)
+        return {"completed_engine_count": 4, "failures": {},
+                "four_engine_fusion": {"fusion_implemented": True, "output": str(fused)}}
+
+    monkeypatch.setattr(v211_four_engine_run, "run", undersized_run)
+    output, report = background.maybe_enhance_v2_image(source, original)
+    assert output is original and original.tobytes() == snapshot
+    assert report["status"] == "four_engine_error"
+    assert report["v2_output_preserved"] is True
+    assert report["four_engines_applied"] is False
+    assert report["error"].startswith("ValueError:")
