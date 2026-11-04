@@ -27,6 +27,9 @@ hiddenimports = [
     "tools.v211_four_engine_safe_selection",
     "tools.v211_three_engine_priority_preview",
     "tools.v211_four_engine_fusion",
+    "signprint_ai.v211_auto_setup",
+    "tools.v211_official_assets_audit",
+    "tools.v211_provision_four_engines",
 ]
 # BasicSR discovers several modules dynamically (including basicsr.ops).
 # Freeze the complete Python module graph so the packaged EXE does not fail
