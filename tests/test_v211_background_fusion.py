@@ -120,3 +120,38 @@ def test_disabled_four_ai_never_changes_v2(tmp_path, monkeypatch):
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "0")
     result, report = background.maybe_enhance_v2_image(source, original)
     assert result is original and report["status"] == "disabled"
+
+
+def test_native_runner_exception_preserves_v2_and_reports_failure(tmp_path, monkeypatch):
+    source, original = _base_and_source(tmp_path, rgba=True)
+    snapshot = original.tobytes()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test-only", encoding="utf8")
+    monkeypatch.setattr(background, "default_manifest", lambda: manifest)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+
+    def failing_run(*args, **kwargs):
+        raise RuntimeError("native engine failed")
+
+    monkeypatch.setattr(v211_four_engine_run, "run", failing_run)
+    output, report = background.maybe_enhance_v2_image(source, original)
+    assert output is original
+    assert output.tobytes() == snapshot
+    assert report["status"] == "four_engine_error"
+    assert report["v2_output_preserved"] is True
+    assert report["four_engines_applied"] is False
+    assert report["error"].startswith("RuntimeError:")
+
+
+def test_cancel_before_native_work_preserves_v2(tmp_path, monkeypatch):
+    source, original = _base_and_source(tmp_path, rgba=True)
+    snapshot = original.tobytes()
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+    try:
+        background.maybe_enhance_v2_image(source, original, cancel=lambda: True)
+    except InterruptedError:
+        pass
+    else:
+        raise AssertionError("Cancellation must propagate, not silently fall back")
+    assert original.tobytes() == snapshot
