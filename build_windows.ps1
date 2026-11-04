@@ -57,8 +57,10 @@ $sourceCommit = (& git rev-parse HEAD).Trim()
 @{ channel = $Channel; version = $Version; source_commit = $sourceCommit } |
     ConvertTo-Json | Set-Content ".\build_info.json" -Encoding utf8
 $proofName = if ($Channel -eq "v2") { "BUILD_PROOF.txt" } else { "ARM_CORE_BUILD_PROOF.txt" }
-$installerScript = if ($Channel -eq "v2") { ".\installer_v2.iss" } else { ".\installer.iss" }
-$installerName = if ($Channel -eq "v2") { "NiyomSilp-Design-v2-Setup.exe" } else { "NiyomSilp-Design-v1-Setup.exe" }
+$experimentalV211 = ($Channel -eq "v2" -and $Version -like "2.1.1*")
+$installerScript = if ($experimentalV211) { ".\installer_v211_experimental.iss" } elseif ($Channel -eq "v2") { ".\installer_v2.iss" } else { ".\installer.iss" }
+$installerPrefix = if ($experimentalV211) { "NiyomSilp-Design-v211-EXPERIMENTAL-Setup" } elseif ($Channel -eq "v2") { "NiyomSilp-Design-v2-Setup" } else { "NiyomSilp-Design-v1-Setup" }
+$installerName = "$installerPrefix.exe"
 
 & $py -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
@@ -237,7 +239,7 @@ if (-not $SkipInstaller) {
         Set-Content ".\release\$installerName.sha256.txt" -Encoding ascii
 
     if ($Channel -eq "v2") {
-        Get-ChildItem ".\release\NiyomSilp-Design-v2-Setup*" -File |
+        Get-ChildItem ".\release\$installerPrefix*" -File |
             Where-Object { $_.Extension -in ".exe", ".bin" } |
             ForEach-Object { "$((Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower())  $($_.Name)" } |
             Set-Content ".\release\SHA256SUMS.txt" -Encoding ascii
