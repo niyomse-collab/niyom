@@ -252,6 +252,15 @@ class NiyomSilpCoreAdapter:
             )
             if photo_preflight is not None:
                 large_result["photo_preflight"] = photo_preflight
+            # Explicitly disclose that the current external four-engine
+            # adapter is not yet tiled for large-format jobs. Never show a
+            # successful V2 export as proof that all four models ran.
+            large_result["four_engine_research"] = (
+                {"status": "large_image_tiling_pending",
+                 "four_engines_applied": False,
+                 "v2_output_preserved": True}
+                if use_ai and model_scale > 1 else None
+            )
             return large_result
 
         # Only small images reach Pillow. Large masters must use libvips for
@@ -438,6 +447,23 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
+        # Four installed external engines supplement the *finished V2 raster*
+        # before the user's existing PNG/TIFF/JPEG/PDF and RGB/CMYK export.
+        # No new UI switch, no extra sidecar deliverable, no changes to sizing.
+        # Unavailable/failed engines never change the V2 raster or print path.
+        four_engine_evidence = None
+        if use_ai and model_scale > 1:
+            from .v211_background_fusion import maybe_enhance_v2_image
+            mapped_faces = (
+                tuple(settings.face_regions or ())
+                if face_info.get("applied") and getattr(settings, "face_regions", None)
+                else ()
+            )
+            output, four_engine_evidence = maybe_enhance_v2_image(
+                src, output, use_ai=use_ai, cancel=cancel,
+                protected_regions=mapped_faces,
+                preserve_all_v2_faces=bool(face_info.get("applied") and not mapped_faces),
+            )
         if progress:
             progress(96, "Save Output")
 
@@ -470,24 +496,6 @@ class NiyomSilpCoreAdapter:
                 dpi=settings.dpi,
                 color_mode=settings.color_mode,
                 icc_profile_path=settings.icc_profile_path,
-            )
-
-        # The V2.1.1 experiment automatically executes all four externally
-        # installed models after trusted V2 output has been saved. Its separate
-        # candidate/fusion PNG is never the accepted print export until QA.
-        # Without a locally provisioned manifest, the V2 path is unchanged.
-        four_engine_evidence = None
-        if use_ai:
-            from .v211_four_engine_bridge import maybe_run_four_engine_assist
-            mapped_faces = (
-                tuple(settings.face_regions or ())
-                if face_info.get("applied") and getattr(settings, "face_regions", None)
-                else ()
-            )
-            four_engine_evidence = maybe_run_four_engine_assist(
-                src, dst, use_ai=use_ai, cancel=cancel,
-                protected_regions=mapped_faces,
-                preserve_all_v2_faces=bool(face_info.get("applied") and not mapped_faces),
             )
 
         if progress:
