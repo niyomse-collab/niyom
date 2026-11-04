@@ -155,3 +155,74 @@ def test_cancel_before_native_work_preserves_v2(tmp_path, monkeypatch):
     else:
         raise AssertionError("Cancellation must propagate, not silently fall back")
     assert original.tobytes() == snapshot
+
+
+def test_cancel_after_successful_native_fusion_never_promotes_candidate(tmp_path, monkeypatch):
+    source, original = _base_and_source(tmp_path, rgba=True)
+    snapshot = original.tobytes()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test-only", encoding="utf8")
+    monkeypatch.setattr(background, "default_manifest", lambda: manifest)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+    cancel_checks = []
+
+    def cancel():
+        cancel_checks.append(True)
+        return len(cancel_checks) >= 2
+
+    def successful_run(seed, output_dir, config, size, **kwargs):
+        output_dir.mkdir(parents=True)
+        with Image.open(kwargs["v2_reference"]) as image:
+            modified = np.asarray(image).copy()
+        modified[0, 0, 0] += 1
+        fused = output_dir / "fused.png"
+        Image.fromarray(modified, "RGBA").save(fused)
+        return {
+            "completed_engine_count": 4,
+            "failures": {},
+            "four_engine_fusion": {"fusion_implemented": True, "output": str(fused)},
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", successful_run)
+    try:
+        background.maybe_enhance_v2_image(source, original, cancel=cancel)
+    except InterruptedError:
+        pass
+    else:
+        raise AssertionError("Late cancellation must propagate after native fusion")
+    assert len(cancel_checks) == 2
+    assert original.tobytes() == snapshot
+    assert not list(tmp_path.glob("*V211-4AI-QA*"))
+
+
+def test_native_fusion_alpha_mismatch_fails_closed_without_v2_mutation(tmp_path, monkeypatch):
+    source, original = _base_and_source(tmp_path, rgba=True)
+    snapshot = original.tobytes()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test-only", encoding="utf8")
+    monkeypatch.setattr(background, "default_manifest", lambda: manifest)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+
+    def invalid_alpha_run(seed, output_dir, config, size, **kwargs):
+        output_dir.mkdir(parents=True)
+        with Image.open(kwargs["v2_reference"]) as image:
+            modified = np.asarray(image).copy()
+        modified[0, 0, 3] = 0
+        fused = output_dir / "invalid_alpha.png"
+        Image.fromarray(modified, "RGBA").save(fused)
+        return {
+            "completed_engine_count": 4,
+            "failures": {},
+            "four_engine_fusion": {"fusion_implemented": True, "output": str(fused)},
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", invalid_alpha_run)
+    output, report = background.maybe_enhance_v2_image(source, original)
+    assert output is original
+    assert original.tobytes() == snapshot
+    assert report["status"] == "four_engine_error"
+    assert report["v2_output_preserved"] is True
+    assert report["four_engines_applied"] is False
+    assert report["error"].startswith("ValueError:")
