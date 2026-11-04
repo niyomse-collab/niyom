@@ -1662,8 +1662,17 @@ class App(tk.Tk):
                         caption = f"ผลลัพธ์จริง: {result['output_size'][0]:,} × {result['output_size'][1]:,} px"
                         if show_ai_preview:
                             caption += " • ตัวอย่าง AI 4 ตัวรวมแล้ว (QA) • ไฟล์ V2 เดิมยังอยู่ ไม่ใช่ผลรับรองคุณภาพ"
+                        elif four_ai.get("status") == "four_engine_applied_to_v2_raster":
+                            caption += " • AI 4 ตัวเสริมผลลัพธ์แล้ว (ยังไม่รับรองคุณภาพ)"
                         elif four_ai.get("status") == "models_not_installed":
                             caption += " • AI 4 ตัว: ยังไม่มีโมเดลที่ติดตั้งสำหรับ V2.1.1"
+                        elif four_ai.get("status") == "large_image_tiling_pending":
+                            caption += " • AI 4 ตัว: งานใหญ่ยังไม่รองรับ • ใช้ภาพ V2 เดิม"
+                        elif four_ai.get("status") in (
+                            "four_engine_error", "four_engine_incomplete",
+                            "four_engine_no_pixel_effect",
+                        ):
+                            caption += " • AI 4 ตัว: ยังไม่เสริมผลภาพ • ใช้ภาพ V2 เดิม"
                         if result["output_size"][0] < result["original_size"][0] or result["output_size"][1] < result["original_size"][1]:
                             caption += " • ลดพิกเซลตามขนาด/DPI ที่ตั้ง"
                         if face.get("enabled"):
