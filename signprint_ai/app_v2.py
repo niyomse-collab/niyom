@@ -1423,18 +1423,51 @@ class App(tk.Tk):
                   else "real_esrgan")
         )
         if requested_scale > 1 and not self.pipeline.selected_model_available(chosen_model):
-            guidance = (
-                "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\n\n"
-                "โปรดติดตั้งโมเดลเสริมเฉพาะที่ต้องใช้ ไม่ดาวน์โหลดอัตโนมัติ"
-                if chosen_model == "v2_swinir_pre" else
-                "V2 + NAFNet Deblur ต้องมี Real-ESRGAN ของ V2 และ NAFNet GoPro ที่ตรวจสอบ SHA-256 แล้ว\n\n"
-                "ตัวนี้ใช้กับภาพถ่ายเบลอเท่านั้น; ไม่ติดตั้งน้ำหนักโมเดลโดยอัตโนมัติ"
-                if chosen_model == "v2_nafnet_deblur" else
-                "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\n\n"
-                "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน"
-            )
-            messagebox.showerror(APP_NAME, guidance)
-            return
+            if chosen_model == "v2_nafnet_deblur":
+                # NAFNet is an unrelated optional photo-deblur checkpoint,
+                # NOT one of the four native AI engines. Do not silently
+                # download its weights, or strand the user at a hard error.
+                from .v211_nafnet_deblur import (
+                    nafnet_checkpoint_path, verify_nafnet_checkpoint
+                )
+                checkpoint = nafnet_checkpoint_path()
+                if not self.pipeline.selected_model_available("real_esrgan"):
+                    messagebox.showerror(
+                        APP_NAME,
+                        "ไม่พบโมเดล Real-ESRGAN หลักของ V2\\n\\n"
+                        "ต้องซ่อมชุดโมเดล V2 ก่อนเริ่มประมวลผล",
+                    )
+                    return
+                try:
+                    verify_nafnet_checkpoint(checkpoint)
+                    reason = "ไม่สามารถเปิดใช้โหมด NAFNet ได้"
+                except (OSError, RuntimeError, ValueError) as exc:
+                    reason = str(exc)
+                approved = messagebox.askyesno(
+                    APP_NAME,
+                    "โหมด V2 + NAFNet Deblur ยังไม่พร้อมใช้งาน\\n"
+                    + reason
+                    + "\\n\\nตำแหน่งไฟล์ NAFNet ที่ต้องใช้:\\n"
+                    + str(checkpoint)
+                    + "\\n\\nต้องการเปลี่ยนกลับไปใช้ V2 Real-ESRGAN (เดิม) "
+                    "แล้วดำเนินการประมวลผลต่อหรือไม่?\\n\\n"
+                    "ระบบ AI 4 ตัวแยกจาก NAFNet และจะทำงานเองเมื่อมีโมเดลครบ "
+                    "และไฟล์ตรงเงื่อนไข 2×",
+                )
+                if not approved:
+                    return
+                self.v211_photo_model_var.set("V2 Real-ESRGAN (เดิม)")
+                chosen_model = "real_esrgan"
+            else:
+                guidance = (
+                    "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\\n\\n"
+                    "โปรดติดตั้งโมเดลเสริมเฉพาะที่ต้องใช้ ไม่ดาวน์โหลดอัตโนมัติ"
+                    if chosen_model == "v2_swinir_pre" else
+                    "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\\n\\n"
+                    "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน"
+                )
+                messagebox.showerror(APP_NAME, guidance)
+                return
         if self.color_mode_var.get() == "CMYK":
             if self.format_var.get() == "PNG":
                 messagebox.showerror(
