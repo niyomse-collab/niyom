@@ -59,8 +59,8 @@ $sourceCommit = (& git rev-parse HEAD).Trim()
 $proofName = if ($Channel -eq "v2") { "BUILD_PROOF.txt" } else { "ARM_CORE_BUILD_PROOF.txt" }
 $experimentalV211 = ($Channel -eq "v2" -and $Version -like "2.1.1*")
 $installerScript = if ($experimentalV211) { ".\installer_v211_experimental.iss" } elseif ($Channel -eq "v2") { ".\installer_v2.iss" } else { ".\installer.iss" }
-$installerPrefix = if ($experimentalV211) { "NiyomSilp-Design-v211-EXPERIMENTAL-Setup" } elseif ($Channel -eq "v2") { "NiyomSilp-Design-v2-Setup" } else { "NiyomSilp-Design-v1-Setup" }
-$installerName = "$installerPrefix.exe"
+$installerName = if ($experimentalV211) { "NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe" } elseif ($Channel -eq "v2") { "NiyomSilp-Design-v2-Setup.exe" } else { "NiyomSilp-Design-v1-Setup.exe" }
+$installerPrefix = [System.IO.Path]::GetFileNameWithoutExtension($installerName)
 
 & $py -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
