@@ -2,6 +2,7 @@
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageDraw, ImageTk
+from ..large_image import thumbnail
 
 
 def choose_faces(parent, path, regions):
@@ -11,8 +12,7 @@ def choose_faces(parent, path, regions):
     dialog.transient(parent)
     result = [None]
     photos = []
-    with Image.open(path) as source:
-        image = source.convert('RGB')
+    image = thumbnail(path, (1600, 1600))
     overview = image.copy()
     overview.thumbnail((620, 420), Image.Resampling.LANCZOS)
     draw = ImageDraw.Draw(overview)

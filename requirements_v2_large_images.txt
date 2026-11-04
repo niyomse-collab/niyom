@@ -1,0 +1,3 @@
+# Streaming decode/resize/export plus a self-contained libvips runtime.
+pyvips[binary]>=3.2,<4
+tifffile>=2025.6,<2027

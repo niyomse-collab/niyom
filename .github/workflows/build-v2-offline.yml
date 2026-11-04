@@ -1,0 +1,70 @@
+name: Build v2 offline all-in-one candidate
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev/niyomsil-design-v2]
+    paths:
+      - '.github/workflows/build-v2-offline.yml'
+
+jobs:
+  offline-installer:
+    runs-on: windows-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run source tests
+        run: |
+          python -m pip install pytest numpy Pillow opencv-python-headless pypdf -r requirements_v2_large_images.txt
+          python -m pytest -q
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+      - name: Build complete v2 runtime
+        shell: powershell
+        run: .\build_windows.ps1 -Channel v2 -Version 2.0.0-offline-candidate
+      - name: Compile standalone offline installer
+        shell: powershell
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { $iscc = Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe' }
+          & $iscc '.\installer_v2_all_in_one.iss'
+          if ($LASTEXITCODE -ne 0) { throw 'Offline installer compilation failed' }
+          $installer = '.\release\NiyomSilp-Design-v2-Setup.exe'
+          if (-not (Test-Path $installer)) { throw 'Missing single EXE' }
+          if (Test-Path '.\release\NiyomSilp-Design-v2-Setup-1.bin') {
+            Write-Host 'Existing split build payload is retained, but standalone EXE is independently compiled.'
+          }
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLower()
+          "$hash  NiyomSilp-Design-v2-Setup.exe" | Set-Content '.\release\ALL_IN_ONE_SHA256.txt' -Encoding ascii
+          $size = (Get-Item $installer).Length
+          Write-Host "Single EXE size: $size bytes"
+          if ($size -gt 2147483648) { Write-Host 'Too large for a GitHub Release asset; do not publish there.' }
+      - name: Smoke test standalone installer and uninstall
+        shell: powershell
+        run: |
+          $target = Join-Path $PWD 'offline-installed'
+          $proc = Start-Process '.\release\NiyomSilp-Design-v2-Setup.exe' -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR=$target" -PassThru
+          if (-not $proc.WaitForExit(900000)) { $proc.Kill(); throw 'Install timeout' }
+          $proc.Refresh()
+          if ($proc.ExitCode -ne 0) { throw "Install failed: $($proc.ExitCode)" }
+          $exe = Join-Path $target 'NiyomsilAIEnhancer.exe'
+          .\tools\Test-V2-Package.ps1 -Exe $exe -OutputDir offline-smoke -Mode imports -TimeoutSeconds 120
+          .\tools\Test-V2-Package.ps1 -Exe $exe -OutputDir offline-smoke -Mode processing -TimeoutSeconds 1200
+          $uninstaller = Join-Path $target 'unins000.exe'
+          $proc = Start-Process $uninstaller -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -PassThru
+          if (-not $proc.WaitForExit(300000)) { $proc.Kill(); throw 'Uninstall timeout' }
+          $proc.Refresh()
+          if ($proc.ExitCode -ne 0) { throw 'Uninstall failed' }
+      - name: Upload verified candidate to Actions artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NiyomSilp-v2-All-in-One-Offline-Candidate
+          compression-level: 0
+          path: |
+            release/NiyomSilp-Design-v2-Setup.exe
+            release/ALL_IN_ONE_SHA256.txt
+          if-no-files-found: error

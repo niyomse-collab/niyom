@@ -4,6 +4,7 @@ import threading
 import numpy as np
 from PIL import Image
 from .face_protection import resource_root
+from ..large_image import thumbnail
 
 
 class FaceDetector:
@@ -24,10 +25,8 @@ class FaceDetector:
                 # CPU preflight does not compete with an active CUDA render.
                 self._model = init_detection_model('retinaface_resnet50', half=False,
                                                    device='cpu', model_rootpath=str(folder))
-            with Image.open(path) as source:
-                image = source.convert('RGB')
-                image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
-                pixels = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
+            image = thumbnail(path, (1600, 1600))
+            pixels = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
             with torch.no_grad():
                 boxes = self._model.detect_faces(pixels, 0.9)
             regions = []

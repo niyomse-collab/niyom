@@ -1,0 +1,170 @@
+name: Publish verified NiyomSilp v2 beta20 Windows package
+
+# The beta.20 package passed all Windows tests and upload in run 38578992132.
+# Its release command failed at PowerShell parsing. Reuse the verified artifact,
+# verify the exact source SHA and checksums, without rebuilding or touching v1.
+on:
+  push:
+    branches: [dev/niyomsil-design-v2]
+    paths:
+      - '.github/workflows/publish-verified-v2-beta20.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: niyomsil-v2-republish-verified-beta20
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: '38578992132'
+      SOURCE_SHA: 'b6210f283524a05a8d78fc1f5c6df5ffc16dfc82'
+      V2_TAG: 'v2-large-images-20'
+      V2_VERSION: '2.0.0-beta.20'
+    steps:
+      - name: Verify source run and all actual Windows smoke-test steps
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN" > source-run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN/jobs?per_page=100" > source-jobs.json
+          python - <<'PY'
+          import json, os
+          run = json.load(open('source-run.json'))
+          jobs = json.load(open('source-jobs.json'))['jobs']
+          assert run['head_sha'] == os.environ['SOURCE_SHA'], 'Wrong source SHA'
+          assert run['conclusion'] == 'failure', 'Expected the known publishing-only failure'
+          assert len(jobs) == 1, 'Unexpected source job count'
+          steps = {s['name']: s['conclusion'] for s in jobs[0]['steps']}
+          passed = [
+              'Test sources before packaging',
+              'Build v2 runtime and full installer',
+              'Test packaged imports, UI, device selection and face backend',
+              'Test real inference, large files and cancellation from packaged EXE',
+              'Generate small download installer from checksummed payloads',
+              'Install verified full setup, test installed application and uninstall',
+              'Test small installer against verified local payloads',
+              'Upload verified installer and reports',
+          ]
+          assert all(steps.get(step) == 'success' for step in passed), steps
+          assert steps.get('Publish v2 prerelease download') == 'failure', steps
+          print('Verified source EXE, installer, inference, I/O and installation passed')
+          PY
+
+      - name: Download the verified release artifact from Windows build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name 'NiyomSilp-Design-v2-Windows' --dir release
+          find release -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+
+      - name: Validate exact original payloads before any publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          d = Path('release')
+          report = json.loads((d/'PACKAGE_SMOKE.json').read_text(encoding='utf-8-sig'))
+          release = report['release']
+          assert report['passed'] is True, 'Package smoke tests not passed'
+          assert release['channel'] == 'v2'
+          assert release['version'] == os.environ['V2_VERSION']
+          assert release['source_commit'] == os.environ['SOURCE_SHA']
+          manifest = json.loads((d/'INSTALLER_MANIFEST.json').read_text(encoding='utf-8-sig'))
+          assert manifest['tag'] == os.environ['V2_TAG']
+          assert manifest['version'] == os.environ['V2_VERSION']
+          assert manifest['repository'] == os.environ['GITHUB_REPOSITORY']
+          assert (d/'NiyomSilp-Design-v2-Install.exe').is_file()
+          assert (d/'NiyomSilp-Design-v2-Setup.exe').is_file()
+          assert (d/'BUILD_PROOF.txt').is_file()
+          assert (d/'THIRD_PARTY_NOTICES.md').is_file()
+          assert (d/'SHA256SUMS.txt').is_file()
+          payloads = manifest['payloads']
+          assert len(payloads) >= 2
+          expected = {p['name'] for p in payloads}
+          observed = {p.name for p in d.glob('NiyomSilp-Design-v2-Setup*')
+                      if p.suffix.lower() in ('.exe', '.bin')}
+          assert expected == observed, (expected, observed)
+          assert any(name.endswith('.bin') for name in expected)
+          sha_lines = (d/'SHA256SUMS.txt').read_text(encoding='utf-8-sig').lower()
+          for p in payloads:
+              file = d/p['name']
+              assert file.is_file()
+              assert file.stat().st_size == p['size'], p['name']
+              assert file.stat().st_size < 2**31, 'GitHub release per-asset ceiling'
+              with file.open('rb') as fh:
+                  digest = hashlib.file_digest(fh, 'sha256').hexdigest()
+              assert digest == p['sha256'], p['name']
+              assert digest in sha_lines, p['name']
+              assert p['url'] == (f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
+                                 f"/releases/download/{os.environ['V2_TAG']}/{p['name']}")
+              print('verified payload', p['name'], digest)
+          for file in d.iterdir():
+              assert 'v1' not in file.name.lower(), 'Must never publish a V1 file'
+          print('All tested V2 files and hashes verified')
+          PY
+
+      - name: Publish only the verified V2 test release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$V2_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release already exists. Refusing to overwrite existing artifacts.'
+            exit 1
+          fi
+          cat > release-notes.txt <<EOF
+          NiyomSilp Design v2 $V2_VERSION (Windows test build)
+
+          Download NiyomSilp-Design-v2-Install.exe to install. The downloader
+          verifies the complete offline payload using SHA-256 checksums.
+          Internet is required for the first download; Python is bundled.
+
+          Verified in Windows Actions source run $SOURCE_RUN:
+          - Packaged application imports and opens
+          - Real CPU AI inference 2x / 4x / 8x and custom 16x target
+          - Large image import/export and stop/cancel file protection
+          - Full setup installation and uninstallation
+          - Downloader against locally verified payload
+
+          CUDA and DirectML still require testing on the shop's actual PC.
+          V1.0.1 is a separate stable release and remains untouched.
+          Source commit: $SOURCE_SHA
+          EOF
+          gh release create "$V2_TAG" release/* --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "NiyomSilp Design v2 $V2_VERSION - Windows test build" \
+            --notes-file release-notes.txt --prerelease --latest=false
+
+      - name: Verify all expected assets are publicly listed in release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$V2_TAG" > published.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('release/INSTALLER_MANIFEST.json').read_text())
+          release = json.loads(Path('published.json').read_text())
+          names = {asset['name'] for asset in release['assets']}
+          expected = {p['name'] for p in manifest['payloads']}
+          expected |= {'NiyomSilp-Design-v2-Install.exe',
+                       'SHA256SUMS.txt', 'INSTALLER_MANIFEST.json',
+                       'PACKAGE_SMOKE.json', 'BUILD_PROOF.txt',
+                       'THIRD_PARTY_NOTICES.md'}
+          missing = expected - names
+          assert not missing, f'Missing release assets: {missing}'
+          assert release['prerelease'] is True
+          print('Download page:', release['html_url'])
+          for asset in release['assets']:
+              print(asset['name'], asset['browser_download_url'])
+          PY

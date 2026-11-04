@@ -13,6 +13,8 @@ The V2.1 build can include these third-party components:
 - **OpenCV** — image conversion/blending utilities.
 - **Pillow** — image I/O, previews, and color-management integration.
 - **NumPy** — numerical array processing.
+- **libvips / pyvips / pyvips-binary** — V2 streaming image decode, resize and export. libvips is LGPL-2.1-or-later; pyvips is MIT. Binary dependency licenses are retained with the packaged runtime. Sources: https://github.com/libvips/libvips, https://github.com/libvips/pyvips, https://github.com/kleisauke/pyvips-binary.
+- **tifffile** — bounded TIFF tile writing for V2 intermediate masters; BSD-3-Clause. Source: https://github.com/cgohlke/tifffile.
 - **PyInstaller** — Windows application freezing.
 - **windnd** — optional Windows drag-and-drop helper.
 

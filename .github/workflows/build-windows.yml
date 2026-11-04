@@ -22,7 +22,7 @@ jobs:
 
       - name: Run Independent Core regression checks
         run: |
-          python -m pip install pytest numpy Pillow "opencv-python-headless<5"
+          python -m pip install pytest numpy Pillow "opencv-python-headless<5" pypdf -r requirements_v2_large_images.txt
           python -m pytest -q
 
       - name: Check preview space at desktop window sizes
