@@ -86,8 +86,8 @@ def fuse_four_engine_details(
             raise ValueError("V2 reference must be RGB/RGBA PNG")
         W, H = base.size
         with Image.open(source) as original:
-            if (W, H) != (original.width * 2, original.height * 2):
-                raise ValueError("four-engine fusion currently supports exact 2x only")
+            if not any((W, H) == (original.width * scale, original.height * scale) for scale in (2, 4)):
+                raise ValueError("four-engine fusion requires exact 2x or 4x dimensions")
         metadata = {key: base.info[key] for key in ("icc_profile", "dpi") if key in base.info}
         for engine in ENGINES:
             validate_candidate(source, Path(candidates[engine]), (W, H))
