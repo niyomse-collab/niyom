@@ -226,3 +226,65 @@ def test_native_fusion_alpha_mismatch_fails_closed_without_v2_mutation(tmp_path,
     assert report["v2_output_preserved"] is True
     assert report["four_engines_applied"] is False
     assert report["error"].startswith("ValueError:")
+
+
+def test_four_engine_identical_candidate_reports_no_effect_and_keeps_v2(tmp_path, monkeypatch):
+    source, original = _base_and_source(tmp_path, rgba=True)
+    snapshot = original.tobytes()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test-only", encoding="utf8")
+    monkeypatch.setattr(background, "default_manifest", lambda: manifest)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+
+    def unchanged_run(seed, output_dir, config, size, **kwargs):
+        output_dir.mkdir(parents=True)
+        candidate = output_dir / "unchanged.png"
+        with Image.open(kwargs["v2_reference"]) as reference:
+            reference.save(candidate)
+        return {
+            "completed_engine_count": 4,
+            "failures": {},
+            "four_engine_fusion": {
+                "fusion_implemented": True, "output": str(candidate)
+            },
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", unchanged_run)
+    output, report = background.maybe_enhance_v2_image(source, original)
+    assert output is original
+    assert original.tobytes() == snapshot
+    assert report["status"] == "four_engine_no_pixel_effect"
+    assert report["completed_engine_count"] == 4
+    assert report["four_engines_applied"] is False
+    assert report["v2_output_preserved"] is True
+    assert not list(tmp_path.glob("*V211-4AI-QA*"))
+
+
+def test_missing_fusion_output_fails_closed_without_mutating_v2(tmp_path, monkeypatch):
+    source, original = _base_and_source(tmp_path, rgba=True)
+    snapshot = original.tobytes()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test-only", encoding="utf8")
+    monkeypatch.setattr(background, "default_manifest", lambda: manifest)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+
+    def missing_output_run(seed, output_dir, config, size, **kwargs):
+        return {
+            "completed_engine_count": 4,
+            "failures": {},
+            "four_engine_fusion": {
+                "fusion_implemented": True,
+                "output": str(output_dir / "does-not-exist.png"),
+            },
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", missing_output_run)
+    output, report = background.maybe_enhance_v2_image(source, original)
+    assert output is original
+    assert original.tobytes() == snapshot
+    assert report["status"] == "four_engine_error"
+    assert report["four_engines_applied"] is False
+    assert report["v2_output_preserved"] is True
+    assert not list(tmp_path.glob("*V211-4AI-QA*"))
