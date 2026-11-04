@@ -9,6 +9,7 @@ on:
       - 'tests/test_v211_*.py'
       - 'NiyomsilV2ArmCore.spec'
       - 'build_windows.ps1'
+      - 'installer_v211_experimental.iss'
       - 'run.py'
       - 'requirements_v2_large_images.txt'
       - '.github/workflows/v211-four-engine-bridge-windows.yml'
@@ -67,7 +68,7 @@ jobs:
           name: NiyomSilp-V2.1.1-four-engine-bridge-EXPERIMENTAL
           compression-level: 0
           path: |
-            release/NiyomSilp-Design-v2-Setup*
+            release/NiyomSilp-Design-v211-EXPERIMENTAL-Setup*
             dist/NiyomsilAIEnhancer/BUILD_PROOF.txt
             docs/V211_FOUR_ENGINE_BRIDGE_BUILD_STATUS_TH.md
           if-no-files-found: error
