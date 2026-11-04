@@ -150,3 +150,32 @@ def test_saturated_edge_keeps_channel_differences_without_clipping(tmp_path):
     np.testing.assert_array_equal(change[..., 0], change[..., 1])
     np.testing.assert_array_equal(change[..., 1], change[..., 2])
     assert np.max(np.abs(change)) <= 6
+
+
+def test_four_x_fusion_accepts_exact_geometry_and_preserves_v2(tmp_path):
+    """Synthetic 4x inputs exercise geometry, not actual native inference."""
+    src, v2, cands = _fixture(tmp_path, rgba=True)
+    with Image.open(v2) as im:
+        four_x = im.resize((32, 32), Image.Resampling.NEAREST)
+        four_x.save(v2, dpi=(300, 300))
+    for path in cands.values():
+        with Image.open(path) as im:
+            im.resize((32, 32), Image.Resampling.NEAREST).save(path, dpi=(300, 300))
+    original_bytes = v2.read_bytes()
+    output = tmp_path / "four-x-fusion.png"
+    report = fuse_four_engine_details(src, v2, cands, output)
+    assert report["quality_certified"] is False
+    assert v2.read_bytes() == original_bytes
+    with Image.open(v2) as base, Image.open(output) as fused:
+        assert fused.size == (32, 32)
+        np.testing.assert_array_equal(np.asarray(base.getchannel("A")),
+                                      np.asarray(fused.getchannel("A")))
+        assert fused.info["dpi"][0] == pytest.approx(300, abs=0.1)
+
+
+def test_fusion_rejects_non_integer_scale(tmp_path):
+    src, v2, cands = _fixture(tmp_path)
+    with Image.open(v2) as im:
+        im.resize((24, 24)).save(v2)
+    with pytest.raises(ValueError, match="2x or 4x"):
+        fuse_four_engine_details(src, v2, cands, tmp_path / "invalid-scale.png")
