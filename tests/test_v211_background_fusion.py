@@ -32,7 +32,7 @@ def test_missing_manifest_keeps_v2_pixel_exact(tmp_path, monkeypatch):
     assert report["four_engines_applied"] is False
 
 
-def test_four_engine_fused_pixels_enter_original_export_raster(tmp_path, monkeypatch):
+def test_four_engine_candidate_never_replaces_accepted_v2_export_raster(tmp_path, monkeypatch):
     source, original = _base_and_source(tmp_path, rgba=True)
     snapshot = original.tobytes()
     manifest = tmp_path / "manifest.json"
@@ -69,15 +69,19 @@ def test_four_engine_fused_pixels_enter_original_export_raster(tmp_path, monkeyp
 
     monkeypatch.setattr(v211_four_engine_run, "run", fake_native_run)
     output, report = background.maybe_enhance_v2_image(source, original)
-    assert report["status"] == "four_engine_applied_to_v2_raster"
-    assert report["four_engines_applied"] is True
+    assert report["status"] == "four_engine_candidate_not_promoted"
+    assert report["four_engines_applied"] is False
+    assert report["v2_output_preserved"] is True
+    assert report["quality_certified"] is False
+    assert report["completed_engine_count"] == 4
     assert len(calls) == 1
     assert calls[0][3]["real_engines"] is True
     assert output.size == original.size == (15, 11)
     assert output.mode == original.mode == "RGBA"
     assert output.getchannel("A").tobytes() == original.getchannel("A").tobytes()
     assert output.info["dpi"] == original.info["dpi"]
-    assert np.any(np.asarray(output) != np.asarray(original))
+    assert output is original
+    assert output.tobytes() == snapshot
     assert original.tobytes() == snapshot  # V2 reference never mutated.
     assert not list(tmp_path.glob("*V211-4AI-QA*"))
 
