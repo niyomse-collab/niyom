@@ -58,7 +58,7 @@ def maybe_enhance_v2_image(
 ) -> tuple[Image.Image, dict]:
     """Try the four real engines without altering the pre-existing V2 raster.
 
-    On success, return an enhanced raster ready for the SAME V2 export path.
+    On success, keep the accepted V2 raster on the normal export path.
     On any uncertainty, return the untouched V2 raster and an explicit status.
     Never pretend synthetic/CI tests establish production image quality.
     """
@@ -136,11 +136,9 @@ def maybe_enhance_v2_image(
             if cancel and cancel():
                 raise InterruptedError("Processing stopped by user")
             candidate.info.update(base.info)
-            return candidate, {
-                "status": "four_engine_applied_to_v2_raster",
-                "four_engines_applied": True,
+            # Experimental quality has not been approved: never substitute the\n            # candidate into the normal print/export pipeline. The separate\n            # bridge remains responsible for writing QA sidecars.\n            return base, {\n                "status": "four_engine_candidate_not_promoted",\n                "four_engines_applied": False,
                 "completed_engine_count": 4,
-                "v2_output_preserved": False,
+                "v2_output_preserved": True,
                 "fusion_implemented": True,
                 "quality_certified": False,
                 "engine_detail_contribution_mean_abs":
