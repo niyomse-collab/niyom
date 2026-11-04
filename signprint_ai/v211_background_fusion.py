@@ -139,7 +139,9 @@ def maybe_enhance_v2_image(
             # Experimental quality has not been approved: never substitute the
             # candidate into the normal print/export pipeline. The separate
             # bridge remains responsible for writing QA sidecars.
-            return base, {\n                "status": "four_engine_candidate_not_promoted",\n                "four_engines_applied": False,
+            return base, {
+                "status": "four_engine_candidate_not_promoted",
+                "four_engines_applied": False,
                 "completed_engine_count": 4,
                 "v2_output_preserved": True,
                 "fusion_implemented": True,
