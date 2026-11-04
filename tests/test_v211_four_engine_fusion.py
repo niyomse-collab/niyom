@@ -123,3 +123,30 @@ def test_reject_mismatched_size(tmp_path):
     Image.new("RGB", (14, 16)).save(cands["waifu2x"])
     with pytest.raises(ValueError, match="dimensions"):
         fuse_four_engine_details(src, v2, cands, tmp_path / "bad-geometry.png")
+
+
+def test_saturated_edge_keeps_channel_differences_without_clipping(tmp_path):
+    """Synthetic candidates only: shared luminance must not shift saturated hue."""
+    src, v2, cands = _fixture(tmp_path)
+    with Image.open(v2) as im:
+        pix = np.asarray(im).copy()
+    # A bright saturated boundary has no upward headroom in red.
+    pix[:, :8, :3] = (255, 70, 30)
+    pix[:, 8:, :3] = (245, 170, 130)
+    Image.fromarray(pix, "RGB").save(v2, dpi=(300, 300))
+    for name, path in cands.items():
+        candidate = pix.copy()
+        amount = 9 if name != "anime4k" else 5
+        candidate[:, 7, :3] = np.clip(candidate[:, 7, :3].astype(int) - amount, 0, 255)
+        candidate[:, 8, :3] = np.clip(candidate[:, 8, :3].astype(int) + amount, 0, 255)
+        Image.fromarray(candidate, "RGB").save(path, dpi=(300, 300))
+    output = tmp_path / "saturated.png"
+    fuse_four_engine_details(src, v2, cands, output)
+    with Image.open(output) as im:
+        result = np.asarray(im).astype(int)
+    baseline = pix.astype(int)
+    change = result - baseline
+    # Common luminance change is identical in all RGB channels at every pixel.
+    np.testing.assert_array_equal(change[..., 0], change[..., 1])
+    np.testing.assert_array_equal(change[..., 1], change[..., 2])
+    assert np.max(np.abs(change)) <= 6
