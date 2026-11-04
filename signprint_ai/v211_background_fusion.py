@@ -119,6 +119,15 @@ def maybe_enhance_v2_image(
                     "fusion_error": result.get("fusion_error"),
                 }
             with Image.open(fusion["output"]) as image:
+                # Pillow.crop pads undersized inputs; validate first so an
+                # invalid native result cannot masquerade as a valid candidate.
+                if image.size != padded.size:
+                    raise ValueError(
+                        "four-AI fusion output dimensions mismatch: "
+                        f"{image.size} != {padded.size}"
+                    )
+                if image.mode != base.mode:
+                    raise ValueError("four-AI fusion changed image mode")
                 image.load()
                 candidate = image.crop((0, 0, base.width, base.height))
             if candidate.mode != base.mode or candidate.size != base.size:
