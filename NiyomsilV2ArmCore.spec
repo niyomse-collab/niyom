@@ -20,6 +20,7 @@ hiddenimports = [
     "_libvips",
     # Included for the explicit V2.1.1 research opt-in; not activated by default.
     "signprint_ai.v211_four_engine_bridge",
+    "signprint_ai.v211_background_fusion",
     "tools.v211_four_engine_run",
     "tools.v211_four_engine_coordinator",
     "tools.v211_four_engine_subprocess",
