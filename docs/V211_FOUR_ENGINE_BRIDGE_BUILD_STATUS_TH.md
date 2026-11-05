@@ -42,3 +42,13 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Cancellation is passed from the V2 job into each native subprocess and into tiled fusion. A cancelled or failed auxiliary run reports its own status and leaves the saved V2 file intact; incomplete persistent evidence folders are removed on cancellation.
 - The supported auxiliary route remains exact 2x RGB/RGBA PNG and <=18 MP. Other scales, TIFF/PDF/CMYK, and larger jobs continue through V2 only and are explicitly reported as unsupported for the four-engine sidecar.
 - These are integration and cancellation safeguards, not evidence of real inference on the shop GPU or improved image quality. The four-engine Windows candidate build and the owner's GTX 1660 Ti A/B review remain release gates.
+
+
+## 5 November 2026 — installer completion gate hardening
+
+- The installer now removes any stale local setup-complete marker before the selected provisioning task runs.
+- The first installer Run entry performs provisioning before the optional editor launch. Silent installations pass --silent, still run the selected provisioning task, and record a local setup log instead of creating a hidden Tk window.
+- The setup CLI publishes setup-complete.flag atomically only after all four exact engine names and the terminal setup status have been verified.
+- The editor launch Run entry is gated by that marker whenever the four-engine task is selected. A failed or incomplete provisioning attempt therefore does not launch the editor as if setup succeeded.
+- Inno Setup captures a nonzero custom installer exit code when the selected four-engine setup did not publish a fresh marker. If the task is unchecked, the editor can still launch and the accepted V2 path remains available.
+- This is source-level and CI-testable installer control flow. The packaged installer still requires a real interactive and silent Windows install/uninstall test before customer deployment.
