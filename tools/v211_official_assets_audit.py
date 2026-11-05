@@ -22,8 +22,14 @@ PACKAGES = {
         "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
         "release_sha256": None,  # Upstream release API has no digest.
         "observed_sha256": "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d",  # Reproducible Windows Actions audit 2026-11-03.
-        "license": "MIT (upstream repository LICENSE; verify model-weights rights)",
+        "license": "MIT (Real-ESRGAN-ncnn-vulkan executable source) + BSD-3-Clause (Real-ESRGAN project/model provenance; verify any separate weight terms)",
         "license_url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/blob/master/LICENSE",
+        "additional_license_notices": [
+            {
+                "name": "Real-ESRGAN project BSD-3-Clause; release-specific model-weight terms still require review",
+                "url": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+            },
+        ],
     },
     "waifu2x": {
         "release": "20250915",
@@ -225,6 +231,7 @@ def audit_official_releases(destination: Path, report_path: Path) -> dict:
             "source_url": package["url"],
             "license_name": package["license"],
             "license_url": package["license_url"],
+            "additional_license_notices": package.get("additional_license_notices", []),
             "verified_for_inference": False,
         }
         try:
