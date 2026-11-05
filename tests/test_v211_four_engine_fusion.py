@@ -42,6 +42,10 @@ def test_four_models_fuse_to_separate_png_and_keep_v2_exact(tmp_path):
     report = fuse_four_engine_details(source, baseline, candidates, output)
     assert report["fusion_implemented"] is True
     assert report["all_four_engine_candidates_consumed"] is True
+    assert report["all_four_engine_pixels_contributed"] is True
+    assert all(report["engine_pixel_effect_verified"].values())
+    assert all(report["engine_pixel_effect_pixels"][name] > 0 for name in ENGINES)
+    assert report["contribution_attribution"].startswith("leave_one_engine_out")
     assert report["experimental_preview_only"] is True
     assert report["quality_certified"] is False
     assert report["edge_pixels_modified_or_considered"] > 0
@@ -59,6 +63,24 @@ def test_four_models_fuse_to_separate_png_and_keep_v2_exact(tmp_path):
         np.testing.assert_array_equal(im[:, :4], v2[:, :4])
         assert fused.info["dpi"][0] == pytest.approx(300, abs=0.1)
         assert int(np.abs(im.astype(int) - v2.astype(int)).max()) <= 6
+
+
+def test_engine_without_counterfactual_pixel_effect_is_not_counted(tmp_path):
+    src, v2, candidates = _fixture(tmp_path)
+    with Image.open(v2) as base:
+        base.copy().save(candidates["anime4k"], dpi=(300, 300))
+    report = fuse_four_engine_details(
+        src, v2, candidates, tmp_path / "incomplete-contribution.png"
+    )
+    assert report["fusion_implemented"] is True
+    assert report["all_four_engine_candidates_consumed"] is True
+    assert report["all_four_engine_pixels_contributed"] is False
+    assert report["engine_pixel_effect_verified"]["anime4k"] is False
+    assert report["engine_pixel_effect_pixels"]["anime4k"] == 0
+    assert all(
+        report["engine_pixel_effect_verified"][name]
+        for name in ("real_esrgan", "waifu2x", "real_cugan")
+    )
 
 
 def test_rgba_keeps_identical_alpha_and_transparent_edges(tmp_path):
@@ -88,6 +110,8 @@ def test_auto_face_without_rectangles_keeps_complete_v2(tmp_path):
                                       preserve_all_v2_faces=True)
     assert result["protected_faces_preserved"]
     assert result["mean_abs_detail_delta"] == 0
+    assert result["all_four_engine_pixels_contributed"] is False
+    assert not any(result["engine_pixel_effect_verified"].values())
     with Image.open(v2) as base, Image.open(tmp_path / "portrait.png") as fused:
         np.testing.assert_array_equal(np.asarray(base), np.asarray(fused))
 
