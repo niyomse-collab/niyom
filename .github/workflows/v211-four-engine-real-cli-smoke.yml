@@ -111,7 +111,7 @@ jobs:
             $r = Get-Content $Path -Raw | ConvertFrom-Json
             if ($r.failed_stage) { throw "$CaseName failed before native execution: $($r.failed_stage)" }
             if ($r.real_inference_verified) {
-              Write-Host "$CaseName: all four native CLI outputs validated."
+              Write-Host "${CaseName}: all four native CLI outputs validated."
               return
             }
             $failures = @($r.failures.PSObject.Properties)
@@ -127,7 +127,7 @@ jobs:
             if ($unexpected.Count -gt 0) {
               throw "$CaseName has non-Vulkan engine/candidate failures: $($unexpected -join '; ')"
             }
-            Write-Warning "$CaseName: native inference was blocked by Vulkan initialization on this hosted runner. This is not a quality pass; repeat on the shop GTX 1660 Ti."
+            Write-Warning "${CaseName}: native inference was blocked by Vulkan initialization on this hosted runner. This is not a quality pass; repeat on the shop GTX 1660 Ti."
           }
           Assert-RealCliReport (Join-Path $env:RUNNER_TEMP 'v211-real-cli-results/real_inference_report.json') 'RGB synthetic'
           Assert-RealCliReport (Join-Path $env:RUNNER_TEMP 'v211-real-cli-alpha-results/real_inference_report.json') 'RGBA/ICC synthetic'
