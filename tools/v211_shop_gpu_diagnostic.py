@@ -237,7 +237,13 @@ def run_diagnostic(
     for item in engine_matrix.values():
         item["both_cases_pass"] = item["rgb_pass"] and item["rgba_pass"]
 
-    all_four = all(item["both_cases_pass"] for item in engine_matrix.values())
+    manifest_preflight_passed = bool(
+        manifest.is_file()
+        and all(case.get("failed_stage") != "manifest_preflight" for case in cases.values())
+    )
+    all_four = manifest_preflight_passed and all(
+        item["both_cases_pass"] for item in engine_matrix.values()
+    )
     gpu_ready = bool(
         gpu.get("gtx_1660_ti_detected_by_nvidia_smi")
         and gpu.get("gtx_1660_ti_detected_by_vulkan")
@@ -247,9 +253,7 @@ def run_diagnostic(
         "schema_version": 1,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "manifest_present": manifest.is_file(),
-        "manifest_preflight_passed": all(
-            case.get("failed_stage") != "manifest_preflight" for case in cases.values()
-        ),
+        "manifest_preflight_passed": manifest_preflight_passed,
         "gpu": gpu,
         "engine_matrix": engine_matrix,
         "cases": cases,
