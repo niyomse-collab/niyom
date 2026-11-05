@@ -20,6 +20,7 @@ def _gpu():
                        "api_versions": ["1.3.0"]},
         "gtx_1660_ti_detected_by_nvidia_smi": True,
         "gtx_1660_ti_detected_by_vulkan": True,
+        "vulkan_loader_available": True,
         "vulkaninfo_succeeded": True,
         "vram_budget_6gb_detected": True,
     }
