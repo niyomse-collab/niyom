@@ -52,6 +52,58 @@ def _successful_runner(manifest, source, output, *, timeout_seconds):
     }
 
 
+def test_anime4k_probe_reports_processors_and_devices_without_claiming_selection(
+    tmp_path, monkeypatch
+):
+    executable = tmp_path / "ac_cli.exe"
+    executable.write_bytes(b"synthetic executable placeholder")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "anime4k": {
+            "executable": str(executable),
+            "args": ["-i", "{input}", "-o", "{output}", "-f", "2"],
+        }
+    }), encoding="utf-8")
+
+    calls = []
+
+    def fake_probe(path, args, timeout=15):
+        calls.append((Path(path).name, args))
+        if args == ["--lp"]:
+            return {
+                "available": True, "success": True, "status": "ok",
+                "return_code": 0,
+                "stdout": "Available processors: CPU OpenCL CUDA",
+                "stderr": "",
+            }
+        return {
+            "available": True, "success": True, "status": "ok",
+            "return_code": 0,
+            "stdout": "Device 0: NVIDIA GeForce GTX 1660 Ti",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(diagnostic, "_run_probe", fake_probe)
+    result = diagnostic.probe_anime4k_backend(manifest)
+
+    assert calls == [("ac_cli.exe", ["--lp"]), ("ac_cli.exe", ["-l"])]
+    assert result["status"] == "ok"
+    assert result["available_processors"] == ["cpu", "opencl", "cuda"]
+    assert result["gtx_1660_ti_visible_in_device_inventory"]
+    assert result["configured_processor"] == "auto"
+    assert result["configured_device"] == 0
+    assert result["processor_selection_verified"] is False
+    assert result["device_selection_verified"] is False
+
+
+def test_anime4k_probe_fails_closed_for_unreadable_manifest(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("not json", encoding="utf-8")
+    assert diagnostic.probe_anime4k_backend(manifest) == {
+        "status": "manifest_unavailable"
+    }
+
+
 def test_nvidia_smi_parser_handles_csv_device_names():
     parsed = diagnostic._parse_nvidia_smi_csv(
         '"NVIDIA GeForce GTX 1660 Ti", 32.0.16.1742, 6144, 5500\n'
@@ -111,6 +163,8 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
         (tmp_path / "report" / "shop_gpu_diagnostic.json").read_text(encoding="utf-8")
     )
     assert saved["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
+    assert saved["anime4k_backend_inventory"]["status"] == "manifest_unavailable"
+    assert saved["schema_version"] == 2
 
 
 
