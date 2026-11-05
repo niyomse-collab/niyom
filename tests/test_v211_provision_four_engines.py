@@ -122,6 +122,47 @@ def test_manifest_publish_failure_rolls_back_promoted_directories(tmp_path, monk
     assert not any((install / engine).exists() for engine in provision.PACKAGES)
     assert list(install.iterdir()) == []
 
+
+def test_existing_verified_archive_is_reused_without_download(tmp_path, monkeypatch):
+    archives = _fake_archives(tmp_path, monkeypatch)
+    package = provision.PACKAGES["real_esrgan"]
+    target = archives / "real_esrgan.zip"
+
+    def unexpected_download(*args, **kwargs):
+        pytest.fail("verified existing archive should be reused")
+
+    monkeypatch.setattr(provision, "download_archive", unexpected_download)
+    result = provision.ensure_verified_archive(target, package)
+
+    assert result["status"] == "already_verified"
+    assert target.is_file()
+
+
+def test_invalid_cached_archive_uses_pinned_download_retry(tmp_path, monkeypatch):
+    archives = _fake_archives(tmp_path, monkeypatch)
+    package = provision.PACKAGES["real_esrgan"]
+    target = archives / "real_esrgan.zip"
+    valid_bytes = target.read_bytes()
+    target.write_bytes(b"interrupted partial archive")
+    calls = []
+
+    def verified_replacement(url, destination, release_sha256=None, observed_sha256=None):
+        calls.append((url, Path(destination), release_sha256, observed_sha256))
+        Path(destination).write_bytes(valid_bytes)
+        return {"archive_sha256": hashlib.sha256(valid_bytes).hexdigest()}
+
+    monkeypatch.setattr(provision, "download_archive", verified_replacement)
+    result = provision.ensure_verified_archive(target, package)
+
+    assert result["status"] == "downloaded_verified"
+    assert len(calls) == 1
+    assert calls[0][0] == package["url"]
+    assert calls[0][1] == target
+    assert calls[0][2] == package.get("release_sha256")
+    assert calls[0][3] == package.get("observed_sha256")
+    assert target.read_bytes() == valid_bytes
+
+
 def test_embedded_exception_only_allows_hash_pinned_anime4k(tmp_path, monkeypatch):
     archives = _fake_archives(tmp_path, monkeypatch)
     manifest = tmp_path / "manifest.json"
