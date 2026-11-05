@@ -13,6 +13,10 @@ if __name__ == "__main__":
         from signprint_ai.v211_setup_cli import main as provision_main
         raise SystemExit(provision_main(silent="--silent" in sys.argv[1:]))
 
+    if len(sys.argv) >= 2 and sys.argv[1] == "--diagnose-v211-four-ai":
+        from tools.v211_shop_gpu_diagnostic import main as diagnostic_main
+        raise SystemExit(diagnostic_main(sys.argv[2:]))
+
     # Import app_v2 before smoke handling so the frozen EXE proves that the
     # normal V2/PyTorch/BasicSR/RealESRGAN import graph is complete.
     from signprint_ai.app_v2 import main
@@ -41,6 +45,7 @@ if __name__ == "__main__":
             "tools.v211_provision_four_engines",
             "tools.v211_four_engine_run",
             "tools.v211_four_engine_fusion",
+            "tools.v211_shop_gpu_diagnostic",
         ):
             importlib.import_module(module_name)
         from signprint_ai.large_image import vips
