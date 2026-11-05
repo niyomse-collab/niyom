@@ -12,6 +12,7 @@ from __future__ import annotations
 from contextlib import ExitStack
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import Callable
 import os
 
 import numpy as np
@@ -63,6 +64,7 @@ def fuse_four_engine_details(
     *,
     protected_regions: tuple[tuple[float, float, float, float], ...] = (),
     preserve_all_v2_faces: bool = False,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> dict:
     """Apply four previously validated model outputs to a distinct QA file.
 
@@ -108,6 +110,8 @@ def fuse_four_engine_details(
         # Working memory bounded by one region from each model.
         for y in range(0, H, TILE):
             for x in range(0, W, TILE):
+                if cancel_check and cancel_check():
+                    raise InterruptedError("Processing stopped by user")
                 w, h = min(TILE, W - x), min(TILE, H - y)
                 xx, yy = max(0, x - HALO), max(0, y - HALO)
                 xx2, yy2 = min(W, x + w + HALO), min(H, y + h + HALO)
@@ -166,6 +170,8 @@ def fuse_four_engine_details(
                 fused.paste(Image.fromarray(output_array, mode=base.mode), (x, y))
                 edge_pixels += int(edge_gate.sum())
                 mean_delta_sum += float(np.abs(safe_delta).sum())
+        if cancel_check and cancel_check():
+            raise InterruptedError("Processing stopped by user")
         output.parent.mkdir(parents=True, exist_ok=True)
         # Never write an incomplete PNG into the user-visible QA location.
         with NamedTemporaryFile(suffix=".png", prefix=".v211_fusion_", dir=output.parent, delete=False) as fh:
