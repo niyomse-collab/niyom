@@ -32,6 +32,10 @@ def _fake_archives(tmp_path, monkeypatch, *, missing_weights=False):
             "url": "https://github.com/example/synthetic-fixture",
             "license": "test-only",
             "license_url": "https://github.com/example/synthetic-fixture/LICENSE",
+            "additional_license_notices": (
+                [{"name": "synthetic model notice", "url": "https://github.com/example/synthetic-model/LICENSE"}]
+                if engine == "real_esrgan" else []
+            ),
             "release_sha256": sha,
         }
     monkeypatch.setattr(provision, "PACKAGES", configs)
@@ -51,6 +55,9 @@ def test_create_verified_manifest_from_four_archives(tmp_path, monkeypatch):
     assert set(data) == {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
     assert data["anime4k"]["embedded_algorithm"] is True
     assert data["anime4k"]["model_assets"] == []
+    assert data["real_esrgan"]["provenance"]["additional_license_notices"] == [
+        {"name": "synthetic model notice", "url": "https://github.com/example/synthetic-model/LICENSE"}
+    ]
     assert len(data["waifu2x"]["model_assets"]) == 2
     assert data["anime4k"]["args"][-2:] == ["-f", "2"]
     assert "realesrgan-x4plus" in data["real_esrgan"]["args"]
