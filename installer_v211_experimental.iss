@@ -81,7 +81,12 @@ begin
   begin
     { A fresh pending marker makes any stale success marker unusable. }
     FourAISetupExitCode := 1;
-    FourAISetupArmed := SaveStringToFile(FourAIPendingMarker(), 'pending', False);
+    { Create the per-user marker directory on a clean first install before writing. }
+    FourAISetupArmed :=
+      ForceDirectories(ExtractFileDir(FourAIPendingMarker())) and
+      SaveStringToFile(FourAIPendingMarker(), 'pending', False);
+    if not FourAISetupArmed then
+      Log('V2.1.1: could not create the fresh four-engine setup pending marker');
   end;
 
   if (CurStep = ssPostInstall) and WizardIsTaskSelected('installfourai') then
