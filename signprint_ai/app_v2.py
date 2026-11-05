@@ -1632,7 +1632,10 @@ class App(tk.Tk):
                         self._last_result = Path(qa_file) if show_ai_preview else Path(path)
                         caption = f"ผลลัพธ์จริง: {result['output_size'][0]:,} × {result['output_size'][1]:,} px"
                         if show_ai_preview:
-                            caption += " • ตัวอย่าง AI 4 ตัวรวมแล้ว (QA) • ไฟล์ V2 เดิมยังอยู่ ไม่ใช่ผลรับรองคุณภาพ"
+                            if four_ai.get("status") == "four_engine_fusion_contribution_incomplete":
+                                caption += " • QA ยังไม่ครบ 4 ตัว: มี Engine ที่ไม่เปลี่ยนพิกเซลผลลัพธ์ • ไฟล์ V2 เดิมยังอยู่"
+                            else:
+                                caption += " • ตัวอย่าง AI 4 ตัวมีผลต่อพิกเซลแล้ว (QA) • ไฟล์ V2 เดิมยังอยู่ ไม่ใช่ผลรับรองคุณภาพ"
                         elif four_ai.get("status") == "four_engine_applied_to_v2_raster":
                             caption += " • AI 4 ตัวเสริมผลลัพธ์แล้ว (ยังไม่รับรองคุณภาพ)"
                         elif four_ai.get("status") == "models_not_installed":
