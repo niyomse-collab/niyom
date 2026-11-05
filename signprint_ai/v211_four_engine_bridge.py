@@ -143,6 +143,11 @@ def maybe_run_four_engine_assist(
                         raise
                     private_output = str(sidecar)
 
+        # Catch a late user cancel during a potentially large sidecar copy too.
+        # The exception handler removes this partial QA file and preserves V2.
+        if cancel and cancel():
+            raise InterruptedError("Processing stopped by user")
+
         fusion = result.get("four_engine_fusion") or {}
         preview = result.get("three_engine_priority_preview") or {}
         selection = preview.get("selected")
