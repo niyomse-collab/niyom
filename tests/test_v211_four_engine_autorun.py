@@ -219,6 +219,7 @@ def test_core_adapter_maps_face_regions_to_final_fit_canvas(tmp_path, monkeypatc
     assert observed["kwargs"]["cancel"] is None
     assert observed["kwargs"]["protected_regions"] == ((0.375, 0.25, 0.625, 0.75),)
     assert observed["kwargs"]["preserve_all_v2_faces"] is False
+    assert observed["kwargs"]["resize_mode"] == "fit"
     assert qa.is_file()
     with Image.open(destination) as saved, Image.open(qa) as preview:
         assert saved.size == (16, 8)
