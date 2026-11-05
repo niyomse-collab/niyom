@@ -42,6 +42,9 @@ def test_installed_four_ai_is_auto_executed_and_exports_separate_result(tmp_path
             "failures": {},
             "four_engine_fusion": {
                 "fusion_implemented": True,
+                "all_four_engine_pixels_contributed": True,
+                "engine_pixel_effect_verified": {n: True for n in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")},
+                "engine_pixel_effect_pixels": {n: 1 for n in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")},
                 "output": str(fusion),
                 "mean_abs_detail_delta": 1.5,
                 "engine_detail_contribution_mean_abs": {
@@ -116,7 +119,7 @@ def test_custom_four_x_target_runs_native_two_x_on_half_target_seed(tmp_path, mo
             "ready_for_fusion_research": True,
             "completed_engine_count": 4,
             "failures": {},
-            "four_engine_fusion": {"fusion_implemented": True, "output": str(fusion)},
+            "four_engine_fusion": {"fusion_implemented": True, "all_four_engine_pixels_contributed": True, "output": str(fusion)},
         }
 
     monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
