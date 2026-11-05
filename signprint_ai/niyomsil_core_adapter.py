@@ -516,6 +516,7 @@ class NiyomSilpCoreAdapter:
                 protected_regions=mapped_faces,
                 preserve_all_v2_faces=bool(face_info.get("applied") and not mapped_faces),
                 progress=progress,
+                resize_mode=settings.resize_mode,
             )
 
         if progress:
