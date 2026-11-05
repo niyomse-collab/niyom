@@ -129,3 +129,30 @@ def test_opt_in_three_primary_candidates_do_not_require_anime_preview(tmp_path, 
     assert result["quality_certified"] is False
     assert result["v2_output_preserved"]
     assert baseline.read_bytes() == before
+
+
+
+def test_cancelled_native_run_cleans_persistent_private_evidence(tmp_path, monkeypatch):
+    source, baseline = _images(tmp_path)
+    before = baseline.read_bytes()
+    evidence = tmp_path / "private-evidence"
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", str(evidence))
+    from tools import v211_four_engine_run
+
+    cancel = lambda: False
+
+    def cancelled_run(src, output_dir, manifest, size, **kwargs):
+        assert kwargs["cancel"] is cancel
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "partial-candidate.png").write_bytes(b"private partial")
+        raise InterruptedError("Processing stopped by user")
+
+    monkeypatch.setattr(v211_four_engine_run, "run", cancelled_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline, cancel=cancel)
+    assert result["status"] == "cancelled"
+    assert result["v2_output_preserved"] is True
+    assert baseline.read_bytes() == before
+    assert evidence.is_dir()
+    assert list(evidence.iterdir()) == []
