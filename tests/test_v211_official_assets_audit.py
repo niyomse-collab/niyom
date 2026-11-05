@@ -174,7 +174,28 @@ def test_interrupted_download_keeps_previous_archive_and_removes_partial(tmp_pat
     response = _FakeResponse(b"partial-download", fail_after=5)
     monkeypatch.setattr(assets.urllib.request, "urlopen", lambda *a, **k: response)
 
+    expected = hashlib.sha256(b"partial-download").hexdigest()
     with pytest.raises(OSError, match="connection reset"):
+        assets.download_archive(
+            "https://example.invalid/engine.zip", target,
+            expected_sha256=expected,
+        )
+
+    assert target.read_bytes() == previous
+    assert list(tmp_path.glob(".*.part")) == []
+
+
+
+def test_download_refuses_to_start_without_a_sha256_pin(tmp_path, monkeypatch):
+    target = tmp_path / "engine.zip"
+    previous = b"previous verified archive"
+    target.write_bytes(previous)
+
+    def unexpected_network(*args, **kwargs):
+        pytest.fail("download must fail before opening the network without a pin")
+
+    monkeypatch.setattr(assets.urllib.request, "urlopen", unexpected_network)
+    with pytest.raises(ValueError, match="SHA256 pin"):
         assets.download_archive("https://example.invalid/engine.zip", target)
 
     assert target.read_bytes() == previous
