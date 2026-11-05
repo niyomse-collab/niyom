@@ -497,11 +497,20 @@ class NiyomSilpCoreAdapter:
         # reported without undoing the completed V2 export.
         if use_ai and model_scale > 1:
             from .v211_four_engine_bridge import maybe_run_four_engine_assist
-            mapped_faces = (
-                tuple(settings.face_regions or ())
-                if face_info.get("applied") and getattr(settings, "face_regions", None)
-                else ()
-            )
+            mapped_faces = ()
+            if face_info.get("applied") and getattr(settings, "face_regions", None):
+                # Fusion runs on the final V2 target raster, after fit/stretch
+                # has been applied. Map source-space ROIs to that exact canvas
+                # so letterboxing cannot move the face-protection mask.
+                from .face_module.detection import map_regions
+                mapped_faces = tuple(
+                    map_regions(
+                        tuple(settings.face_regions),
+                        source_size,
+                        target_size,
+                        settings.resize_mode,
+                    )
+                )
             four_engine_evidence = maybe_run_four_engine_assist(
                 src, dst, use_ai=use_ai, cancel=cancel,
                 protected_regions=mapped_faces,
