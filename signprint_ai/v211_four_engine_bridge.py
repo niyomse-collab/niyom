@@ -284,6 +284,8 @@ def maybe_run_four_engine_assist(
         return {
             "status": (
                 "four_engine_fusion_preview_ready"
+                if fusion.get("fusion_implemented") and fusion.get("all_four_engine_pixels_contributed")
+                else "four_engine_fusion_contribution_incomplete"
                 if fusion.get("fusion_implemented")
                 else "three_engine_priority_preview_ready"
                 if selection is not None
@@ -314,6 +316,9 @@ def maybe_run_four_engine_assist(
             "anime4k_optional_for_priority_preview": True,
             "failures": result.get("failures", {}),
             "fusion_implemented": bool(fusion.get("fusion_implemented")),
+            "all_four_engine_pixels_contributed": bool(fusion.get("all_four_engine_pixels_contributed")),
+            "engine_pixel_effect_pixels": fusion.get("engine_pixel_effect_pixels"),
+            "engine_pixel_effect_verified": fusion.get("engine_pixel_effect_verified"),
             "quality_certified": False,
             "v2_output_preserved": True,
         }
