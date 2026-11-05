@@ -53,6 +53,13 @@ def test_four_engine_setup_runs_during_install_not_when_editor_opens():
     assert "CurStepChanged" in qa
     assert "setup-complete.flag" in qa
     assert "setup-pending.flag" in qa
+    marker_block = qa.split("procedure CurStepChanged", 1)[1].split(
+        "function GetCustomSetupExitCode", 1
+    )[0]
+    assert "ForceDirectories(ExtractFileDir(FourAIPendingMarker()))" in marker_block
+    assert marker_block.index("ForceDirectories(") < marker_block.index(
+        "SaveStringToFile(FourAIPendingMarker()"
+    )
     assert "FourAISetupArmed" in qa
     assert "provision_after_consent" not in app
     assert "_offer_v211_four_ai_setup" not in app
