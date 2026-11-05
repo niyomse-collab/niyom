@@ -85,6 +85,43 @@ def test_repeat_install_refuses_overwrite(tmp_path, monkeypatch):
         provision.provision_from_archives(archives, install, tmp_path / "second.json")
 
 
+
+def test_failed_staging_rolls_back_every_engine_directory(tmp_path, monkeypatch):
+    archives = _fake_archives(tmp_path, monkeypatch)
+    install = tmp_path / "installed"
+    manifest = tmp_path / "manifest.json"
+    original_manifest_entry = provision.manifest_entry
+
+    def fail_during_third_engine(engine, directory, package, digest):
+        if engine == "real_cugan":
+            raise RuntimeError("synthetic staging failure")
+        return original_manifest_entry(engine, directory, package, digest)
+
+    monkeypatch.setattr(provision, "manifest_entry", fail_during_third_engine)
+    with pytest.raises(RuntimeError, match="synthetic staging failure"):
+        provision.provision_from_archives(archives, install, manifest)
+
+    assert not manifest.exists()
+    assert not any((install / engine).exists() for engine in provision.PACKAGES)
+    assert list(install.iterdir()) == []
+
+
+def test_manifest_publish_failure_rolls_back_promoted_directories(tmp_path, monkeypatch):
+    archives = _fake_archives(tmp_path, monkeypatch)
+    install = tmp_path / "installed"
+    manifest = tmp_path / "manifest.json"
+
+    def fail_manifest_publish(path, payload):
+        raise OSError("synthetic manifest disk failure")
+
+    monkeypatch.setattr(provision, "_write_manifest_exclusive", fail_manifest_publish)
+    with pytest.raises(OSError, match="synthetic manifest disk failure"):
+        provision.provision_from_archives(archives, install, manifest)
+
+    assert not manifest.exists()
+    assert not any((install / engine).exists() for engine in provision.PACKAGES)
+    assert list(install.iterdir()) == []
+
 def test_embedded_exception_only_allows_hash_pinned_anime4k(tmp_path, monkeypatch):
     archives = _fake_archives(tmp_path, monkeypatch)
     manifest = tmp_path / "manifest.json"
