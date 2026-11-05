@@ -28,7 +28,8 @@ _MANIFEST = "NIYOMSIL_V211_FOUR_AI_MANIFEST"
 _EVIDENCE = "NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR"
 
 # This is an auxiliary-engine budget, NOT a V2 resize/export pixel limit.
-_AUXILIARY_MAX_PIXELS = 18_000_000
+AUXILIARY_MAX_PIXELS = 18_000_000
+_AUXILIARY_MAX_PIXELS = AUXILIARY_MAX_PIXELS
 _SOURCE_FORMATS = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}
 _V2_RASTER_FORMATS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
