@@ -246,15 +246,9 @@ class NiyomSilpCoreAdapter:
                     "V2.1.1 Source Ink เป็นโหมดวิจัยขนาดเล็กเท่านั้น "
                     "ยังไม่ผ่านการทดสอบงานไวนิลใหญ่ กรุณาปิดโหมดนี้และใช้ V2"
                 )
-            def large_progress(value, message):
-                # Leave a final 5% for the optional native-engine QA pass.
-                if progress:
-                    bounded = max(0, min(100, int(value)))
-                    progress(round(bounded * 0.95), message)
-
             large_result = process_large(
                 self, src, dst, settings, source_size, target_size,
-                model_scale, large_progress if progress else None, cancel, use_ai
+                model_scale, progress, cancel, use_ai, complete_progress=False
             )
             if photo_preflight is not None:
                 large_result["photo_preflight"] = photo_preflight
