@@ -78,17 +78,19 @@ def test_synthetic_pngs_include_rgb_rgba_icc_and_300dpi(tmp_path):
     with Image.open(rgb) as image:
         assert image.mode == "RGB"
         assert image.info.get("icc_profile")
-        assert image.info["dpi"] == (300.0, 300.0)
+        assert all(abs(value - 300.0) < 0.01 for value in image.info["dpi"])
     with Image.open(rgba) as image:
         assert image.mode == "RGBA"
         assert image.info.get("icc_profile")
-        assert image.info["dpi"] == (300.0, 300.0)
+        assert all(abs(value - 300.0) < 0.01 for value in image.info["dpi"])
         assert image.getchannel("A").getextrema()[0] == 0
 
 
 def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test manifest", encoding="utf-8")
     report = diagnostic.run_diagnostic(
-        tmp_path / "manifest.json", tmp_path / "report",
+        manifest, tmp_path / "report",
         gpu_probe=_gpu, engine_runner=_successful_runner,
     )
     assert report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
@@ -122,8 +124,10 @@ def test_one_engine_failure_is_not_reported_as_four_engine_success(tmp_path):
         }
         return result
 
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test manifest", encoding="utf-8")
     report = diagnostic.run_diagnostic(
-        tmp_path / "manifest.json", tmp_path / "report",
+        manifest, tmp_path / "report",
         gpu_probe=_gpu, engine_runner=one_engine_fails,
     )
     assert not report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
