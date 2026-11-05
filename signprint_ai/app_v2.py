@@ -1668,11 +1668,20 @@ class App(tk.Tk):
                             caption += " • AI 4 ตัว: ยังไม่มีโมเดลที่ติดตั้งสำหรับ V2.1.1"
                         elif four_ai.get("status") == "large_image_tiling_pending":
                             caption += " • AI 4 ตัว: งานใหญ่ยังไม่รองรับ • ใช้ภาพ V2 เดิม"
+                        elif four_ai.get("status") == "cancelled":
+                            caption += " • AI 4 ตัว: ยกเลิกแล้ว • ไฟล์ V2 เดิมยังอยู่"
                         elif four_ai.get("status") in (
-                            "four_engine_error", "four_engine_incomplete",
-                            "four_engine_no_pixel_effect",
+                            "auxiliary_image_too_large", "auxiliary_engine_scale_mismatch",
+                            "unsupported_output_format", "unsupported_source_format",
+                            "unsupported_source_mode", "unsupported_colour_mode",
                         ):
-                            caption += " • AI 4 ตัว: ยังไม่เสริมผลภาพ • ใช้ภาพ V2 เดิม"
+                            caption += " • AI 4 ตัว: สเกล/รูปแบบนี้ยังไม่รองรับ • ใช้ภาพ V2 เดิม"
+                        elif four_ai.get("status") in (
+                            "error", "incomplete_four_engine_candidates",
+                            "candidate_research_complete", "four_engine_error",
+                            "four_engine_incomplete", "four_engine_no_pixel_effect",
+                        ):
+                            caption += " • AI 4 ตัว: ยังไม่สร้าง QA ครบ • ใช้ภาพ V2 เดิม"
                         if result["output_size"][0] < result["original_size"][0] or result["output_size"][1] < result["original_size"][1]:
                             caption += " • ลดพิกเซลตามขนาด/DPI ที่ตั้ง"
                         if face.get("enabled"):
