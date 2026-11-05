@@ -37,21 +37,31 @@ def test_v211_build_dispatch_and_workflow_only_publish_unique_installer():
     assert 'release/NiyomSilp-Design-v2-Setup*' not in workflow
 
 
-
 def test_four_engine_setup_runs_during_install_not_when_editor_opens():
     qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
     app = (ROOT / "signprint_ai" / "app_v2.py").read_text(encoding="utf-8")
+    run_section = qa.split("[Run]", 1)[1].split("[Code]", 1)[0]
+    provision_line = next(line for line in run_section.splitlines()
+                          if "--provision-v211-four-ai" in line or
+                          "GetProvisionParameters" in line)
     assert 'Name: "installfourai"' in qa
     assert "Flags: checkedonce" in qa
-    assert 'Parameters: "--provision-v211-four-ai"' in qa
-    assert "runascurrentuser" in qa
-    assert "waituntilterminated" in qa
-    assert "_offer_v211_four_ai_setup" not in app
+    assert "GetProvisionParameters" in provision_line
+    assert "waituntilterminated" in provision_line
+    assert "skipifsilent" not in provision_line
+    assert "Check: ShouldLaunchEditor" in run_section
+    assert "GetCustomSetupExitCode" in qa
+    assert "CurStepChanged" in qa
+    assert "setup-complete.flag" in qa
     assert "provision_after_consent" not in app
+    assert "_offer_v211_four_ai_setup" not in app
 
 
-def test_installer_provision_window_is_not_hidden():
+def test_installer_silent_mode_is_noninteractive_but_still_provisions():
     qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
-    assert "Parameters: \"--provision-v211-four-ai\"" in qa
-    assert "Flags: waituntilterminated runascurrentuser skipifsilent" in qa
-    assert "runhidden" not in qa
+    cli = (ROOT / "signprint_ai" / "v211_setup_cli.py").read_text(encoding="utf-8")
+    assert "if WizardSilent then" in qa
+    assert " --silent" in qa
+    assert "def main(*, silent: bool = False)" in cli
+    assert "if silent:" in cli
+    assert "installer-setup.log" in cli
