@@ -265,3 +265,37 @@ def test_late_cancel_after_sidecar_copy_removes_qa_file_and_keeps_v2(tmp_path, m
     assert result["v2_output_preserved"] is True
     assert baseline.read_bytes() == before
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+
+
+@pytest.mark.parametrize(
+    ("resize_mode", "expected_top_pixel", "expected_center_pixel"),
+    [
+        ("fit", (255, 255, 255), (220, 30, 40)),
+        ("stretch", (220, 30, 40), (220, 30, 40)),
+    ],
+)
+def test_native_seed_uses_the_same_fit_or_stretch_geometry_as_v2(
+    tmp_path, resize_mode, expected_top_pixel, expected_center_pixel
+):
+    source = tmp_path / "wide-source.png"
+    baseline = tmp_path / "V2-fit-reference.png"
+    Image.new("RGB", (8, 4), (220, 30, 40)).save(source)
+    reference = Image.new("RGB", (16, 16), (255, 255, 255))
+    if resize_mode == "fit":
+        reference.paste(Image.new("RGB", (16, 8), (220, 30, 40)), (0, 4))
+    else:
+        reference = Image.new("RGB", (16, 16), (220, 30, 40))
+    reference.save(baseline)
+
+    seed_path, reference_path, target_size, padded_size, source_size, _ = (
+        bridge._prepare_native_2x_inputs(
+            source, baseline, tmp_path / "native-work", resize_mode=resize_mode
+        )
+    )
+    with Image.open(seed_path) as seed, Image.open(reference_path) as saved_reference:
+        assert seed.size == (8, 8)
+        assert seed.getpixel((4, 0)) == expected_top_pixel
+        assert seed.getpixel((4, 3)) == expected_center_pixel
+        assert saved_reference.size == padded_size == (16, 16)
+    assert target_size == (16, 16)
+    assert source_size == (8, 4)
