@@ -87,3 +87,12 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Independent Core regression บน commit `aad0112` (docs-only descendant ของ code SHA ที่ Build): Windows **691 passed, 1 skipped**; Ubuntu **689 passed, 3 skipped**; compileall ผ่านทั้งสองระบบ — [GitHub Actions #42104965348](https://github.com/niyomse-collab/niyom/actions/runs/42104965348)
 - Intermediate regression failures `#42104393057` และ `#42104495980` เกิดจาก assertions ใน tests ที่ยังคาดหวัง status เดิม `four_engine_fusion_preview_ready`; หลังปรับ tests ให้ตรวจ per-engine pixel contribution gate แล้ว regression ล่าสุดผ่าน. ไม่ได้เปลี่ยน gate กลับเพื่อทำให้ tests ผ่าน
 - Candidate build และ synthetic regression ยังไม่รับรอง Native inference ทั้งสี่บน GTX 1660 Ti, ไม่รับรอง GPU adapter, A/B quality, 18MP+ tiling, interactive/silent install-uninstall หรือ print output. คง `quality_certified=false`; ห้าม merge/release จนกว่าจะผ่านการทดสอบบนเครื่องร้านและผู้ใช้อนุมัติ
+
+## 6 พฤศจิกายน 2569 — เรียก Four-Engine QA หลัง V2 disk-tile สำหรับงานไม่เกิน 18MP
+
+- ก่อนหน้านี้ Core Adapter คืนผลจาก `process_large` ทันทีเมื่อ V2 เลือก disk-tile path ทำให้ Four-Engine Bridge ไม่ถูกเรียก แม้ source และภาพ V2 สุดท้ายจะยังอยู่ภายในงบของ Bridge
+- ปรับ Adapter ให้ V2 บันทึกไฟล์เสร็จก่อน แล้วจึงเรียก Four-Engine Bridge ต่อสำหรับงานที่ทั้ง source และ target ไม่เกิน 18MP โดยยังคงใช้ V2 disk-tile path เดิมและส่งต่อ Cancel/face-protection/resize mode
+- งานที่ source หรือ target เกิน 18MP ยังคงประมวลผล V2 ตามเดิม แต่รายงาน `large_image_tiling_pending`; ไม่มีการเริ่ม Native AI สี่ตัวในกรณีนี้
+- Bridge ตรวจขนาด source และ target จาก header ก่อน EXIF transpose, convert หรือ edge-pad เพื่อไม่ให้ภาพเกินงบถูกคัดลอกเข้า RAM ก่อนถูกปฏิเสธ
+- นี่เป็นการขยายการเชื่อมต่อหลัง V2 disk-tile สำหรับงานไม่เกิน 18MP เท่านั้น **ยังไม่ใช่ Four-Engine tile streaming สำหรับภาพเกิน 18MP**; Candidate images และ Fusion ยังใช้ Pillow full-image memory ภายในเพดานดังกล่าว
+- ยังต้องทดสอบ RAM/VRAM 6GB, cancel ระหว่าง Native subprocess, Native inference บน GTX 1660 Ti และ A/B ภาพจริงก่อนรับรองคุณภาพ
