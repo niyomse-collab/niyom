@@ -64,7 +64,10 @@ def test_command_is_dispatched_before_editor_import():
 def test_silent_setup_publishes_marker_only_after_all_four_verify(monkeypatch, tmp_path):
     expected = {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
     marker = tmp_path / "setup-complete.flag"
+    pending = tmp_path / "setup-pending.flag"
+    pending.write_text("pending", encoding="utf-8")
     monkeypatch.setattr(v211_setup_cli, "completion_marker_path", lambda: marker)
+    monkeypatch.setattr(v211_setup_cli, "pending_marker_path", lambda: pending)
     monkeypatch.setattr(
         v211_setup_cli,
         "install_for_offline_use",
@@ -75,13 +78,19 @@ def test_silent_setup_publishes_marker_only_after_all_four_verify(monkeypatch, t
     )
     assert v211_setup_cli.main(silent=True) == 0
     assert marker.read_text(encoding="utf-8").startswith("NiyomSilp V2.1.1")
+    assert not pending.exists()
 
 
-def test_silent_setup_failure_removes_stale_marker_and_returns_nonzero(monkeypatch, tmp_path):
+def test_silent_setup_failure_removes_stale_marker_and_keeps_pending_gate(
+    monkeypatch, tmp_path
+):
     marker = tmp_path / "setup-complete.flag"
+    pending = tmp_path / "setup-pending.flag"
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text("stale success", encoding="utf-8")
+    pending.write_text("pending", encoding="utf-8")
     monkeypatch.setattr(v211_setup_cli, "completion_marker_path", lambda: marker)
+    monkeypatch.setattr(v211_setup_cli, "pending_marker_path", lambda: pending)
 
     def fail():
         raise RuntimeError("simulated model verification failure")
@@ -89,6 +98,7 @@ def test_silent_setup_failure_removes_stale_marker_and_returns_nonzero(monkeypat
     monkeypatch.setattr(v211_setup_cli, "install_for_offline_use", fail)
     assert v211_setup_cli.main(silent=True) == 1
     assert not marker.exists()
+    assert pending.exists()
     assert "FAILED RuntimeError" in marker.with_name("installer-setup.log").read_text(
         encoding="utf-8"
     )
