@@ -128,19 +128,29 @@ def test_custom_four_x_target_runs_native_two_x_on_half_target_seed(tmp_path, mo
 
 
 
-def test_core_adapter_runs_bridge_after_durable_v2_png_save(tmp_path, monkeypatch):
+def test_core_adapter_maps_face_regions_to_final_fit_canvas(tmp_path, monkeypatch):
     source = tmp_path / "source.png"
     destination = tmp_path / "accepted-V2.png"
     source_icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
     Image.new("RGB", (8, 8), (35, 80, 120)).save(
         source, dpi=(300, 300), icc_profile=source_icc
     )
+    selected = ((0.25, 0.25, 0.75, 0.75),)
 
     class FakeEngine:
         def enhance(self, src, out, *, scale, progress_callback=None, cancel_check=None):
             assert scale == 2
             with Image.open(src) as image:
                 image.resize((16, 16), Image.Resampling.LANCZOS).save(out, dpi=(300, 300))
+
+    class FakeFaceModule:
+        def apply(self, image, **kwargs):
+            assert kwargs["regions"] == selected
+            return image, SimpleNamespace(as_dict=lambda: {
+                "enabled": True, "applied": True, "face_count": 1,
+                "mode": "protect", "strength": 35,
+                "skipped_reason": None, "face_audit": [],
+            })
 
     adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
     adapter.engine_manager = SimpleNamespace(
@@ -149,11 +159,12 @@ def test_core_adapter_runs_bridge_after_durable_v2_png_save(tmp_path, monkeypatc
             get_default_device=lambda: SimpleNamespace(name="CPU")
         ),
     )
-    adapter.face_module = object()
+    adapter.face_module = FakeFaceModule()
     adapter.create_job_engine = lambda settings: FakeEngine()
 
     monkeypatch.setattr(adapter_module, "image_size", lambda path: (8, 8))
     monkeypatch.setattr(adapter_module, "needs_streaming", lambda *args: False)
+    monkeypatch.setattr(adapter_module, "print_pixels", lambda *args: (16, 8))
     monkeypatch.setattr(adapter_module, "validate_export", lambda *args: None)
     monkeypatch.setattr(adapter_module, "refine_sign_edges", lambda image, **kwargs: image)
     from signprint_ai import v211_blur_gate, v211_face_contract
@@ -167,14 +178,14 @@ def test_core_adapter_runs_bridge_after_durable_v2_png_save(tmp_path, monkeypatc
     )
 
     qa = tmp_path / "accepted-V2.V211-4AI-QA-test.png"
-    Image.new("RGB", (16, 16), (200, 30, 40)).save(qa)
+    Image.new("RGB", (16, 8), (200, 30, 40)).save(qa)
     observed = {}
 
     def fake_bridge(src, v2_output, **kwargs):
         assert Path(v2_output).is_file(), "bridge must run only after V2 is durable"
         with Image.open(v2_output) as saved:
-            assert saved.size == (16, 16)
-            assert saved.getpixel((0, 0)) == (35, 80, 120)
+            assert saved.size == (16, 8)
+            assert saved.getpixel((8, 4)) == (35, 80, 120)
             assert saved.info.get("icc_profile") == source_icc
         observed["source"] = Path(src)
         observed["v2_output"] = Path(v2_output)
@@ -191,10 +202,10 @@ def test_core_adapter_runs_bridge_after_durable_v2_png_save(tmp_path, monkeypatc
     monkeypatch.setattr(v211_four_engine_bridge, "maybe_run_four_engine_assist", fake_bridge)
 
     settings = SimpleNamespace(
-        print_width=None, print_height=None, print_unit="cm", dpi=300,
-        ai_scale=2, color_mode="RGB", resize_mode="stretch",
-        device="AUTO", face_protection=False, face_mode="protect",
-        face_strength=35, face_regions=(), graphic_ai=False,
+        print_width=1.0, print_height=0.5, print_unit="cm", dpi=300,
+        ai_scale=2, color_mode="RGB", resize_mode="fit",
+        device="AUTO", face_protection=True, face_mode="protect",
+        face_strength=35, face_regions=selected, graphic_ai=False,
         text_graphic_boost=0, icc_profile_path=None,
         v211_photo_model="real_esrgan",
     )
@@ -206,8 +217,12 @@ def test_core_adapter_runs_bridge_after_durable_v2_png_save(tmp_path, monkeypatc
     assert observed["v2_output"] == destination
     assert observed["kwargs"]["use_ai"] is True
     assert observed["kwargs"]["cancel"] is None
+    assert observed["kwargs"]["protected_regions"] == ((0.375, 0.25, 0.625, 0.75),)
+    assert observed["kwargs"]["preserve_all_v2_faces"] is False
     assert qa.is_file()
     with Image.open(destination) as saved, Image.open(qa) as preview:
-        assert saved.getpixel((0, 0)) == (35, 80, 120)
+        assert saved.size == (16, 8)
+        assert saved.getpixel((8, 4)) == (35, 80, 120)
         assert saved.info.get("icc_profile") == source_icc
+        assert preview.size == (16, 8)
         assert preview.getpixel((0, 0)) == (200, 30, 40)
