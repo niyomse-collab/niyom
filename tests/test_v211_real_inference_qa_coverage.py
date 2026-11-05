@@ -5,7 +5,7 @@ import pytest
 from PIL import Image
 
 from tools import v211_four_engine_real_inference_qa as qa
-from tools.v211_four_engine_subprocess import ENGINES
+from tools.v211_four_engine_subprocess import ENGINES, EngineCommand
 
 
 def _source(tmp_path, rgba=False):
@@ -86,3 +86,35 @@ def test_preflight_fail_does_not_claim_execution(tmp_path, monkeypatch):
     report = json.loads((tmp_path / "out" / "real_inference_report.json").read_text())
     assert report["real_inference_verified"] is False
     assert report["failed_stage"] == "manifest_preflight"
+
+
+
+def test_timeout_override_caps_each_native_engine(tmp_path, monkeypatch):
+    commands = {
+        name: EngineCommand(("fake", "-i", "{input}", "-o", "{output}"), timeout_seconds=900)
+        for name in ENGINES
+    }
+    observed = {}
+
+    def factory(value):
+        observed.update(value)
+        mapping = {}
+        for name in ENGINES:
+            def candidate(source, destination):
+                with Image.open(source) as image:
+                    image.resize(
+                        (image.width * 2, image.height * 2),
+                        Image.Resampling.LANCZOS,
+                    ).save(destination, dpi=(300, 300),
+                           icc_profile=image.info.get("icc_profile"))
+            mapping[name] = candidate
+        return mapping
+
+    monkeypatch.setattr(qa, "load_real_engine_manifest", lambda *_: commands)
+    monkeypatch.setattr(qa, "make_processors", factory)
+    result = qa.run(
+        tmp_path / "manifest.json", _source(tmp_path), tmp_path / "bounded",
+        timeout_seconds=75,
+    )
+    assert result["real_inference_verified"] is True
+    assert all(command.timeout_seconds == 75 for command in observed.values())
