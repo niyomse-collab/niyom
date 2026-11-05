@@ -153,6 +153,8 @@ def download_archive(
     transfer, digest check or ZIP audit never truncates a previously verified
     archive at the target path. The temporary file is removed on every exit.
     """
+    if expected_sha256 is None and observed_sha256 is None:
+        raise ValueError("download requires a published or recorded SHA256 pin")
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary_name = tempfile.mkstemp(
