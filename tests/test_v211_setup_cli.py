@@ -58,3 +58,37 @@ def test_command_is_dispatched_before_editor_import():
         "from signprint_ai.app_v2 import main"
     )
     assert "signprint_ai.v211_setup_cli" in source
+    assert '"--silent"' in source
+
+
+def test_silent_setup_publishes_marker_only_after_all_four_verify(monkeypatch, tmp_path):
+    expected = {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
+    marker = tmp_path / "setup-complete.flag"
+    monkeypatch.setattr(v211_setup_cli, "completion_marker_path", lambda: marker)
+    monkeypatch.setattr(
+        v211_setup_cli,
+        "install_for_offline_use",
+        lambda: {
+            "status": "installed_for_offline_qa",
+            "verified_engine_names": sorted(expected),
+        },
+    )
+    assert v211_setup_cli.main(silent=True) == 0
+    assert marker.read_text(encoding="utf-8").startswith("NiyomSilp V2.1.1")
+
+
+def test_silent_setup_failure_removes_stale_marker_and_returns_nonzero(monkeypatch, tmp_path):
+    marker = tmp_path / "setup-complete.flag"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("stale success", encoding="utf-8")
+    monkeypatch.setattr(v211_setup_cli, "completion_marker_path", lambda: marker)
+
+    def fail():
+        raise RuntimeError("simulated model verification failure")
+
+    monkeypatch.setattr(v211_setup_cli, "install_for_offline_use", fail)
+    assert v211_setup_cli.main(silent=True) == 1
+    assert not marker.exists()
+    assert "FAILED RuntimeError" in marker.with_name("installer-setup.log").read_text(
+        encoding="utf-8"
+    )
