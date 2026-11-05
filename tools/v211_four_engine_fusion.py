@@ -106,6 +106,7 @@ def fuse_four_engine_details(
         mean_delta_sum = 0.0
         edge_pixels = 0
         effective_contributions = {name: 0.0 for name in ENGINES}
+        effective_pixel_counts = {name: 0 for name in ENGINES}
         total_pixels = W * H
         # Working memory bounded by one region from each model.
         for y in range(0, H, TILE):
@@ -121,7 +122,7 @@ def fuse_four_engine_details(
                 base_c = base_rgb[center]
                 base_hp = _gray_highpass(base.crop(box))[center]
                 if preserve_all_v2_faces:
-                    delta = np.zeros((h, w), dtype=np.float32)
+                    terms = {name: np.zeros((h, w), dtype=np.float32) for name in ENGINES}
                     edge_gate = np.zeros((h, w), dtype=bool)
                 else:
                     diff = {}
@@ -135,31 +136,56 @@ def fuse_four_engine_details(
                     # Preserve flat fills and smooth colour ramps: only edges
                     # already present in V2 can receive a controlled detail lift.
                     edge_gate = consensus & (np.abs(base_hp) >= 2.5)
-                    core_delta = 0.56 * core
-                    # Anime4K is conditional edge-only detail; it never changes
-                    # broad colours or gradients and cannot dominate 3 primaries.
+                    # Keep each model's exact weighted term so we can measure
+                    # whether removing that model changes final RGB pixels.
+                    terms = {
+                        name: (0.56 * WEIGHTS[name] * diff[name])
+                        for name in WEIGHTS
+                    }
                     anime = diff["anime4k"]
                     anime_agrees = (np.sign(anime) == np.sign(core)) & (np.abs(anime) <= 9.0)
-                    anime_delta = ANIME4K_DETAIL_WEIGHT * np.where(anime_agrees, anime, 0.0)
-                    delta = np.clip(core_delta + anime_delta, -MAX_DETAIL_CHANGE, MAX_DETAIL_CHANGE)
-                    if base.mode == "RGBA":
-                        alpha = np.asarray(base.crop((x, y, x+w, y+h)).getchannel("A"))
-                        edge_gate &= alpha >= 250
-                    edge_gate &= ~_protected_mask(x, y, w, h, (W, H), protected_regions)
-                    delta = np.where(edge_gate, delta, 0.0)
-                    for name in WEIGHTS:
-                        effective_contributions[name] += float(
-                            np.abs(diff[name][edge_gate] * WEIGHTS[name] * 0.56).sum()
-                        )
-                    effective_contributions["anime4k"] += float(
-                        np.abs(anime_delta[edge_gate]).sum()
+                    terms["anime4k"] = ANIME4K_DETAIL_WEIGHT * np.where(
+                        anime_agrees, anime, 0.0
                     )
+                    edge_gate &= ~_protected_mask(x, y, w, h, (W, H), protected_regions)
+                    terms = {
+                        name: np.where(edge_gate, term, 0.0)
+                        for name, term in terms.items()
+                    }
+
+                combined_terms = sum(terms.values(), np.zeros((h, w), dtype=np.float32))
+                delta = np.clip(combined_terms, -MAX_DETAIL_CHANGE, MAX_DETAIL_CHANGE)
+                delta = np.where(edge_gate, delta, 0.0)
+
                 # Shared luminance must fit every RGB channel; clipping channels
                 # independently shifts hue at saturated print edges.
                 upward = np.min(255.0 - base_c, axis=2)
                 downward = np.min(base_c, axis=2)
                 safe_delta = np.minimum(np.maximum(delta, -downward), upward)
                 rgb = np.rint(base_c + safe_delta[..., None]).astype("uint8")
+
+                # Counterfactual attribution: for each engine, recompute the
+                # final RGB tile with only that engine's term removed. Count a
+                # contribution only where the quantized output pixel actually
+                # changes after edge gating, luminance clipping and rounding.
+                # This is stronger than counting candidate files or raw weights.
+                for name, term in terms.items():
+                    without_delta = np.clip(
+                        combined_terms - term, -MAX_DETAIL_CHANGE, MAX_DETAIL_CHANGE
+                    )
+                    without_delta = np.where(edge_gate, without_delta, 0.0)
+                    without_safe = np.minimum(
+                        np.maximum(without_delta, -downward), upward
+                    )
+                    without_rgb = np.rint(
+                        base_c + without_safe[..., None]
+                    ).astype("uint8")
+                    pixel_effect = np.any(rgb != without_rgb, axis=2)
+                    effective_pixel_counts[name] += int(pixel_effect.sum())
+                    effective_contributions[name] += float(
+                        np.abs(rgb.astype("int16") - without_rgb.astype("int16")).sum()
+                    )
+                mean_delta_sum += float(np.abs(safe_delta).sum())
                 if base.mode == "RGBA":
                     # Alpha is copied unchanged from V2; prevents fringe and
                     # satisfies PSD/AI transparent print workflow.
@@ -197,9 +223,19 @@ def fuse_four_engine_details(
         "edge_pixels_modified_or_considered": edge_pixels,
         "mean_abs_detail_delta": round(mean_delta_sum / max(1, total_pixels), 5),
         "engine_detail_contribution_mean_abs": {
-            name: round(value / max(1, total_pixels), 6)
+            name: round(value / max(1, total_pixels * 3), 6)
             for name, value in effective_contributions.items()
         },
+        "engine_pixel_effect_pixels": effective_pixel_counts,
+        "engine_pixel_effect_verified": {
+            name: count > 0 for name, count in effective_pixel_counts.items()
+        },
+        "all_four_engine_pixels_contributed": all(
+            effective_pixel_counts[name] > 0 for name in ENGINES
+        ),
+        "contribution_attribution": (
+            "leave_one_engine_out_final_rgb_pixel_difference_after_gating_clipping_and_rounding"
+        ),
         "output": str(output),
         "quality_certified": False,
         "experimental_preview_only": True,
