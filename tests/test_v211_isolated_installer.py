@@ -42,8 +42,7 @@ def test_four_engine_setup_runs_during_install_not_when_editor_opens():
     app = (ROOT / "signprint_ai" / "app_v2.py").read_text(encoding="utf-8")
     run_section = qa.split("[Run]", 1)[1].split("[Code]", 1)[0]
     provision_line = next(line for line in run_section.splitlines()
-                          if "--provision-v211-four-ai" in line or
-                          "GetProvisionParameters" in line)
+                          if "GetProvisionParameters" in line)
     assert 'Name: "installfourai"' in qa
     assert "Flags: checkedonce" in qa
     assert "GetProvisionParameters" in provision_line
@@ -53,6 +52,8 @@ def test_four_engine_setup_runs_during_install_not_when_editor_opens():
     assert "GetCustomSetupExitCode" in qa
     assert "CurStepChanged" in qa
     assert "setup-complete.flag" in qa
+    assert "setup-pending.flag" in qa
+    assert "FourAISetupArmed" in qa
     assert "provision_after_consent" not in app
     assert "_offer_v211_four_ai_setup" not in app
 
