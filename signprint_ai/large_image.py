@@ -627,8 +627,14 @@ def prepare_v21_alpha_safe_resize(image, src, target_size, settings, dst):
 
 
 def process_large(adapter, src, dst, settings, source_size, target_size,
-                  model_scale, progress=None, cancel=None, use_ai=True):
-    """Keep the master dimensions exact; temporary rasters live beside output."""
+                  model_scale, progress=None, cancel=None, use_ai=True, *,
+                  complete_progress=True):
+    """Keep the master dimensions exact; temporary rasters live beside output.
+
+    Adapters that append a post-export QA stage may defer only the terminal
+    100% notification; in-flight progress (including 99% cancellation hooks)
+    remains unchanged.
+    """
     validate_export(dst, target_size, settings)
     dst.parent.mkdir(parents=True, exist_ok=True)
     check_cancel(cancel)
