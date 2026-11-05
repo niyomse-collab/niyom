@@ -38,7 +38,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
-Name: "installfourai"; Description: "Install all four AI engines for offline use (requires internet)"; GroupDescription: "V2.1.1 AI setup:"; Flags: checkedonce
+Name: "installfourai"; Description: "I agree: download and install all four AI engines for offline use (internet required; files stored in my Windows user profile)"; GroupDescription: "Optional V2.1.1 AI setup:"; Flags: unchecked
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Parameters: "{code:GetProvisionParameters}"; Description: "Download and verify the four AI engines for offline use"; StatusMsg: "Downloading and verifying the four AI engines..."; Flags: waituntilterminated runascurrentuser; Tasks: installfourai
