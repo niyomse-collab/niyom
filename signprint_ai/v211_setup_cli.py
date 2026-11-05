@@ -55,6 +55,7 @@ def main() -> int:
     progress.start(12)
 
     events: queue.Queue = queue.Queue()
+    exit_code = {"value": 1}
 
     def worker() -> None:
         try:
@@ -70,6 +71,7 @@ def main() -> int:
             return
         progress.stop()
         if state == "success":
+            exit_code["value"] = 0
             messagebox.showinfo(
                 "NiyomSilp Design · V2.1.1",
                 "ติดตั้งและตรวจสอบ AI ทั้ง 4 ตัวเรียบร้อยแล้ว\n"
@@ -90,7 +92,7 @@ def main() -> int:
     threading.Thread(target=worker, name="v211-installer-provision", daemon=True).start()
     root.after(150, poll)
     root.mainloop()
-    return 0
+    return exit_code["value"]
 
 
 if __name__ == "__main__":
