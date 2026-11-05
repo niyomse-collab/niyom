@@ -339,3 +339,36 @@ def test_native_seed_uses_the_same_fit_or_stretch_geometry_as_v2(
         assert saved_reference.size == padded_size == (16, 16)
     assert target_size == (16, 16)
     assert source_size == (8, 4)
+
+def test_oversized_target_is_rejected_before_full_image_copy(tmp_path, monkeypatch):
+    source, baseline = _images(tmp_path)
+    Image.new("RGB", (9, 8), (30, 40, 50)).save(baseline)
+    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 64)
+    work_dir = tmp_path / "must-not-be-created"
+
+    def no_full_copy(_image):
+        pytest.fail("oversized target was copied before the pixel-budget check")
+
+    monkeypatch.setattr(bridge, "_edge_pad_even", no_full_copy)
+    with pytest.raises(ValueError, match="auxiliary_image_too_large"):
+        bridge._prepare_native_2x_inputs(source, baseline, work_dir)
+    assert not work_dir.exists()
+
+
+def test_oversized_source_is_rejected_from_header_before_exif_decode(tmp_path, monkeypatch):
+    source, baseline = _images(tmp_path)
+    Image.new("RGB", (9, 8), (30, 40, 50)).save(source)
+    Image.new("RGB", (8, 8), (30, 40, 50)).save(baseline)
+    before = baseline.read_bytes()
+    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 64)
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+
+    def no_exif_decode(_image):
+        pytest.fail("oversized source was EXIF-transposed before the pixel-budget check")
+
+    monkeypatch.setattr(bridge.ImageOps, "exif_transpose", no_exif_decode)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+    assert result["status"] == "auxiliary_source_too_large"
+    assert result["v2_output_preserved"] is True
+    assert baseline.read_bytes() == before
