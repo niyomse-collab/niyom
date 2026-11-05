@@ -60,6 +60,13 @@ def test_four_engine_download_requires_affirmative_installer_opt_in():
     marker_block = qa.split("procedure CurStepChanged", 1)[1].split(
         "function GetCustomSetupExitCode", 1
     )[0]
+    assert "CurStep = ssInstall" in marker_block
+    assert "CurStep = ssDone" in marker_block
+    assert "CurStep = ssPostInstall" not in marker_block
+    assert marker_block.index("CurStep = ssInstall") < marker_block.index(
+        "CurStep = ssDone"
+    )
+    assert "ssDone is reached after the [Run] entries have completed" in qa
     assert "ForceDirectories(ExtractFileDir(FourAIPendingMarker()))" in marker_block
     assert marker_block.index("ForceDirectories(") < marker_block.index(
         "SaveStringToFile(FourAIPendingMarker()"
