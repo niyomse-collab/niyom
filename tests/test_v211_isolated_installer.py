@@ -37,14 +37,18 @@ def test_v211_build_dispatch_and_workflow_only_publish_unique_installer():
     assert 'release/NiyomSilp-Design-v2-Setup*' not in workflow
 
 
-def test_four_engine_setup_runs_during_install_not_when_editor_opens():
+def test_four_engine_download_requires_affirmative_installer_opt_in():
     qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
     app = (ROOT / "signprint_ai" / "app_v2.py").read_text(encoding="utf-8")
+    tasks = qa.split("[Tasks]", 1)[1].split("[Run]", 1)[0]
     run_section = qa.split("[Run]", 1)[1].split("[Code]", 1)[0]
     provision_line = next(line for line in run_section.splitlines()
                           if "GetProvisionParameters" in line)
-    assert 'Name: "installfourai"' in qa
-    assert "Flags: checkedonce" in qa
+    task_line = next(line for line in tasks.splitlines()
+                     if 'Name: "installfourai"' in line)
+    assert "I agree:" in task_line
+    assert "Flags: unchecked" in task_line
+    assert "checkedonce" not in task_line
     assert "GetProvisionParameters" in provision_line
     assert "waituntilterminated" in provision_line
     assert "skipifsilent" not in provision_line
