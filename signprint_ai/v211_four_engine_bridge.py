@@ -12,6 +12,7 @@ separate release gate.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -34,6 +35,16 @@ _V2_RASTER_FORMATS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 def _metadata(image: Image.Image) -> dict:
     return {key: image.info[key] for key in ("icc_profile", "dpi") if key in image.info}
+
+
+def _oriented_size(image: Image.Image) -> tuple[int, int]:
+    """Read EXIF-oriented dimensions from the header without decoding pixels."""
+    width, height = image.size
+    try:
+        orientation = image.getexif().get(274)
+    except (OSError, TypeError, ValueError):
+        orientation = None
+    return (height, width) if orientation in (5, 6, 7, 8) else (width, height)
 
 
 def _edge_pad_even(image: Image.Image) -> Image.Image:
@@ -65,12 +76,14 @@ def _prepare_native_2x_inputs(
         if v2_image.mode not in ("RGB", "RGBA"):
             raise ValueError("V2 raster must be RGB or RGBA; CMYK remains V2-only")
         target_size = v2_image.size
+        padded_size = (target_size[0] + target_size[0] % 2,
+                       target_size[1] + target_size[1] % 2)
+        # Reject oversized targets from header dimensions BEFORE _edge_pad_even
+        # copies or decodes the full raster into RAM.
+        if padded_size[0] * padded_size[1] > _AUXILIARY_MAX_PIXELS:
+            raise ValueError("auxiliary_image_too_large")
         metadata = _metadata(v2_image)
         padded_v2 = _edge_pad_even(v2_image)
-
-    padded_size = padded_v2.size
-    if padded_size[0] * padded_size[1] > _AUXILIARY_MAX_PIXELS:
-        raise ValueError("auxiliary_image_too_large")
     seed_size = (padded_size[0] // 2, padded_size[1] // 2)
     if min(seed_size) < 2:
         raise ValueError("auxiliary_target_too_small")
@@ -81,10 +94,15 @@ def _prepare_native_2x_inputs(
     padded_v2.save(reference_path, format="PNG", **metadata)
 
     with Image.open(source) as source_image:
+        source_size = _oriented_size(source_image)
+        # The current bridge resizes with Pillow; refuse a huge source before
+        # EXIF transpose/convert can allocate a full decoded copy. V2 itself
+        # remains free to process larger files through its disk-tile pipeline.
+        if source_size[0] * source_size[1] > _AUXILIARY_MAX_PIXELS:
+            raise ValueError("auxiliary_source_too_large")
         oriented = ImageOps.exif_transpose(source_image)
         if oriented.mode not in ("RGB", "RGBA"):
             raise ValueError("source must be RGB or RGBA for four-engine research")
-        source_size = oriented.size
         converted = oriented.convert(padded_v2.mode)
         if resize_mode == "stretch":
             seed = converted.resize(seed_size, resample=Image.Resampling.LANCZOS)
@@ -200,7 +218,10 @@ def maybe_run_four_engine_assist(
             if padded_pixels > _AUXILIARY_MAX_PIXELS:
                 return {"status": "auxiliary_image_too_large", "v2_output_preserved": True}
         with Image.open(original) as source_image:
-            if ImageOps.exif_transpose(source_image).mode not in ("RGB", "RGBA"):
+            source_size = _oriented_size(source_image)
+            if source_size[0] * source_size[1] > _AUXILIARY_MAX_PIXELS:
+                return {"status": "auxiliary_source_too_large", "v2_output_preserved": True}
+            if source_image.mode not in ("RGB", "RGBA"):
                 return {"status": "unsupported_source_mode", "v2_output_preserved": True}
 
         from tools.v211_four_engine_run import run
