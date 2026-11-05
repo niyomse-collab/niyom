@@ -57,6 +57,8 @@ def _prepare_native_2x_inputs(
     source: Path,
     baseline: Path,
     work_dir: Path,
+    *,
+    resize_mode: str = "stretch",
 ) -> tuple[Path, Path, tuple[int, int], tuple[int, int], tuple[int, int], dict]:
     """Create a private half-target seed and a PNG V2 reference for the 2x CLIs."""
     with Image.open(baseline) as v2_image:
@@ -83,9 +85,29 @@ def _prepare_native_2x_inputs(
         if oriented.mode not in ("RGB", "RGBA"):
             raise ValueError("source must be RGB or RGBA for four-engine research")
         source_size = oriented.size
-        seed = oriented.convert(padded_v2.mode).resize(
-            seed_size, resample=Image.Resampling.LANCZOS
-        )
+        converted = oriented.convert(padded_v2.mode)
+        if resize_mode == "stretch":
+            seed = converted.resize(seed_size, resample=Image.Resampling.LANCZOS)
+        elif resize_mode == "fit":
+            # The native seed must use the same geometry as the accepted V2
+            # raster. Stretching a wide source into a square half-target would
+            # move every edge before the engines see it, then fuse those
+            # displaced details back onto the correctly letterboxed V2 image.
+            factor = min(seed_size[0] / converted.width, seed_size[1] / converted.height)
+            contained_size = (
+                max(1, min(seed_size[0], round(converted.width * factor))),
+                max(1, min(seed_size[1], round(converted.height * factor))),
+            )
+            contained = converted.resize(contained_size, resample=Image.Resampling.LANCZOS)
+            background = padded_v2.getpixel((0, 0))
+            seed = Image.new(padded_v2.mode, seed_size, background)
+            seed.paste(
+                contained,
+                ((seed_size[0] - contained_size[0]) // 2,
+                 (seed_size[1] - contained_size[1]) // 2),
+            )
+        else:
+            raise ValueError("resize_mode must be 'fit' or 'stretch'")
         # The accepted V2 alpha is authoritative, including when the original
         # source was RGB or an external model would otherwise invent transparency.
         if padded_v2.mode == "RGBA":
@@ -134,6 +156,7 @@ def maybe_run_four_engine_assist(
     protected_regions: tuple = (),
     preserve_all_v2_faces: bool = False,
     progress: Callable[[int, str], None] | None = None,
+    resize_mode: str = "stretch",
 ) -> dict:
     """Run four verified native 2x engines after V2 safely saves.
 
@@ -199,7 +222,9 @@ def maybe_run_four_engine_assist(
             if cancel and cancel():
                 raise InterruptedError("Processing stopped by user")
             seed, reference, target_size, padded_size, source_size, metadata = (
-                _prepare_native_2x_inputs(original, baseline, work_dir)
+                _prepare_native_2x_inputs(
+                    original, baseline, work_dir, resize_mode=resize_mode
+                )
             )
             if cancel and cancel():
                 raise InterruptedError("Processing stopped by user")
@@ -279,6 +304,7 @@ def maybe_run_four_engine_assist(
                     round(target_w / source_w, 4), round(target_h / source_h, 4)
                 ],
                 "scale_policy": "native_2x_on_half_target_seed",
+                "resize_mode": resize_mode,
             } if fusion else None,
             "priority_preview_selected": selection,
             "priority_preview_path": (
