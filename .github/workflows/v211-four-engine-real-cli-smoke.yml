@@ -60,6 +60,7 @@ jobs:
           '@ | python -
       - name: Run actual official binaries on the synthetic image (Windows runner may lack Vulkan GPU)
         id: real_cli
+        continue-on-error: true
         shell: pwsh
         env:
           NIYOMSIL_V211_SYNTHETIC_CI_DEBUG: '1'
@@ -91,6 +92,7 @@ jobs:
       - name: Run actual official binaries on synthetic RGBA ICC PNG (separate evidence)
         if: always()
         id: real_cli_alpha
+        continue-on-error: true
         shell: pwsh
         env:
           NIYOMSIL_V211_SYNTHETIC_CI_DEBUG: '1'
@@ -100,24 +102,35 @@ jobs:
           $reportDir = Join-Path $env:RUNNER_TEMP 'v211-real-cli-alpha-results'
           if (-not (Test-Path $manifest)) { throw 'BLOCKED: verified manifest missing' }
           python -m tools.v211_four_engine_real_inference_qa --manifest "$manifest" --input "$source" --output-dir "$reportDir"
-      - name: Summarize real CLI outcomes without exposing image files
+      - name: Classify real CLI outcomes without hiding non-Vulkan failures
         if: always()
         shell: pwsh
         run: |
-          $path = Join-Path $env:RUNNER_TEMP 'v211-real-cli-results/real_inference_report.json'
-          if (Test-Path $path) {
-            $r = Get-Content $path -Raw | ConvertFrom-Json
-            Write-Host ("Real 4 CLI successful: " + $r.real_inference_verified)
-            Write-Host ("Completed: " + $r.completed_engine_count)
-            Write-Host ("Successful engines: " + ($r.engines.PSObject.Properties.Name -join ', '))
-            Write-Host ("Blocked engines: " + ($r.failures.PSObject.Properties.Name -join ', '))
-            foreach ($failed in $r.failures.PSObject.Properties) {
-              Write-Host ($failed.Name + ' diagnostic=' + $failed.Value.synthetic_test_diagnostic)
+          function Assert-RealCliReport([string]$Path, [string]$CaseName) {
+            if (-not (Test-Path $Path)) { throw "$CaseName report missing; no inference can be claimed." }
+            $r = Get-Content $Path -Raw | ConvertFrom-Json
+            if ($r.failed_stage) { throw "$CaseName failed before native execution: $($r.failed_stage)" }
+            if ($r.real_inference_verified) {
+              Write-Host "$CaseName: all four native CLI outputs validated."
+              return
             }
-            Write-Host "Note: GitHub-hosted Windows may lack usable Vulkan; shop NVIDIA GPU results are a separate requirement."
-          } else {
-            Write-Host 'No valid report: provisioning or manifest failed; no inference can be claimed.'
+            $failures = @($r.failures.PSObject.Properties)
+            if ($failures.Count -eq 0) { throw "$CaseName has no validated inference and no classified failures." }
+            $unexpected = @()
+            foreach ($failed in $failures) {
+              $class = [string]$failed.Value.error_class
+              Write-Host "$CaseName / $($failed.Name): $class"
+              if ($class -ne "vulkan_initialization_failed") {
+                $unexpected += "$($failed.Name): $class"
+              }
+            }
+            if ($unexpected.Count -gt 0) {
+              throw "$CaseName has non-Vulkan engine/candidate failures: $($unexpected -join '; ')"
+            }
+            Write-Warning "$CaseName: native inference was blocked by Vulkan initialization on this hosted runner. This is not a quality pass; repeat on the shop GTX 1660 Ti."
           }
+          Assert-RealCliReport (Join-Path $env:RUNNER_TEMP 'v211-real-cli-results/real_inference_report.json') 'RGB synthetic'
+          Assert-RealCliReport (Join-Path $env:RUNNER_TEMP 'v211-real-cli-alpha-results/real_inference_report.json') 'RGBA/ICC synthetic'
       - name: Retain JSON evidence only, not model packages or images
         if: always()
         uses: actions/upload-artifact@v4
