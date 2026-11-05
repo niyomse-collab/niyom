@@ -91,6 +91,7 @@ def _run_probe(executable: str | None, args: list[str], timeout: int = 15) -> di
         "status": "ok" if completed.returncode == 0 else "nonzero_exit",
         "return_code": int(completed.returncode),
         "stdout": completed.stdout or "",
+        "stderr": completed.stderr or "",
     }
 
 
@@ -129,6 +130,77 @@ def _probe_vulkan_loader() -> bool:
         return True
     except (AttributeError, OSError):
         return False
+
+
+def probe_anime4k_backend(manifest: Path) -> dict:
+    """Inventory Anime4KCPP processors/devices without treating it as Vulkan.
+
+    Anime4KCPP v3 exposes --lp (processor list) and -l (device list).
+    Its CLI default is processor=auto/device=0 unless the manifest overrides
+    those options. Inventory is not proof of the backend used by inference.
+    """
+    try:
+        data = json.loads(Path(manifest).read_text(encoding="utf-8"))
+        entry = data.get("anime4k") if isinstance(data, dict) else None
+        if not isinstance(entry, dict):
+            return {"status": "manifest_unavailable"}
+        executable = Path(entry.get("executable", ""))
+        if not executable.is_absolute() or not executable.is_file():
+            return {"status": "executable_missing"}
+        args = entry.get("args", [])
+        if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+            return {"status": "invalid_engine_args"}
+
+        def option_value(short: str, long: str, default):
+            for index, item in enumerate(args[:-1]):
+                if item in (short, long):
+                    return args[index + 1]
+            return default
+
+        processors = _run_probe(str(executable), ["--lp"])
+        devices = _run_probe(str(executable), ["-l"])
+        processor_text = (processors.get("stdout", "") + "\n" +
+                          processors.get("stderr", ""))[:8000]
+        device_text = (devices.get("stdout", "") + "\n" +
+                       devices.get("stderr", ""))[:8000]
+        available_processors = [
+            name for name in ("cpu", "opencl", "cuda")
+            if re.search(r"\b" + name + r"\b", processor_text, re.IGNORECASE)
+        ]
+        return {
+            "status": "ok" if processors.get("success") and devices.get("success")
+                      else "partial_or_failed",
+            "executable_name": executable.name,
+            "processor_probe": {
+                "available": bool(processors.get("available")),
+                "success": bool(processors.get("success")),
+                "status": processors.get("status"),
+                "return_code": processors.get("return_code"),
+                "output": processor_text,
+            },
+            "device_probe": {
+                "available": bool(devices.get("available")),
+                "success": bool(devices.get("success")),
+                "status": devices.get("status"),
+                "return_code": devices.get("return_code"),
+                "output": device_text,
+            },
+            "available_processors": available_processors,
+            "gtx_1660_ti_visible_in_device_inventory":
+                "gtx 1660 ti" in device_text.lower(),
+            "configured_processor": option_value("-p", "--processor", "auto"),
+            "configured_device": option_value("-d", "--device", 0),
+            "processor_selection_verified": False,
+            "device_selection_verified": False,
+            "note": (
+                "Anime4KCPP uses CPU/OpenCL/CUDA processors, not NCNN Vulkan. "
+                "This is a capability inventory only; the current manifest uses "
+                "processor auto and device 0 defaults and does not prove which "
+                "backend/device performed the image inference."
+            ),
+        }
+    except (OSError, ValueError, TypeError, KeyError):
+        return {"status": "manifest_unavailable"}
 
 
 def probe_gpu() -> dict:
@@ -232,6 +304,7 @@ def run_diagnostic(
     *,
     gpu_probe=probe_gpu,
     engine_runner=run_real_inference_qa,
+    anime4k_probe=probe_anime4k_backend,
     timeout_seconds: int = 180,
 ) -> dict:
     """Run all four verified native CLIs on RGB and RGBA synthetic images."""
@@ -242,6 +315,7 @@ def run_diagnostic(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     gpu = gpu_probe()
+    anime4k_backend = anime4k_probe(manifest)
     cases = {}
     with tempfile.TemporaryDirectory(prefix="v211-shop-gpu-", dir=output_dir) as temporary:
         work_root = Path(temporary)
@@ -296,11 +370,12 @@ def run_diagnostic(
         and gpu.get("vram_budget_6gb_detected")
     )
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "manifest_present": manifest.is_file(),
         "manifest_preflight_passed": manifest_preflight_passed,
         "gpu": gpu,
+        "anime4k_backend_inventory": anime4k_backend,
         "engine_matrix": engine_matrix,
         "cases": cases,
         "all_four_native_cli_outputs_validated_on_both_synthetic_cases": all_four,
@@ -318,6 +393,7 @@ def run_diagnostic(
             "The report verifies native CLI execution, output dimensions, alpha, ICC and DPI only.",
             "It does not prove visual improvement, face identity, CMYK/RIP quality or print acceptance.",
             "Shop GPU readiness requires GTX 1660 Ti visibility in both NVIDIA-SMI and vulkaninfo, successful vulkaninfo, the Vulkan loader, and the expected 6 GiB VRAM budget; this still does not prove which adapter each CLI selected.",
+            "Anime4KCPP v3 is not an NCNN Vulkan engine; its CPU/OpenCL/CUDA processor and device inventory is recorded separately and does not prove the backend selected for inference.",
         ],
     }
     report_path = output_dir / "shop_gpu_diagnostic.json"
