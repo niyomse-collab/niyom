@@ -39,7 +39,7 @@ jobs:
       - name: Verify V2 output preservation and four-engine coordination contracts
         shell: pwsh
         run: |
-          python -m pytest -q tests/test_v211_four_engine_bridge.py tests/test_v211_four_engine_run.py tests/test_v211_four_engine_safe_selection.py tests/test_v211_four_engine_subprocess.py tests/test_v211_hat_disabled_model_routing.py tests/test_v211_three_engine_priority_preview.py tests/test_v211_four_engine_fusion.py tests/test_v211_four_engine_autorun.py tests/test_v211_background_fusion.py tests/test_v211_auto_setup.py tests/test_v211_setup_cli.py tests/test_v211_isolated_installer.py
+          python -m pytest -q tests/test_v211_four_engine_bridge.py tests/test_v211_four_engine_run.py tests/test_v211_four_engine_safe_selection.py tests/test_v211_four_engine_subprocess.py tests/test_v211_hat_disabled_model_routing.py tests/test_v211_three_engine_priority_preview.py tests/test_v211_four_engine_fusion.py tests/test_v211_four_engine_autorun.py tests/test_v211_background_fusion.py tests/test_v211_auto_setup.py tests/test_v211_setup_cli.py tests/test_v211_isolated_installer.py tests/test_v211_real_inference_qa_coverage.py tests/test_v211_shop_gpu_diagnostic.py
 
   windows-v2-candidate:
     needs: bridge-tests
