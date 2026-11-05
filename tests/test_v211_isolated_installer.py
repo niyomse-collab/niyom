@@ -48,3 +48,10 @@ def test_four_engine_setup_runs_during_install_not_when_editor_opens():
     assert "waituntilterminated" in qa
     assert "_offer_v211_four_ai_setup" not in app
     assert "provision_after_consent" not in app
+
+
+def test_installer_provision_window_is_not_hidden():
+    qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
+    assert "Parameters: \"--provision-v211-four-ai\"" in qa
+    assert "Flags: waituntilterminated runascurrentuser skipifsilent" in qa
+    assert "runhidden" not in qa
