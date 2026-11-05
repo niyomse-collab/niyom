@@ -5,9 +5,12 @@ This tests wiring and image validation only; it does not claim real AI inference
 import json
 import sys
 
+import pytest
+
 from PIL import Image
 
 from tools.v211_four_engine_run import run
+from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES
 
 
@@ -54,3 +57,27 @@ def test_runner_reports_failed_engine(tmp_path):
     assert not result["ready_for_fusion_research"]
     assert "anime4k" in result["failures"]
     assert len(result["candidates"]) == 3
+
+
+
+def test_coordinator_cancellation_removes_already_completed_candidate_files(tmp_path):
+    source = tmp_path / "source.png"
+    Image.new("RGB", (8, 8), (20, 80, 120)).save(source)
+    output_dir = tmp_path / "cancelled-output"
+    calls = []
+
+    def processor(src, destination):
+        calls.append(destination.name)
+        with Image.open(src) as image:
+            image.save(destination)
+
+    processors = {name: processor for name in ENGINES}
+
+    with pytest.raises(InterruptedError, match="stopped"):
+        run_candidates(
+            source, output_dir, (8, 8), processors,
+            cancel_check=lambda: bool(calls),
+        )
+
+    assert calls == ["real_esrgan.png"]
+    assert not list(output_dir.glob("*.png"))
