@@ -47,6 +47,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Check: Sh
 [Code]
 var
   FourAISetupExitCode: Integer;
+  FourAISetupArmed: Boolean;
 
 function GetProvisionParameters(Param: String): String;
 begin
@@ -60,26 +61,34 @@ begin
   Result := ExpandConstant('{localappdata}\NiyomSilp\V211-FourAI-QA\setup-complete.flag');
 end;
 
+function FourAIPendingMarker: String;
+begin
+  Result := ExpandConstant('{localappdata}\NiyomSilp\V211-FourAI-QA\setup-pending.flag');
+end;
+
 function ShouldLaunchEditor: Boolean;
 begin
-  Result := (not WizardIsTaskSelected('installfourai')) or
-            FileExists(FourAICompletionMarker());
+  Result := not WizardIsTaskSelected('installfourai');
+  if WizardIsTaskSelected('installfourai') then
+    Result := FourAISetupArmed and
+              FileExists(FourAICompletionMarker()) and
+              not FileExists(FourAIPendingMarker());
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep = ssInstall) and WizardIsTaskSelected('installfourai') then
   begin
-    { Clear stale success from a previous attempt before running this setup. }
-    if FileExists(FourAICompletionMarker()) then
-      DeleteFile(FourAICompletionMarker());
-    { Fail closed unless the current installer run publishes a new marker. }
+    { A fresh pending marker makes any stale success marker unusable. }
     FourAISetupExitCode := 1;
+    FourAISetupArmed := SaveStringToFile(FourAIPendingMarker(), 'pending', False);
   end;
 
   if (CurStep = ssPostInstall) and WizardIsTaskSelected('installfourai') then
   begin
-    if FileExists(FourAICompletionMarker()) then
+    if FourAISetupArmed and
+       FileExists(FourAICompletionMarker()) and
+       not FileExists(FourAIPendingMarker()) then
       FourAISetupExitCode := 0
     else
       FourAISetupExitCode := 1;
