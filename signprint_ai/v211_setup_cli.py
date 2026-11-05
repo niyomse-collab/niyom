@@ -6,7 +6,6 @@ selects the one-time four-engine setup task.
 """
 from __future__ import annotations
 
-import json
 import os
 import queue
 import threading
@@ -31,10 +30,15 @@ def install_for_offline_use() -> dict:
 
 
 def completion_marker_path() -> Path:
-    """Return the local-only marker consumed by the Inno Setup launch gate."""
+    """Return the local-only success marker consumed by Inno Setup."""
     from .v211_auto_setup import qa_root
 
     return qa_root() / "setup-complete.flag"
+
+
+def pending_marker_path() -> Path:
+    """Return the per-attempt marker that prevents stale-success reuse."""
+    return completion_marker_path().with_name("setup-pending.flag")
 
 
 def _log_path() -> Path:
@@ -59,8 +63,9 @@ def _clear_completion_marker() -> Path:
 
 
 def _run_and_publish_success() -> dict:
-    """Run all verification first; publish the marker only after exact success."""
+    """Run all verification first; publish success and clear pending last."""
     marker = _clear_completion_marker()
+    pending = pending_marker_path()
     try:
         result = install_for_offline_use()
         names = set(result.get("verified_engine_names", ()))
@@ -73,6 +78,12 @@ def _run_and_publish_success() -> dict:
             encoding="utf-8",
         )
         os.replace(temporary, marker)
+        # Inno Setup created this pending marker for the current attempt.
+        # If it cannot be removed, fail closed: the installer must not launch
+        # the editor or report successful provisioning.
+        pending.unlink(missing_ok=True)
+        if pending.exists():
+            raise OSError("could not clear the installer pending marker")
         _record("SUCCESS verified engines: " + ",".join(sorted(names)))
         return result
     except Exception as exc:
@@ -87,7 +98,12 @@ def main(*, silent: bool = False) -> int:
     Silent installations do not create a hidden Tk window: they write a
     local setup log and return a nonzero code on any failed verification.
     """
-    _clear_completion_marker()
+    try:
+        _clear_completion_marker()
+    except Exception as exc:
+        _record("FAILED could not clear stale completion marker: " + type(exc).__name__)
+        return 1
+
     if silent:
         try:
             _run_and_publish_success()
