@@ -41,6 +41,14 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
             for key in ("source_url", "license_name", "license_url")
         ):
             raise ValueError(engine + ": source_url, license_name and license_url provenance required")
+        additional_notices = provenance.get("additional_license_notices", [])
+        if not isinstance(additional_notices, list) or any(
+            not isinstance(notice, dict)
+            or not isinstance(notice.get("name"), str) or not notice["name"].strip()
+            or not isinstance(notice.get("url"), str) or not notice["url"].strip()
+            for notice in additional_notices
+        ):
+            raise ValueError(engine + ": additional license notices must include name and URL")
         _verify_hash(executable, item.get("executable_sha256"), engine)
         # Anime4KCPP v3.2.0 implements its algorithms in the shipped CLI.
         # Its official Windows archive has no separate .bin/.param model
