@@ -2,7 +2,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from PIL import Image
+from PIL import Image, ImageCms
 
 from signprint_ai import niyomsil_core_adapter as adapter_module
 from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
@@ -115,7 +115,10 @@ def test_cannot_automatically_run_four_ai_for_non_2x_job(tmp_path, monkeypatch):
 def test_core_adapter_runs_bridge_after_durable_v2_png_save(tmp_path, monkeypatch):
     source = tmp_path / "source.png"
     destination = tmp_path / "accepted-V2.png"
-    Image.new("RGB", (8, 8), (35, 80, 120)).save(source, dpi=(300, 300))
+    source_icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    Image.new("RGB", (8, 8), (35, 80, 120)).save(
+        source, dpi=(300, 300), icc_profile=source_icc
+    )
 
     class FakeEngine:
         def enhance(self, src, out, *, scale, progress_callback=None, cancel_check=None):
@@ -156,6 +159,7 @@ def test_core_adapter_runs_bridge_after_durable_v2_png_save(tmp_path, monkeypatc
         with Image.open(v2_output) as saved:
             assert saved.size == (16, 16)
             assert saved.getpixel((0, 0)) == (35, 80, 120)
+            assert saved.info.get("icc_profile") == source_icc
         observed["source"] = Path(src)
         observed["v2_output"] = Path(v2_output)
         observed["kwargs"] = kwargs
@@ -189,4 +193,5 @@ def test_core_adapter_runs_bridge_after_durable_v2_png_save(tmp_path, monkeypatc
     assert qa.is_file()
     with Image.open(destination) as saved, Image.open(qa) as preview:
         assert saved.getpixel((0, 0)) == (35, 80, 120)
+        assert saved.info.get("icc_profile") == source_icc
         assert preview.getpixel((0, 0)) == (200, 30, 40)

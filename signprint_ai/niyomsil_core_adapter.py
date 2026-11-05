@@ -268,6 +268,11 @@ class NiyomSilpCoreAdapter:
         # Pillow's decompression-bomb guard on legitimate print files.
         with Image.open(src) as source_image:
             oriented = ImageOps.exif_transpose(source_image)
+            # Pixel operations and native upscalers do not perform a colour
+            # space transform. Keep the source ICC bytes attached to the V2
+            # raster so the durable PNG and the later four-engine QA path do
+            # not silently become untagged RGB.
+            source_icc_profile = oriented.info.get("icc_profile")
             has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
             source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
 
@@ -459,12 +464,13 @@ class NiyomSilpCoreAdapter:
         # RGB PNG stays pixel-identical to the final core result. CMYK/ICC and
         # alternate file formats are export-only operations after AI processing.
         if settings.color_mode.upper() == "RGB" and dst.suffix.lower() == ".png":
-            output.save(
-                dst,
-                format="PNG",
-                dpi=(settings.dpi, settings.dpi),
-                compress_level=3,
-            )
+            png_options = {
+                "dpi": (settings.dpi, settings.dpi),
+                "compress_level": 3,
+            }
+            if source_icc_profile:
+                png_options["icc_profile"] = source_icc_profile
+            output.save(dst, format="PNG", **png_options)
         else:
             # Pass transparency as an explicit channel. Treating an RGBA
             # ndarray as RGB silently dropped or misread alpha in TIFF export.
