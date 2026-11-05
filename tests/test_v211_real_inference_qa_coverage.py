@@ -16,7 +16,7 @@ def _source(tmp_path, rgba=False):
     return src
 
 
-def _prepare(monkeypatch, *, failed_engine=None, wrong_geometry=None):
+def _prepare(monkeypatch, *, failed_engine=None, wrong_geometry=None, failure_message=None):
     calls = []
 
     def factory(_manifest):
@@ -25,7 +25,7 @@ def _prepare(monkeypatch, *, failed_engine=None, wrong_geometry=None):
             def candidate(source, destination, *, engine=name):
                 calls.append(engine)
                 if engine == failed_engine:
-                    raise RuntimeError("simulated Vulkan unavailable")
+                    raise RuntimeError(failure_message or "simulated subprocess failure")
                 with Image.open(source) as image:
                     size = (48, 32) if engine != wrong_geometry else (47, 32)
                     resampled = image.resize(size, Image.Resampling.LANCZOS)
@@ -118,3 +118,40 @@ def test_timeout_override_caps_each_native_engine(tmp_path, monkeypatch):
     )
     assert result["real_inference_verified"] is True
     assert all(command.timeout_seconds == 75 for command in observed.values())
+
+
+
+def test_vulkan_initialization_failure_is_host_block_not_engine_quality_failure(
+    tmp_path, monkeypatch
+):
+    calls = _prepare(
+        monkeypatch,
+        failed_engine="real_esrgan",
+        failure_message="engine exited with code 4294967295: vkCreateInstance failed -9; invalid gpu device",
+    )
+    result = qa.run(
+        tmp_path / "manifest.json",
+        _source(tmp_path),
+        tmp_path / "vulkan-blocked",
+    )
+    assert calls == list(ENGINES)
+    assert result["real_inference_verified"] is False
+    failure = result["failures"]["real_esrgan"]
+    assert failure["error_class"] == "vulkan_initialization_failed"
+    assert failure["retry_on_vulkan_capable_host"] is True
+    assert result["completed_engine_count"] == 3
+
+
+def test_non_vulkan_native_failure_remains_a_candidate_failure(tmp_path, monkeypatch):
+    _prepare(
+        monkeypatch,
+        failed_engine="waifu2x",
+        failure_message="engine exited with code 1: invalid model arguments",
+    )
+    result = qa.run(
+        tmp_path / "manifest.json",
+        _source(tmp_path),
+        tmp_path / "native-failure",
+    )
+    assert result["failures"]["waifu2x"]["error_class"] == "subprocess_or_candidate_failure"
+    assert "retry_on_vulkan_capable_host" not in result["failures"]["waifu2x"]
