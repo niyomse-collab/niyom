@@ -106,6 +106,7 @@ def maybe_enhance_v2_image(
                 real_engines=True, v2_reference=baseline_path,
                 protected_regions=protected_regions,
                 preserve_all_v2_faces=preserve_all_v2_faces,
+                cancel=cancel,
             )
             fusion = result.get("four_engine_fusion") or {}
             if (result.get("completed_engine_count") != 4
