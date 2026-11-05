@@ -141,6 +141,22 @@ def test_gpu_readiness_requires_real_vulkan_adapter_and_vram(
     assert not report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"]
 
 
+
+@pytest.mark.parametrize(("target_gpu_ready", "expected_exit"), [(False, 1), (True, 0)])
+def test_cli_exit_code_requires_target_gpu_readiness(
+    monkeypatch, tmp_path, target_gpu_ready, expected_exit
+):
+    report = {
+        "all_four_native_cli_outputs_validated_on_both_synthetic_cases": True,
+        "four_engine_cli_passed_on_gtx1660ti_vulkan_host": target_gpu_ready,
+    }
+    monkeypatch.setattr(diagnostic, "run_diagnostic", lambda *args, **kwargs: report)
+    assert diagnostic.main([
+        "--manifest", str(tmp_path / "manifest.json"),
+        "--output-dir", str(tmp_path / "report"),
+    ]) == expected_exit
+
+
 def test_one_engine_failure_is_not_reported_as_four_engine_success(tmp_path):
     def one_engine_fails(manifest, source, output, *, timeout_seconds):
         result = _successful_runner(
