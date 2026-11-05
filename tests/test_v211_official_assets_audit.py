@@ -1,9 +1,11 @@
 """Offline tests for official model-archive audit. No external programs run."""
 import hashlib
+import io
 import zipfile
 
 import pytest
 
+from tools import v211_official_assets_audit as assets
 from tools.v211_official_assets_audit import audit_archive, verify_archive_hash
 
 
@@ -92,3 +94,110 @@ def test_archive_rejects_unsafe_windows_member_names(tmp_path, member):
         archive.writestr(member, b"not safe on Windows")
     with pytest.raises(ValueError, match="unsafe Windows path"):
         audit_archive(path)
+
+class _FakeResponse:
+    def __init__(self, payload, *, fail_after=None, headers=None):
+        self.payload = payload
+        self.fail_after = fail_after
+        self.headers = headers or {}
+        self.position = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self, size):
+        if self.fail_after is not None and self.position >= self.fail_after:
+            raise OSError("synthetic connection reset")
+        end = min(self.position + size, len(self.payload))
+        if self.fail_after is not None:
+            end = min(end, self.fail_after)
+        chunk = self.payload[self.position:end]
+        self.position = end
+        return chunk
+
+
+def _valid_zip_bytes():
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("engine.exe", b"synthetic executable")
+        archive.writestr("models/net.param", b"network")
+        archive.writestr("models/net.bin", b"weights")
+    return buffer.getvalue()
+
+
+def test_download_publishes_only_after_zip_and_digest_validation(tmp_path, monkeypatch):
+    payload = _valid_zip_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    target = tmp_path / "engine.zip"
+    target.write_bytes(b"previous verified archive")
+    response = _FakeResponse(
+        payload, headers={"Content-Length": str(len(payload))}
+    )
+    monkeypatch.setattr(assets.urllib.request, "urlopen", lambda *a, **k: response)
+
+    result = assets.download_archive(
+        "https://example.invalid/engine.zip", target, expected_sha256=digest
+    )
+
+    assert target.read_bytes() == payload
+    assert result["release_digest_verified"] is True
+    assert audit_archive(target)["archive_member_audit_passed"] is True
+    assert list(tmp_path.glob("*.part")) == []
+    assert list(tmp_path.glob(".*.part")) == []
+
+
+def test_failed_digest_keeps_previous_archive_and_removes_partial(tmp_path, monkeypatch):
+    payload = _valid_zip_bytes()
+    target = tmp_path / "engine.zip"
+    previous = b"previous verified archive"
+    target.write_bytes(previous)
+    response = _FakeResponse(payload)
+    monkeypatch.setattr(assets.urllib.request, "urlopen", lambda *a, **k: response)
+
+    with pytest.raises(ValueError, match="mismatch"):
+        assets.download_archive(
+            "https://example.invalid/engine.zip", target,
+            expected_sha256="0" * 64,
+        )
+
+    assert target.read_bytes() == previous
+    assert list(tmp_path.glob(".*.part")) == []
+
+
+def test_interrupted_download_keeps_previous_archive_and_removes_partial(tmp_path, monkeypatch):
+    target = tmp_path / "engine.zip"
+    previous = b"previous verified archive"
+    target.write_bytes(previous)
+    response = _FakeResponse(b"partial-download", fail_after=5)
+    monkeypatch.setattr(assets.urllib.request, "urlopen", lambda *a, **k: response)
+
+    with pytest.raises(OSError, match="connection reset"):
+        assets.download_archive("https://example.invalid/engine.zip", target)
+
+    assert target.read_bytes() == previous
+    assert list(tmp_path.glob(".*.part")) == []
+
+
+def test_unsafe_downloaded_zip_never_replaces_existing_archive(tmp_path, monkeypatch):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("../outside.exe", b"unsafe")
+    payload = buffer.getvalue()
+    digest = hashlib.sha256(payload).hexdigest()
+    target = tmp_path / "engine.zip"
+    previous = b"previous verified archive"
+    target.write_bytes(previous)
+    response = _FakeResponse(payload)
+    monkeypatch.setattr(assets.urllib.request, "urlopen", lambda *a, **k: response)
+
+    with pytest.raises(ValueError, match="unsafe"):
+        assets.download_archive(
+            "https://example.invalid/engine.zip", target, expected_sha256=digest
+        )
+
+    assert target.read_bytes() == previous
+    assert list(tmp_path.glob(".*.part")) == []
+
