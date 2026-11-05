@@ -117,7 +117,7 @@ def test_native_2x_engines_support_custom_and_4x_8x_target_sizes(
             "ready_for_fusion_research": True,
             "completed_engine_count": 4,
             "failures": {},
-            "four_engine_fusion": {"fusion_implemented": True, "output": str(fused)},
+            "four_engine_fusion": {"fusion_implemented": True, "all_four_engine_pixels_contributed": True, "output": str(fused)},
         }
 
     monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
@@ -158,7 +158,7 @@ def test_rgb_tiff_v2_output_gets_local_png_qa_without_modifying_tiff(tmp_path, m
             "ready_for_fusion_research": True,
             "completed_engine_count": 4,
             "failures": {},
-            "four_engine_fusion": {"fusion_implemented": True, "output": str(fused)},
+            "four_engine_fusion": {"fusion_implemented": True, "all_four_engine_pixels_contributed": True, "output": str(fused)},
         }
 
     monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
@@ -170,6 +170,45 @@ def test_rgb_tiff_v2_output_gets_local_png_qa_without_modifying_tiff(tmp_path, m
     with Image.open(preview) as image:
         assert image.size == (32, 24)
         assert image.info.get("icc_profile") == icc
+
+
+def test_fusion_with_missing_engine_pixel_effect_is_not_reported_ready(tmp_path, monkeypatch):
+    source, baseline = _images(tmp_path)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+    from tools import v211_four_engine_run
+
+    def fake_run(src, output_dir, manifest, size, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        fused = output_dir / "four_engine_fused_preview.png"
+        Image.new("RGBA", size, (210, 20, 40, 120)).save(fused)
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": 4,
+            "failures": {},
+            "four_engine_fusion": {
+                "fusion_implemented": True,
+                "all_four_engine_pixels_contributed": False,
+                "engine_pixel_effect_verified": {
+                    "real_esrgan": True, "waifu2x": True,
+                    "real_cugan": True, "anime4k": False,
+                },
+                "engine_pixel_effect_pixels": {
+                    "real_esrgan": 12, "waifu2x": 9,
+                    "real_cugan": 10, "anime4k": 0,
+                },
+                "output": str(fused),
+            },
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+    assert result["status"] == "four_engine_fusion_contribution_incomplete"
+    assert result["all_four_engine_pixels_contributed"] is False
+    assert result["engine_pixel_effect_verified"]["anime4k"] is False
+    assert Path(result["four_engine_fusion_output"]).is_file()
+    assert baseline.read_bytes() == before
 
 
 def test_opt_in_three_primary_candidates_do_not_require_anime_preview(tmp_path, monkeypatch):
@@ -247,6 +286,7 @@ def test_late_cancel_after_sidecar_copy_removes_qa_file_and_keeps_v2(tmp_path, m
             "failures": {},
             "four_engine_fusion": {
                 "fusion_implemented": True,
+                "all_four_engine_pixels_contributed": True,
                 "output": str(fused),
             },
         }
