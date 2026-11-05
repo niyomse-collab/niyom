@@ -284,9 +284,16 @@ def run_diagnostic(
     all_four = manifest_preflight_passed and all(
         item["both_cases_pass"] for item in engine_matrix.values()
     )
+    # A Vulkan loader DLL alone does not prove that the target adapter is
+    # visible to Vulkan. Require the GTX 1660 Ti to appear in both NVIDIA-SMI
+    # and vulkaninfo, a successful vulkaninfo probe, the loader, and the
+    # expected approximately 6 GiB VRAM budget before labeling this a shop GPU.
     gpu_ready = bool(
         gpu.get("gtx_1660_ti_detected_by_nvidia_smi")
+        and gpu.get("gtx_1660_ti_detected_by_vulkan")
         and gpu.get("vulkan_loader_available")
+        and gpu.get("vulkaninfo_succeeded")
+        and gpu.get("vram_budget_6gb_detected")
     )
     report = {
         "schema_version": 1,
@@ -310,7 +317,7 @@ def run_diagnostic(
             "Only generated synthetic RGB/RGBA PNGs were processed.",
             "The report verifies native CLI execution, output dimensions, alpha, ICC and DPI only.",
             "It does not prove visual improvement, face identity, CMYK/RIP quality or print acceptance.",
-            "GPU presence plus Vulkan visibility does not independently prove which adapter each CLI selected.",
+            "Shop GPU readiness requires GTX 1660 Ti visibility in both NVIDIA-SMI and vulkaninfo, successful vulkaninfo, the Vulkan loader, and the expected 6 GiB VRAM budget; this still does not prove which adapter each CLI selected.",
         ],
     }
     report_path = output_dir / "shop_gpu_diagnostic.json"
