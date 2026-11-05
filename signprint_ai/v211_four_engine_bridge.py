@@ -1,8 +1,13 @@
 """Opt-in V2.1.1 four-engine research hook, isolated from accepted V2 output.
 
-When enabled, the four verified external executables receive the ORIGINAL source
-and a trusted V2 output at one target size. No candidate is silently used as
-the printed deliverable: quality approval is a separate release gate.
+The native executables are fixed 2x upscalers. For arbitrary V2 raster dimensions,
+the bridge creates a half-target seed from the original source, edge-pads odd
+V2 dimensions, and asks each native engine for one 2x pass. This makes custom,
+4x and 8x *target dimensions* eligible for a candidate preview; it is NOT native
+4x/8x inference or a multi-pass super-resolution claim.
+
+No candidate is silently used as the printed deliverable: quality approval is a
+separate release gate.
 """
 from __future__ import annotations
 
@@ -14,7 +19,7 @@ import shutil
 from uuid import uuid4
 from typing import Callable
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 _LOG = logging.getLogger(__name__)
 _FLAG = "NIYOMSIL_V211_FOUR_AI"
@@ -23,6 +28,101 @@ _EVIDENCE = "NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR"
 
 # This is an auxiliary-engine budget, NOT a V2 resize/export pixel limit.
 _AUXILIARY_MAX_PIXELS = 18_000_000
+_SOURCE_FORMATS = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}
+_V2_RASTER_FORMATS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+
+
+def _metadata(image: Image.Image) -> dict:
+    return {key: image.info[key] for key in ("icc_profile", "dpi") if key in image.info}
+
+
+def _edge_pad_even(image: Image.Image) -> Image.Image:
+    """Repeat the last row/column so a fixed 2x engine lands on an even target."""
+    width, height = image.size
+    padded_width, padded_height = width + (width % 2), height + (height % 2)
+    if (padded_width, padded_height) == (width, height):
+        return image.copy()
+    padded = Image.new(image.mode, (padded_width, padded_height))
+    padded.paste(image, (0, 0))
+    if padded_width != width:
+        padded.paste(image.crop((width - 1, 0, width, height)), (width, 0))
+    if padded_height != height:
+        padded.paste(image.crop((0, height - 1, width, height)), (0, height))
+    if padded_width != width and padded_height != height:
+        padded.putpixel((width, height), image.getpixel((width - 1, height - 1)))
+    return padded
+
+
+def _prepare_native_2x_inputs(
+    source: Path,
+    baseline: Path,
+    work_dir: Path,
+) -> tuple[Path, Path, tuple[int, int], tuple[int, int], tuple[int, int], dict]:
+    """Create a private half-target seed and a PNG V2 reference for the 2x CLIs."""
+    with Image.open(baseline) as v2_image:
+        if v2_image.mode not in ("RGB", "RGBA"):
+            raise ValueError("V2 raster must be RGB or RGBA; CMYK remains V2-only")
+        target_size = v2_image.size
+        metadata = _metadata(v2_image)
+        padded_v2 = _edge_pad_even(v2_image)
+
+    padded_size = padded_v2.size
+    if padded_size[0] * padded_size[1] > _AUXILIARY_MAX_PIXELS:
+        raise ValueError("auxiliary_image_too_large")
+    seed_size = (padded_size[0] // 2, padded_size[1] // 2)
+    if min(seed_size) < 2:
+        raise ValueError("auxiliary_target_too_small")
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    reference_path = work_dir / "v2_reference_native_2x.png"
+    seed_path = work_dir / "native_2x_seed.png"
+    padded_v2.save(reference_path, format="PNG", **metadata)
+
+    with Image.open(source) as source_image:
+        oriented = ImageOps.exif_transpose(source_image)
+        if oriented.mode not in ("RGB", "RGBA"):
+            raise ValueError("source must be RGB or RGBA for four-engine research")
+        source_size = oriented.size
+        seed = oriented.convert(padded_v2.mode).resize(
+            seed_size, resample=Image.Resampling.LANCZOS
+        )
+        # The accepted V2 alpha is authoritative, including when the original
+        # source was RGB or an external model would otherwise invent transparency.
+        if padded_v2.mode == "RGBA":
+            seed.putalpha(
+                padded_v2.getchannel("A").resize(
+                    seed_size, resample=Image.Resampling.LANCZOS
+                )
+            )
+        seed.save(seed_path, format="PNG", **metadata)
+
+    return seed_path, reference_path, target_size, padded_size, source_size, metadata
+
+
+def _save_cropped_png(
+    candidate: Path,
+    destination: Path,
+    *,
+    target_size: tuple[int, int],
+    padded_size: tuple[int, int],
+    mode: str,
+    metadata: dict,
+) -> None:
+    """Publish a cropped QA PNG exclusively; never replace an existing file."""
+    with Image.open(candidate) as image:
+        if image.size != padded_size or image.mode != mode:
+            raise ValueError("four-engine candidate dimensions or mode mismatch")
+        cropped = image.crop((0, 0, target_size[0], target_size[1]))
+        with tempfile.NamedTemporaryFile(
+            suffix=".png", prefix=".v211_qa_", dir=destination.parent, delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+        try:
+            cropped.save(temporary, format="PNG", **metadata)
+            with temporary.open("rb") as source_stream, destination.open("xb") as target_stream:
+                shutil.copyfileobj(source_stream, target_stream)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def maybe_run_four_engine_assist(
@@ -35,11 +135,10 @@ def maybe_run_four_engine_assist(
     preserve_all_v2_faces: bool = False,
     progress: Callable[[int, str], None] | None = None,
 ) -> dict:
-    """Run an optional four-engine candidate comparison after V2 safely saves.
+    """Run four verified native 2x engines after V2 safely saves.
 
     A failure is reported but NEVER modifies the V2 file, its ICC/DPI/alpha,
     GFPGAN face result, or UI controls. The sidecar path is local-only.
-    Real executable+checkpoint hashes are validated by the manifest loader.
     """
     if not use_ai or os.environ.get(_FLAG) == "0":
         return {"status": "disabled", "v2_output_preserved": True}
@@ -50,8 +149,8 @@ def maybe_run_four_engine_assist(
     baseline = Path(v2_output)
     manifest_name = os.environ.get(_MANIFEST, "").strip()
     # The experimental V2.1.1 build uses four models automatically after
-    # they have been independently provisioned once to a private directory.
-    # Stable V2 contains no call to this bridge. No UI model switches.
+    # they have been provisioned once to a private directory. Stable V2 never
+    # imports this bridge and no per-model UI switches are introduced.
     if not manifest_name:
         local_appdata = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
         available = local_appdata / "NiyomSilp" / "V211-FourAI-QA" / "manifest.json"
@@ -59,8 +158,10 @@ def maybe_run_four_engine_assist(
             manifest_name = str(available)
     if not manifest_name:
         return {"status": "models_not_installed", "v2_output_preserved": True}
-    if baseline.suffix.lower() != ".png":
+    if baseline.suffix.lower() not in _V2_RASTER_FORMATS:
         return {"status": "unsupported_output_format", "v2_output_preserved": True}
+    if original.suffix.lower() not in _SOURCE_FORMATS:
+        return {"status": "unsupported_source_format", "v2_output_preserved": True}
 
     output_dir: Path | None = None
     persistent_output_dir = False
@@ -70,43 +171,43 @@ def maybe_run_four_engine_assist(
             if image.mode not in ("RGB", "RGBA"):
                 return {"status": "unsupported_colour_mode", "v2_output_preserved": True}
             target_size = image.size
-            if target_size[0] * target_size[1] > _AUXILIARY_MAX_PIXELS:
+            padded_pixels = (target_size[0] + target_size[0] % 2) * (
+                target_size[1] + target_size[1] % 2
+            )
+            if padded_pixels > _AUXILIARY_MAX_PIXELS:
                 return {"status": "auxiliary_image_too_large", "v2_output_preserved": True}
-
-        # Current NCNN/Anime4KCPP adapters are deliberately configured for
-        # EXACT 2x. Do not start four expensive external processes for V2
-        # resize/print modes such as 1x, 3x, 4x, 8x, TIFF, or PDF.
-        # V2 retains its original large-format route unaffected.
-        if original.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
-            return {"status": "unsupported_source_format", "v2_output_preserved": True}
         with Image.open(original) as source_image:
-            if source_image.mode not in ("RGB", "RGBA"):
+            if ImageOps.exif_transpose(source_image).mode not in ("RGB", "RGBA"):
                 return {"status": "unsupported_source_mode", "v2_output_preserved": True}
-            if target_size != (source_image.width * 2, source_image.height * 2):
-                return {"status": "auxiliary_engine_scale_mismatch", "v2_output_preserved": True}
 
-        # Import only after the explicit opt-in. Default V2 never needs optional
-        # engine packages and stays unchanged when this feature is unavailable.
         from tools.v211_four_engine_run import run
 
         evidence_root = os.environ.get(_EVIDENCE, "").strip()
-        # Named keyword arguments are only added when face guards are needed,
-        # keeping existing CLI contract tests independent of the new gate.
         guard_options = {}
         if protected_regions or preserve_all_v2_faces:
             guard_options = {
                 "protected_regions": protected_regions,
                 "preserve_all_v2_faces": preserve_all_v2_faces,
             }
-        run_options = {
-            "real_engines": True,
-            "v2_reference": baseline,
-            **guard_options,
-        }
+        run_options = {**guard_options}
         if cancel is not None:
             run_options["cancel"] = cancel
         if progress is not None:
             run_options["progress_callback"] = progress
+
+        def execute(work_dir: Path):
+            if cancel and cancel():
+                raise InterruptedError("Processing stopped by user")
+            seed, reference, target_size, padded_size, source_size, metadata = (
+                _prepare_native_2x_inputs(original, baseline, work_dir)
+            )
+            if cancel and cancel():
+                raise InterruptedError("Processing stopped by user")
+            result = run(
+                seed, work_dir, Path(manifest_name), padded_size,
+                real_engines=True, v2_reference=reference, **run_options,
+            )
+            return result, target_size, padded_size, source_size, metadata
 
         if evidence_root:
             root = Path(evidence_root).expanduser()
@@ -114,43 +215,47 @@ def maybe_run_four_engine_assist(
             output_dir = root / ("v211-" + uuid4().hex)
             output_dir.mkdir(mode=0o700)
             persistent_output_dir = True
-            result = run(original, output_dir, Path(manifest_name), target_size,
-                         **run_options)
-            private_output = (result.get("four_engine_fusion") or {}).get("output")
+            result, target_size, padded_size, source_size, metadata = execute(output_dir)
+            fusion = result.get("four_engine_fusion") or {}
+            private_output = None
+            if fusion.get("fusion_implemented") and fusion.get("output"):
+                cropped = output_dir / "four_engine_fused_preview_cropped.png"
+                _save_cropped_png(
+                    Path(fusion["output"]), cropped,
+                    target_size=target_size, padded_size=padded_size,
+                    mode=Image.open(baseline).mode, metadata=metadata,
+                )
+                fusion["output"] = str(cropped)
+                private_output = str(cropped)
         else:
-            # Keep intermediate candidate images private and temporary.
-            # Retain ONLY the experimental four-AI result beside V2 so users
-            # can inspect it with Photoshop; the approved V2 stays untouched.
+            # Intermediate candidates remain in a private temporary directory.
+            # Retain only the QA PNG beside V2; the approved raster stays intact.
             private_output = None
             with tempfile.TemporaryDirectory(prefix="niyomsil-v211-") as temporary:
                 output_dir = Path(temporary)
-                result = run(original, output_dir, Path(manifest_name),
-                             target_size, **run_options)
+                result, target_size, padded_size, source_size, metadata = execute(output_dir)
                 if cancel and cancel():
                     raise InterruptedError("Processing stopped by user")
                 fusion = result.get("four_engine_fusion") or {}
                 if fusion.get("fusion_implemented") and fusion.get("output"):
-                    candidate = Path(fusion["output"])
                     name = baseline.stem + ".V211-4AI-QA-" + uuid4().hex[:8] + ".png"
                     sidecar = baseline.with_name(name)
-                    # Copy to a unique private QA file; never use os.replace
-                    # against a user-selected print export.
-                    try:
-                        with sidecar.open("xb") as dest, candidate.open("rb") as src:
-                            shutil.copyfileobj(src, dest)
-                    except BaseException:
-                        sidecar.unlink(missing_ok=True)
-                        raise
+                    _save_cropped_png(
+                        Path(fusion["output"]), sidecar,
+                        target_size=target_size, padded_size=padded_size,
+                        mode=Image.open(baseline).mode, metadata=metadata,
+                    )
+                    fusion["output"] = str(sidecar)
                     private_output = str(sidecar)
 
-        # Catch a late user cancel during a potentially large sidecar copy too.
-        # The exception handler removes this partial QA file and preserves V2.
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
         fusion = result.get("four_engine_fusion") or {}
         preview = result.get("three_engine_priority_preview") or {}
         selection = preview.get("selected")
+        source_w, source_h = source_size
+        target_w, target_h = target_size
         return {
             "status": (
                 "four_engine_fusion_preview_ready"
@@ -167,9 +272,15 @@ def maybe_run_four_engine_assist(
                 "mean_abs_detail_delta": fusion.get("mean_abs_detail_delta"),
                 "engine_detail_contribution_mean_abs": fusion.get("engine_detail_contribution_mean_abs"),
                 "protected_faces_preserved": fusion.get("protected_faces_preserved"),
+                "native_engine_scale": 2,
+                "engine_input_size": [padded_size[0] // 2, padded_size[1] // 2],
+                "requested_output_size": list(target_size),
+                "requested_scale_from_source": [
+                    round(target_w / source_w, 4), round(target_h / source_h, 4)
+                ],
+                "scale_policy": "native_2x_on_half_target_seed",
             } if fusion else None,
             "priority_preview_selected": selection,
-            # Expose only retained local outputs, never a deleted temp path.
             "priority_preview_path": (
                 preview.get("output") if evidence_root and selection is not None
                 else None
@@ -191,7 +302,6 @@ def maybe_run_four_engine_assist(
             shutil.rmtree(output_dir, ignore_errors=True)
         if sidecar is not None:
             sidecar.unlink(missing_ok=True)
-        # A sidecar failure cannot fail the accepted V2 enhancement job.
         _LOG.warning("Optional V2.1.1 four-engine candidate run failed: %s", exc)
         return {
             "status": "error",

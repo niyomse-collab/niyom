@@ -32,10 +32,10 @@ def test_installed_four_ai_is_auto_executed_and_exports_separate_result(tmp_path
     calls = []
 
     def fake_runner(src, output_dir, config, size, *, real_engines, v2_reference, **kwargs):
-        calls.append((src, config, size, real_engines, v2_reference))
-        fusion = Path(output_dir) / "four_engine_fused_preview.png"
-        with Image.open(v2) as image:
-            image.save(fusion, dpi=(300, 300))
+        with Image.open(src) as seed, Image.open(v2_reference) as reference:
+            calls.append((seed.size, config, size, real_engines, reference.size))
+            fusion = Path(output_dir) / "four_engine_fused_preview.png"
+            reference.save(fusion, dpi=(300, 300))
         return {
             "ready_for_fusion_research": True,
             "completed_engine_count": 4,
@@ -63,7 +63,7 @@ def test_installed_four_ai_is_auto_executed_and_exports_separate_result(tmp_path
     assert fused.parent == v2.parent
     assert ".V211-4AI-QA-" in fused.name
     assert v2.read_bytes() == before
-    assert calls == [(original, manifest, (16, 16), True, v2)]
+    assert calls == [((8, 8), manifest, (16, 16), True, (16, 16))]
     assert Image.open(fused).size == (16, 16)
 
 
@@ -97,17 +97,33 @@ def test_auto_face_preserved_when_no_bounding_boxes(tmp_path, monkeypatch):
     assert observed[0]["real_engines"] is True
 
 
-def test_cannot_automatically_run_four_ai_for_non_2x_job(tmp_path, monkeypatch):
+def test_custom_four_x_target_runs_native_two_x_on_half_target_seed(tmp_path, monkeypatch):
     src, v2 = _source_and_v2(tmp_path)
-    Image.new("RGB", (32, 32)).save(v2)
+    Image.new("RGB", (32, 32), (35, 80, 120)).save(v2)
     before = v2.read_bytes()
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "stub.json"))
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
-    def unexpected(*args, **kwargs):
-        raise AssertionError("incorrect scale")
-    monkeypatch.setattr(v211_four_engine_run, "run", unexpected)
+    observed = {}
+
+    def fake_run(seed, output_dir, config, size, *, real_engines, v2_reference, **kwargs):
+        with Image.open(seed) as image:
+            observed["seed_size"] = image.size
+        with Image.open(v2_reference) as reference:
+            observed["reference_size"] = reference.size
+            fusion = Path(output_dir) / "four_engine_fused_preview.png"
+            reference.save(fusion)
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": 4,
+            "failures": {},
+            "four_engine_fusion": {"fusion_implemented": True, "output": str(fusion)},
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
     result = bridge.maybe_run_four_engine_assist(src, v2)
-    assert result["status"] == "auxiliary_engine_scale_mismatch"
+    assert result["status"] == "four_engine_fusion_preview_ready"
+    assert observed == {"seed_size": (16, 16), "reference_size": (32, 32)}
+    assert result["four_engine_fusion_details"]["native_engine_scale"] == 2
     assert v2.read_bytes() == before
 
 

@@ -7,7 +7,7 @@ Do not merge/release as accepted V2.1.1 until the shop approves side-by-side ima
 
 - Keep V2 Real-ESRGAN main enhancement, GFPGAN face restoration, sliders, Windows output behaviour and alpha/ICC/DPI print path unchanged.
 - Once the user confirms a one-time download, install four native upstream AI executables plus their model assets in private LOCALAPPDATA and validate archive SHA256 and a SHA256-checked manifest. Subsequent usage is offline. Executables/weights are not bundled in our distributed installer.
-- For a supported 2x AI PNG output, the app calls all four actual installed native executables sequentially on the original input. Missing engines never result in a false claim of a completed fusion; the accepted V2 output stays untouched.
+- For supported RGB/RGBA raster outputs (PNG/JPEG/TIFF), the app prepares a private half-target seed from the original source and runs all four installed native 2x executables sequentially. Odd V2 dimensions are edge-padded for inference and cropped back for the QA PNG. This allows custom, 4x and 8x target dimensions to enter the same 2x native pass; it is not native 4x/8x inference or a multi-pass claim. Missing engines never result in a false claim of completed fusion; accepted V2 stays untouched.
 - An additional tiled pixel fusion consumes outputs from all four models. Real-ESRGAN/Waifu2x/Real-CUGAN supply the majority of permitted edge detail; Anime4K only supplies bounded, agreeing edge detail. The fusion retains the original accepted V2 colours, ICC, print DPI and alpha, protects explicitly selected face rectangles and can preserve the entire V2 portrait when automatic face restoration ran without known rectangles.
 - After all four pass their individual PNG checks and the fusion gate, save a separate experimental *.V211-4AI-QA-xxxxxxxx.png next to the V2 print file, and show it as the right-hand preview. It is NOT an automatically accepted or quality-certified print export.
 - Intermediate candidate images are deleted by default; explicit NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR can retain them in a private local QA folder for A/B. Customer images must not be uploaded publicly.
@@ -23,7 +23,7 @@ Real-ESRGAN, Waifu2x and Real-CUGAN were previously exercised individually on th
 
 ## Limitations and unresolved gates
 
-- Only PNG V2 output from an exact 2x source is supported for the auxiliary four AI integration in this beta; auxiliary limit is 18 megapixels. Large-format V2 output continues with existing V2 processing; four-model large-image tiling must be built separately before claiming full-size print support.
+- The auxiliary route currently supports RGB/RGBA PNG, JPEG and TIFF V2 rasters up to 18 megapixels. It uses a native 2x engine pass on a seed sized to half the padded V2 target, so arbitrary output dimensions including 4x/8x targets can be previewed without claiming native 4x/8x inference. CMYK, PDF, PSD and outputs above 18MP remain V2-only; large-format four-engine tile streaming is still pending.
 - A passing Windows installer build proves packaging, not real model inference inside the packaged app. GitHub Windows hosted-runner currently allows Real-CUGAN/Anime4K synthetic real-CLI smoke outputs but Real-ESRGAN/Waifu2x hit vkCreateInstance failed -9 without a usable Vulkan GPU. The user's Windows PC with GTX 1660 Ti is the relevant test machine for end-to-end fusion.
 - Experimental fusion on raster candidates is real implemented code, not yet proof of better visual quality. No OCR/retyping is used. The four models' detail contributions must be measured and reviewed for Thai/English/Chinese small lettering, people, animals, objects, line art, flat green areas, gradient ramps, transparency/halo and GFPGAN face retention.
 - Native subprocess cancellation is now wired through the sequential runner: on Windows it terminates the process tree; on POSIX it terminates the process group. Fusion also checks cancellation between bounded tiles. CI regression tests cover cancellation and temporary-output cleanup, but the Windows GPU process-tree behavior still needs verification on the shop PC.
@@ -39,7 +39,7 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - The V2 adapter now completes and writes the accepted V2 export before calling maybe_run_four_engine_assist. The old pre-save in-memory research hook is no longer the app's execution path.
 - The app receives the bridge's four_engine_fusion_output path, so the right-hand preview can display the actual separate *.V211-4AI-QA-*.png sidecar when all four engines and fusion succeed.
 - Cancellation is passed from the V2 job into each native subprocess and into tiled fusion. A cancelled or failed auxiliary run reports its own status and leaves the saved V2 file intact; incomplete persistent evidence folders are removed on cancellation.
-- The supported auxiliary route remains exact 2x RGB/RGBA PNG and <=18 MP. Other scales, TIFF/PDF/CMYK, and larger jobs continue through V2 only and are explicitly reported as unsupported for the four-engine sidecar.
+- The auxiliary route now normalizes arbitrary RGB/RGBA PNG/JPEG/TIFF target dimensions to a fixed native 2x engine pass using a half-target seed, including edge-padding/cropping for odd dimensions. It remains limited to <=18MP and is not native 4x/8x or multi-pass inference. PDF/PSD, CMYK and larger jobs still continue through V2 only.
 - These are integration and cancellation safeguards, not evidence of real inference on the shop GPU or improved image quality. The four-engine Windows candidate build and the owner's GTX 1660 Ti A/B review remain release gates.
 
 ## 5 November 2026 — installer completion gate hardening
@@ -50,3 +50,10 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - The editor launch Run entry is gated by the fresh completion marker and absence of the pending marker whenever the four-engine task is selected. A failed or incomplete provisioning attempt therefore cannot reuse an old success marker or launch the editor as if setup succeeded.
 - Inno Setup captures a nonzero custom installer exit code if the selected four-engine setup did not publish a fresh marker. If the task is unchecked, the editor can still launch and the accepted V2 path remains available.
 - This is source-level and CI-testable installer control flow. The packaged installer still requires a real interactive and silent Windows install/uninstall test before customer deployment.
+
+
+## 5 November 2026 — arbitrary raster target-size normalization
+
+- The bridge now derives a private half-target seed from the original raster and runs each fixed 2x native CLI once, then fuses against the accepted V2 raster at its requested dimensions. This supports custom/stretch dimensions and 4x/8x target sizes within the 18MP auxiliary budget without pretending that the native model itself ran at 4x/8x.
+- Odd target dimensions are edge-padded to even dimensions for the 2x engines and cropped back before the QA sidecar is published. RGB/RGBA PNG, JPEG and TIFF V2 rasters are accepted; TIFF/JPEG outputs produce a local PNG QA sidecar and the original print file is not modified.
+- CMYK, PDF, PSD and targets above 18MP remain on the accepted V2 path only. No native large-image streaming or print-quality promotion is claimed.

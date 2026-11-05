@@ -1,7 +1,8 @@
 """The four-engine bridge must be opt-in and must never rewrite V2."""
 from pathlib import Path
 
-from PIL import Image
+import pytest
+from PIL import Image, ImageCms
 
 from signprint_ai import v211_four_engine_bridge as bridge
 
@@ -38,14 +39,14 @@ def test_disabled_for_non_ai_jobs(tmp_path, monkeypatch):
     assert bridge.maybe_run_four_engine_assist(source, baseline, use_ai=False)["status"] == "disabled"
 
 
-def test_non_png_output_keeps_v2(tmp_path, monkeypatch):
-    source, baseline = _images(tmp_path)
-    tiff = tmp_path / "out.tiff"
-    tiff.write_bytes(b"unchanged-print-export")
+def test_non_raster_output_keeps_v2(tmp_path, monkeypatch):
+    source, _ = _images(tmp_path)
+    pdf = tmp_path / "out.pdf"
+    pdf.write_bytes(b"unchanged-print-export")
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", "test-manifest.json")
-    assert bridge.maybe_run_four_engine_assist(source, tiff)["status"] == "unsupported_output_format"
-    assert tiff.read_bytes() == b"unchanged-print-export"
+    assert bridge.maybe_run_four_engine_assist(source, pdf)["status"] == "unsupported_output_format"
+    assert pdf.read_bytes() == b"unchanged-print-export"
 
 
 def test_fake_runner_cannot_replace_v2_output(tmp_path, monkeypatch):
@@ -56,8 +57,9 @@ def test_fake_runner_cannot_replace_v2_output(tmp_path, monkeypatch):
     monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
     from tools import v211_four_engine_run
     calls = []
-    def stub(src, output_dir, manifest, size, *, real_engines, v2_reference):
-        calls.append((src, size, real_engines, v2_reference))
+    def stub(src, output_dir, manifest, size, *, real_engines, v2_reference, **kwargs):
+        with Image.open(src) as seed, Image.open(v2_reference) as reference:
+            calls.append((seed.size, reference.size, size, real_engines))
         return {"ready_for_fusion_research": True, "completed_engine_count": 4, "failures": {}}
     monkeypatch.setattr(v211_four_engine_run, "run", stub)
     result = bridge.maybe_run_four_engine_assist(source, baseline)
@@ -65,7 +67,7 @@ def test_fake_runner_cannot_replace_v2_output(tmp_path, monkeypatch):
     assert result["quality_certified"] is False
     assert result["fusion_implemented"] is False
     assert result["v2_output_preserved"]
-    assert calls == [(source, (16, 16), True, baseline)]
+    assert calls == [((8, 8), (16, 16), (16, 16), True)]
     assert baseline.read_bytes() == old
 
 
@@ -83,23 +85,91 @@ def test_faulty_engine_does_not_fail_v2_job(tmp_path, monkeypatch):
     assert baseline.read_bytes() == old
 
 
-def test_opt_in_skips_unsupported_four_times_scale_without_running_engines(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("target_size", "expected_seed", "expected_padded"),
+    [
+        ((16, 16), (8, 8), (16, 16)),
+        ((32, 32), (16, 16), (32, 32)),
+        ((64, 64), (32, 32), (64, 64)),
+        ((31, 23), (16, 12), (32, 24)),
+    ],
+)
+def test_native_2x_engines_support_custom_and_4x_8x_target_sizes(
+    tmp_path, monkeypatch, target_size, expected_seed, expected_padded
+):
     source, baseline = _images(tmp_path)
-    with Image.open(baseline) as image:
-        rgba = image.copy()
-    rgba.resize((32, 32), Image.Resampling.LANCZOS).save(baseline)
+    icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    Image.new("RGBA", target_size, (30, 40, 50, 120)).save(
+        baseline, dpi=(300, 300), icc_profile=icc
+    )
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+    from tools import v211_four_engine_run
+    calls = []
+
+    def fake_run(src, output_dir, manifest, size, *, real_engines, v2_reference, **kwargs):
+        with Image.open(src) as seed, Image.open(v2_reference) as reference:
+            calls.append((seed.size, reference.size, size, real_engines))
+            fused = Path(output_dir) / "four_engine_fused_preview.png"
+            reference.save(fused)
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": 4,
+            "failures": {},
+            "four_engine_fusion": {"fusion_implemented": True, "output": str(fused)},
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+    assert result["status"] == "four_engine_fusion_preview_ready"
+    assert result["quality_certified"] is False
+    assert result["v2_output_preserved"] is True
+    assert result["four_engine_fusion_details"]["native_engine_scale"] == 2
+    assert result["four_engine_fusion_details"]["scale_policy"] == "native_2x_on_half_target_seed"
+    assert calls == [(expected_seed, expected_padded, expected_padded, True)]
+    assert baseline.read_bytes() == before
+    preview = Path(result["four_engine_fusion_output"])
+    with Image.open(preview) as image, Image.open(baseline) as reference:
+        assert image.size == target_size
+        assert image.mode == "RGBA"
+        assert image.getchannel("A").tobytes() == reference.getchannel("A").tobytes()
+        assert image.info.get("icc_profile") == icc
+
+
+def test_rgb_tiff_v2_output_gets_local_png_qa_without_modifying_tiff(tmp_path, monkeypatch):
+    source = tmp_path / "source.png"
+    baseline = tmp_path / "accepted-V2.tiff"
+    Image.new("RGB", (8, 8), (20, 30, 40)).save(source)
+    icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    Image.new("RGB", (32, 24), (30, 40, 50)).save(
+        baseline, dpi=(300, 300), icc_profile=icc
+    )
     before = baseline.read_bytes()
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
     from tools import v211_four_engine_run
 
-    def must_not_run(*args, **kwargs):
-        raise AssertionError("2x auxiliary engines must never launch for 4x V2")
+    def fake_run(src, output_dir, manifest, size, *, real_engines, v2_reference, **kwargs):
+        with Image.open(v2_reference) as reference:
+            fused = Path(output_dir) / "four_engine_fused_preview.png"
+            reference.save(fused)
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": 4,
+            "failures": {},
+            "four_engine_fusion": {"fusion_implemented": True, "output": str(fused)},
+        }
 
-    monkeypatch.setattr(v211_four_engine_run, "run", must_not_run)
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
     result = bridge.maybe_run_four_engine_assist(source, baseline)
-    assert result["status"] == "auxiliary_engine_scale_mismatch"
+    assert result["status"] == "four_engine_fusion_preview_ready"
     assert baseline.read_bytes() == before
+    preview = Path(result["four_engine_fusion_output"])
+    assert preview.suffix == ".png" and ".V211-4AI-QA-" in preview.name
+    with Image.open(preview) as image:
+        assert image.size == (32, 24)
+        assert image.info.get("icc_profile") == icc
 
 
 def test_opt_in_three_primary_candidates_do_not_require_anime_preview(tmp_path, monkeypatch):
