@@ -283,6 +283,29 @@ def provision_from_archives(archives: Path, install_dir: Path, manifest_path: Pa
         "partial_install_cleanup": True,
     }
 
+
+def ensure_verified_archive(path: Path, package: dict) -> dict:
+    """Reuse a valid pinned archive or atomically redownload a missing/bad one."""
+    path = Path(path)
+    if path.is_file():
+        try:
+            digest = verify_archive_hash(
+                path, package.get("release_sha256"),
+                package.get("observed_sha256"),
+            )
+            audit_archive(path)
+            return {"status": "already_verified", **digest}
+        except Exception:
+            # A partial, stale or malformed ZIP is not considered installed.
+            # download_archive preserves it until a replacement passes every
+            # digest and archive-member check.
+            pass
+    digest = download_archive(
+        package["url"], path, package.get("release_sha256"),
+        package.get("observed_sha256"),
+    )
+    return {"status": "downloaded_verified", **digest}
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--archives-dir", type=Path, required=True)
@@ -293,8 +316,7 @@ def main():
     if args.download_missing:
         for name, package in PACKAGES.items():
             path = args.archives_dir / (name + ".zip")
-            if not path.exists():
-                download_archive(package["url"], path)
+            ensure_verified_archive(path, package)
     print(json.dumps(provision_from_archives(args.archives_dir, args.install_dir, args.manifest),
                      ensure_ascii=False, indent=2))
 
