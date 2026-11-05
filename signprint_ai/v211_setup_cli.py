@@ -6,8 +6,11 @@ selects the one-time four-engine setup task.
 """
 from __future__ import annotations
 
+import json
+import os
 import queue
 import threading
+from pathlib import Path
 
 
 _REQUIRED_ENGINES = {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
@@ -27,12 +30,76 @@ def install_for_offline_use() -> dict:
     return result
 
 
-def main() -> int:
-    """Show a small installer-time progress window and return a process code."""
+def completion_marker_path() -> Path:
+    """Return the local-only marker consumed by the Inno Setup launch gate."""
+    from .v211_auto_setup import qa_root
+
+    return qa_root() / "setup-complete.flag"
+
+
+def _log_path() -> Path:
+    return completion_marker_path().with_name("installer-setup.log")
+
+
+def _record(message: str) -> None:
+    try:
+        path = _log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(message.replace("\r", " ").replace("\n", " ") + "\n")
+    except OSError:
+        # Logging must never convert a successful verified install into failure.
+        pass
+
+
+def _clear_completion_marker() -> Path:
+    marker = completion_marker_path()
+    marker.unlink(missing_ok=True)
+    return marker
+
+
+def _run_and_publish_success() -> dict:
+    """Run all verification first; publish the marker only after exact success."""
+    marker = _clear_completion_marker()
+    try:
+        result = install_for_offline_use()
+        names = set(result.get("verified_engine_names", ()))
+        if names != _REQUIRED_ENGINES:
+            raise RuntimeError("four-engine completion marker requires all four verified engines")
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        temporary = marker.with_name(marker.name + ".tmp")
+        temporary.write_text(
+            "NiyomSilp V2.1.1 four-engine setup verified\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, marker)
+        _record("SUCCESS verified engines: " + ",".join(sorted(names)))
+        return result
+    except Exception as exc:
+        marker.unlink(missing_ok=True)
+        _record("FAILED " + type(exc).__name__ + ": " + str(exc))
+        raise
+
+
+def main(*, silent: bool = False) -> int:
+    """Run installer-time provisioning and return a process exit code.
+
+    Silent installations do not create a hidden Tk window: they write a
+    local setup log and return a nonzero code on any failed verification.
+    """
+    _clear_completion_marker()
+    if silent:
+        try:
+            _run_and_publish_success()
+            return 0
+        except Exception:
+            return 1
+
     try:
         import tkinter as tk
         from tkinter import messagebox, ttk
-    except Exception:
+    except Exception as exc:
+        _record("FAILED Tk UI unavailable: " + type(exc).__name__)
         return 2
 
     root = tk.Tk()
@@ -59,7 +126,7 @@ def main() -> int:
 
     def worker() -> None:
         try:
-            events.put(("success", install_for_offline_use()))
+            events.put(("success", _run_and_publish_success()))
         except Exception as exc:
             events.put(("failure", exc))
 
