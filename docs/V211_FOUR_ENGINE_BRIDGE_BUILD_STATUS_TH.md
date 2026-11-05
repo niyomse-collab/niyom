@@ -24,9 +24,19 @@ Real-ESRGAN, Waifu2x and Real-CUGAN were previously exercised individually on th
 - Only PNG V2 output from an exact **2x** source is supported for the auxiliary four AI integration in this beta; auxiliary limit is **18 megapixels**. Large-format V2 output continues with existing V2 processing; four-model large-image tiling must be built separately before claiming full-size print support.
 - A passing Windows installer build proves packaging, not real model inference inside the packaged app. GitHub Windows hosted-runner currently allows Real-CUGAN/Anime4K synthetic real-CLI smoke outputs but Real-ESRGAN/Waifu2x hit `vkCreateInstance failed -9` without a usable Vulkan GPU. The user's Windows PC with GTX 1660 Ti is the relevant test machine for end-to-end fusion.
 - Experimental fusion on raster candidates is real implemented code, **not yet proof of better visual quality**. No OCR/retyping is used. The four models' detail contributions must be measured and reviewed for Thai/English/Chinese small lettering, people, animals, objects, line art, flat green areas, gradient ramps, transparency/halo and GFPGAN face retention.
-- GPU workload, face ROI auto detection, proper cancellation of subprocesses, memory-bounded four-model processing for large signs, and quality-certified replacement of the print export remain open work.
+- Native subprocess cancellation is now wired through the sequential runner: on Windows it terminates the process tree; on POSIX it terminates the process group. Fusion also checks cancellation between bounded tiles. CI regression tests cover cancellation and temporary-output cleanup, but the Windows GPU process-tree behavior still needs verification on the shop PC.
+- Automatic face ROI detection, memory-bounded four-model processing for large signs, and quality-certified replacement of the print export remain open work.
 - Model/engine redistribution and license compliance (including Anime4KCPP GPL) must be reviewed before deciding to bundle third-party binaries into installers; currently models are downloaded directly from their original publishers with user permission.
 
 ## Release acceptance
 
 Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA and human review. Never tell the shop that four-engine output is superior to V2 until actual side-by-side evidence supports that statement.
+
+
+## 5 November 2026 — post-save QA and cancellation integration
+
+- The V2 adapter now completes and writes the accepted V2 export **before** calling `maybe_run_four_engine_assist`. The old pre-save in-memory research hook is no longer the app's execution path.
+- The app receives the bridge's `four_engine_fusion_output` path, so the right-hand preview can display the actual separate `*.V211-4AI-QA-*.png` sidecar when all four engines and fusion succeed.
+- Cancellation is passed from the V2 job into each native subprocess and into tiled fusion. A cancelled or failed auxiliary run reports its own status and leaves the saved V2 file intact; incomplete persistent evidence folders are removed on cancellation.
+- The supported auxiliary route remains exact 2x RGB/RGBA PNG and <=18 MP. Other scales, TIFF/PDF/CMYK, and larger jobs continue through V2 only and are explicitly reported as unsupported for the four-engine sidecar.
+- These are integration and cancellation safeguards, not evidence of real inference on the shop GPU or improved image quality. The four-engine Windows candidate build and the owner's GTX 1660 Ti A/B review remain release gates.
