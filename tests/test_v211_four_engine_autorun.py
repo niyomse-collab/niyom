@@ -243,7 +243,7 @@ def test_disk_tiled_v2_job_runs_four_engine_bridge_when_within_auxiliary_budget(
     monkeypatch.setattr(adapter_module, "validate_export", lambda *args: None)
 
     def fake_large(_adapter, _src, dst, _settings, source_size, target_size,
-                   _scale, progress, _cancel, _use_ai):
+                   _scale, progress, _cancel, _use_ai, **kwargs):
         observed["large_path"] = (source_size, target_size, progress is not None)
         Path(dst).write_bytes(b"durable V2 raster")
         return {"output": str(dst), "face_protection": {"applied": False}}
@@ -293,7 +293,7 @@ def test_disk_tiled_v2_job_over_18mp_keeps_four_engine_route_pending(
     monkeypatch.setattr(adapter_module, "validate_export", lambda *args: None)
 
     def fake_large(_adapter, _src, dst, _settings, _source_size, _target_size,
-                   _scale, _progress, _cancel, _use_ai):
+                   _scale, _progress, _cancel, _use_ai, **kwargs):
         Path(dst).write_bytes(b"durable large V2 raster")
         return {"output": str(dst), "face_protection": {"applied": False}}
 
