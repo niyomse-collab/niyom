@@ -111,6 +111,7 @@ def manifest_entry(engine: str, directory: Path, package: dict, digest: dict) ->
             "source_url": package["url"],
             "license_name": package["license"],
             "license_url": package["license_url"],
+            "additional_license_notices": package.get("additional_license_notices", []),
         },
         "qa_notice": "research_only; 2x inference not verified; manual rights review required",
         "archive_sha256": digest["archive_sha256"],
