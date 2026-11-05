@@ -32,6 +32,7 @@ hiddenimports = [
     "signprint_ai.v211_setup_cli",
     "tools.v211_official_assets_audit",
     "tools.v211_provision_four_engines",
+    "tools.v211_shop_gpu_diagnostic",
 ]
 # BasicSR discovers several modules dynamically (including basicsr.ops).
 # Freeze the complete Python module graph so the packaged EXE does not fail
