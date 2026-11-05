@@ -230,3 +230,92 @@ def test_core_adapter_maps_face_regions_to_final_fit_canvas(tmp_path, monkeypatc
         assert saved.info.get("icc_profile") == source_icc
         assert preview.size == (16, 8)
         assert preview.getpixel((0, 0)) == (200, 30, 40)
+
+def test_disk_tiled_v2_job_runs_four_engine_bridge_when_within_auxiliary_budget(
+    tmp_path, monkeypatch
+):
+    source, destination = _source_and_v2(tmp_path)
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    observed = {}
+
+    monkeypatch.setattr(adapter_module, "image_size", lambda _path: (1200, 1200))
+    monkeypatch.setattr(adapter_module, "needs_streaming", lambda *args: True)
+    monkeypatch.setattr(adapter_module, "validate_export", lambda *args: None)
+
+    def fake_large(_adapter, _src, dst, _settings, source_size, target_size,
+                   _scale, progress, _cancel, _use_ai):
+        observed["large_path"] = (source_size, target_size, progress is not None)
+        Path(dst).write_bytes(b"durable V2 raster")
+        return {"output": str(dst), "face_protection": {"applied": False}}
+
+    def fake_photo_preflight(settings, source_path, **kwargs):
+        return settings, None
+
+    monkeypatch.setattr(adapter_module, "process_large", fake_large)
+    from signprint_ai import v211_blur_gate
+    monkeypatch.setattr(
+        v211_blur_gate, "select_photo_restoration", fake_photo_preflight
+    )
+
+    def fake_bridge(src, v2_output, **kwargs):
+        assert Path(v2_output).read_bytes() == b"durable V2 raster"
+        observed["bridge"] = (Path(src), Path(v2_output), kwargs)
+        return {
+            "status": "four_engine_fusion_preview_ready",
+            "v2_output_preserved": True,
+            "quality_certified": False,
+        }
+
+    monkeypatch.setattr(bridge, "maybe_run_four_engine_assist", fake_bridge)
+    settings = SimpleNamespace(
+        print_width=None, print_height=None, ai_scale=2,
+        v211_source_guided_ink=False, face_protection=False,
+        face_regions=(), resize_mode="fit",
+    )
+    result = adapter.process(source, destination, settings, use_ai=True)
+
+    assert observed["large_path"][:2] == ((1200, 1200), (2400, 2400))
+    assert observed["bridge"][0] == source
+    assert observed["bridge"][1] == destination
+    assert observed["bridge"][2]["preserve_all_v2_faces"] is False
+    assert observed["bridge"][2]["resize_mode"] == "fit"
+    assert result["four_engine_research"]["status"] == "four_engine_fusion_preview_ready"
+    assert destination.read_bytes() == b"durable V2 raster"
+
+
+def test_disk_tiled_v2_job_over_18mp_keeps_four_engine_route_pending(
+    tmp_path, monkeypatch
+):
+    source, destination = _source_and_v2(tmp_path)
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    monkeypatch.setattr(adapter_module, "image_size", lambda _path: (4000, 3000))
+    monkeypatch.setattr(adapter_module, "needs_streaming", lambda *args: True)
+    monkeypatch.setattr(adapter_module, "validate_export", lambda *args: None)
+
+    def fake_large(_adapter, _src, dst, _settings, _source_size, _target_size,
+                   _scale, _progress, _cancel, _use_ai):
+        Path(dst).write_bytes(b"durable large V2 raster")
+        return {"output": str(dst), "face_protection": {"applied": False}}
+
+    monkeypatch.setattr(adapter_module, "process_large", fake_large)
+    from signprint_ai import v211_blur_gate
+    monkeypatch.setattr(
+        v211_blur_gate, "select_photo_restoration",
+        lambda settings, source_path, **kwargs: (settings, None),
+    )
+
+    def bridge_must_not_run(*args, **kwargs):
+        raise AssertionError("18MP+ auxiliary job must remain fail-closed until tile streaming exists")
+
+    monkeypatch.setattr(bridge, "maybe_run_four_engine_assist", bridge_must_not_run)
+    settings = SimpleNamespace(
+        print_width=None, print_height=None, ai_scale=2,
+        v211_source_guided_ink=False, face_protection=False,
+        face_regions=(), resize_mode="stretch",
+    )
+    result = adapter.process(source, destination, settings, use_ai=True)
+
+    assert result["four_engine_research"]["status"] == "large_image_tiling_pending"
+    assert result["four_engine_research"]["source_pixels"] == 12_000_000
+    assert result["four_engine_research"]["target_pixels"] == 48_000_000
+    assert destination.read_bytes() == b"durable large V2 raster"
