@@ -185,7 +185,6 @@ def fuse_four_engine_details(
                     effective_contributions[name] += float(
                         np.abs(rgb.astype("int16") - without_rgb.astype("int16")).sum()
                     )
-                mean_delta_sum += float(np.abs(safe_delta).sum())
                 if base.mode == "RGBA":
                     # Alpha is copied unchanged from V2; prevents fringe and
                     # satisfies PSD/AI transparent print workflow.
