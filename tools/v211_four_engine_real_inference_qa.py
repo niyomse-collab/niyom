@@ -27,6 +27,31 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+
+def _classify_engine_failure(exc: Exception) -> tuple[str, bool]:
+    """Separate Vulkan host initialization blocks from engine/output regressions.
+
+    A Vulkan initialization error is environment-dependent: it must be retried
+    on a host with a working Vulkan loader/device. It is not evidence of model
+    quality and must never be counted as successful inference.
+    """
+    if isinstance(exc, TimeoutError):
+        return "timeout", False
+    if isinstance(exc, FileNotFoundError):
+        return "executable_missing", False
+    message = str(exc).lower()
+    if any(token in message for token in (
+        "vkcreateinstance failed",
+        "invalid gpu device",
+        "vulkan unavailable",
+        "no vulkan device",
+        "vulkan device not found",
+    )):
+        return "vulkan_initialization_failed", True
+    return "subprocess_or_candidate_failure", False
+
+
+
 def run(
     manifest: Path, source: Path, output_dir: Path, *, timeout_seconds: int | None = None
 ) -> dict:
@@ -124,13 +149,13 @@ def run(
             destination.unlink(missing_ok=True)
             # Save only type and a bounded generic description. Windows error
             # stderr may contain local paths or other private information.
+            failure_class, retry_on_vulkan_host = _classify_engine_failure(exc)
             failure = {
                 "error_type": type(exc).__name__,
-                "error_class": (
-                    "timeout" if isinstance(exc, TimeoutError)
-                    else "subprocess_or_candidate_failure"
-                ),
+                "error_class": failure_class,
             }
+            if retry_on_vulkan_host:
+                failure["retry_on_vulkan_capable_host"] = True
             # ONLY the public GitHub workflow's deliberately synthetic test
             # permits a short diagnostic excerpt to help debug CLI arguments.
             # All customer jobs keep raw stderr and local file paths private.
