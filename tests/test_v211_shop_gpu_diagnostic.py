@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from tools import v211_shop_gpu_diagnostic as diagnostic
@@ -110,6 +111,34 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
         (tmp_path / "report" / "shop_gpu_diagnostic.json").read_text(encoding="utf-8")
     )
     assert saved["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
+
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("gtx_1660_ti_detected_by_nvidia_smi", False),
+        ("gtx_1660_ti_detected_by_vulkan", False),
+        ("vulkan_loader_available", False),
+        ("vulkaninfo_succeeded", False),
+        ("vram_budget_6gb_detected", False),
+    ],
+)
+def test_gpu_readiness_requires_real_vulkan_adapter_and_vram(
+    tmp_path, field, value
+):
+    gpu = _gpu()
+    gpu[field] = value
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test manifest", encoding="utf-8")
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=lambda: gpu, engine_runner=_successful_runner,
+    )
+    # Engine output validity and target-machine readiness are independent.
+    assert report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
+    assert not report["gtx_1660_ti_and_vulkan_environment_detected"]
+    assert not report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"]
 
 
 def test_one_engine_failure_is_not_reported_as_four_engine_success(tmp_path):
