@@ -1,7 +1,11 @@
 """V2.1.1 four-model automatic integration; test doubles never certify AI."""
 from pathlib import Path
+from types import SimpleNamespace
 
 from PIL import Image
+
+from signprint_ai import niyomsil_core_adapter as adapter_module
+from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
 
 from signprint_ai import v211_four_engine_bridge as bridge
 from tools import v211_four_engine_run
@@ -105,3 +109,84 @@ def test_cannot_automatically_run_four_ai_for_non_2x_job(tmp_path, monkeypatch):
     result = bridge.maybe_run_four_engine_assist(src, v2)
     assert result["status"] == "auxiliary_engine_scale_mismatch"
     assert v2.read_bytes() == before
+
+
+
+def test_core_adapter_runs_bridge_after_durable_v2_png_save(tmp_path, monkeypatch):
+    source = tmp_path / "source.png"
+    destination = tmp_path / "accepted-V2.png"
+    Image.new("RGB", (8, 8), (35, 80, 120)).save(source, dpi=(300, 300))
+
+    class FakeEngine:
+        def enhance(self, src, out, *, scale, progress_callback=None, cancel_check=None):
+            assert scale == 2
+            with Image.open(src) as image:
+                image.resize((16, 16), Image.Resampling.LANCZOS).save(out, dpi=(300, 300))
+
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    adapter.engine_manager = SimpleNamespace(
+        engine=None,
+        device_manager=SimpleNamespace(
+            get_default_device=lambda: SimpleNamespace(name="CPU")
+        ),
+    )
+    adapter.face_module = object()
+    adapter.create_job_engine = lambda settings: FakeEngine()
+
+    monkeypatch.setattr(adapter_module, "image_size", lambda path: (8, 8))
+    monkeypatch.setattr(adapter_module, "needs_streaming", lambda *args: False)
+    monkeypatch.setattr(adapter_module, "validate_export", lambda *args: None)
+    monkeypatch.setattr(adapter_module, "refine_sign_edges", lambda image, **kwargs: image)
+    from signprint_ai import v211_blur_gate, v211_face_contract
+    monkeypatch.setattr(
+        v211_blur_gate, "select_photo_restoration",
+        lambda settings, source_path, **kwargs: (settings, None),
+    )
+    monkeypatch.setattr(
+        v211_face_contract, "enforce_requested_face_restoration",
+        lambda *args, **kwargs: None,
+    )
+
+    qa = tmp_path / "accepted-V2.V211-4AI-QA-test.png"
+    Image.new("RGB", (16, 16), (200, 30, 40)).save(qa)
+    observed = {}
+
+    def fake_bridge(src, v2_output, **kwargs):
+        assert Path(v2_output).is_file(), "bridge must run only after V2 is durable"
+        with Image.open(v2_output) as saved:
+            assert saved.size == (16, 16)
+            assert saved.getpixel((0, 0)) == (35, 80, 120)
+        observed["source"] = Path(src)
+        observed["v2_output"] = Path(v2_output)
+        observed["kwargs"] = kwargs
+        return {
+            "status": "four_engine_fusion_preview_ready",
+            "four_engine_fusion_output": str(qa),
+            "fusion_implemented": True,
+            "quality_certified": False,
+            "v2_output_preserved": True,
+        }
+
+    from signprint_ai import v211_four_engine_bridge
+    monkeypatch.setattr(v211_four_engine_bridge, "maybe_run_four_engine_assist", fake_bridge)
+
+    settings = SimpleNamespace(
+        print_width=None, print_height=None, print_unit="cm", dpi=300,
+        ai_scale=2, color_mode="RGB", resize_mode="stretch",
+        device="AUTO", face_protection=False, face_mode="protect",
+        face_strength=35, face_regions=(), graphic_ai=False,
+        text_graphic_boost=0, icc_profile_path=None,
+        v211_photo_model="real_esrgan",
+    )
+    result = adapter.process(source, destination, settings, use_ai=True)
+
+    assert destination.is_file()
+    assert result["four_engine_research"]["four_engine_fusion_output"] == str(qa)
+    assert observed["source"] == source
+    assert observed["v2_output"] == destination
+    assert observed["kwargs"]["use_ai"] is True
+    assert observed["kwargs"]["cancel"] is None
+    assert qa.is_file()
+    with Image.open(destination) as saved, Image.open(qa) as preview:
+        assert saved.getpixel((0, 0)) == (35, 80, 120)
+        assert preview.getpixel((0, 0)) == (200, 30, 40)
