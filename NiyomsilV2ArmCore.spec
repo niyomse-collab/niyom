@@ -2,7 +2,6 @@
 import importlib.util
 import importlib.metadata
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_submodules
 import sys
 import types
 
@@ -23,6 +22,9 @@ if _compat_name not in sys.modules:
     sys.modules[_compat_name] = _compat_module
 
 ROOT = Path(SPECPATH).resolve()
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tools.v211_frozen_imports import discover_package_modules
 
 hiddenimports = [
     "_tkinter",
@@ -53,13 +55,16 @@ hiddenimports = [
     "tools.v211_shop_gpu_diagnostic",
 ]
 # BasicSR discovers several modules dynamically (including basicsr.ops).
-# Freeze the complete Python module graph so the packaged EXE does not fail
-# at runtime with missing fused_act/upfirdn2d or another dynamically imported
-# BasicSR module.
-hiddenimports += collect_submodules("basicsr")
-hiddenimports += collect_submodules("realesrgan")
-hiddenimports += collect_submodules("gfpgan")
-hiddenimports += collect_submodules("facexlib")
+# Do not use collect_submodules here: PyInstaller executes that helper in an
+# isolated interpreter, which does not inherit the analysis-process alias above.
+# Static filesystem discovery preserves the full module graph without importing
+# BasicSR during collection; the runtime hook supplies the legacy import alias.
+for package in ("basicsr", "realesrgan", "gfpgan", "facexlib"):
+    package_spec = importlib.util.find_spec(package)
+    if package_spec is None or not package_spec.origin:
+        raise RuntimeError("Required package not found: " + package)
+    hiddenimports += discover_package_modules(Path(package_spec.origin).parent, package)
+hiddenimports = sorted(set(hiddenimports))
 
 dynamic_files = []
 for package, folders in {
