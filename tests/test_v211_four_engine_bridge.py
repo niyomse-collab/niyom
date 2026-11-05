@@ -156,3 +156,42 @@ def test_cancelled_native_run_cleans_persistent_private_evidence(tmp_path, monke
     assert baseline.read_bytes() == before
     assert evidence.is_dir()
     assert list(evidence.iterdir()) == []
+
+
+
+def test_late_cancel_after_sidecar_copy_removes_qa_file_and_keeps_v2(tmp_path, monkeypatch):
+    source, baseline = _images(tmp_path)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
+    from tools import v211_four_engine_run
+
+    def fake_run(src, output_dir, manifest, size, **kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        fused = output_dir / "four_engine_fused_preview.png"
+        Image.new("RGBA", size, (210, 20, 40, 120)).save(fused)
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": 4,
+            "failures": {},
+            "four_engine_fusion": {
+                "fusion_implemented": True,
+                "output": str(fused),
+            },
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
+    checks = {"count": 0}
+
+    def cancel_after_copy():
+        checks["count"] += 1
+        return checks["count"] >= 3
+
+    result = bridge.maybe_run_four_engine_assist(
+        source, baseline, cancel=cancel_after_copy
+    )
+    assert result["status"] == "cancelled"
+    assert result["v2_output_preserved"] is True
+    assert baseline.read_bytes() == before
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
