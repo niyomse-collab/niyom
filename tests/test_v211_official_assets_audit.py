@@ -222,3 +222,17 @@ def test_unsafe_downloaded_zip_never_replaces_existing_archive(tmp_path, monkeyp
     assert target.read_bytes() == previous
     assert list(tmp_path.glob(".*.part")) == []
 
+
+
+
+def test_real_esrgan_cli_and_model_license_scopes_are_separate():
+    package = assets.PACKAGES["real_esrgan"]
+    assert "MIT" in package["license"]
+    assert "BSD-3-Clause" in package["license"]
+    assert package["license_url"].endswith("/Real-ESRGAN-ncnn-vulkan/blob/master/LICENSE")
+    notices = package["additional_license_notices"]
+    assert any(
+        "BSD-3-Clause" in item["name"]
+        and item["url"] == "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE"
+        for item in notices
+    )
