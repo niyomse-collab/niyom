@@ -101,9 +101,9 @@ def _find_tool(name: str) -> str | None:
     if os.name == "nt":
         if name == "nvidia-smi":
             roots = [
-                Path(os.environ.get("ProgramFiles", r"C:\\Program Files"))
+                Path(os.environ.get("ProgramFiles", "C:/Program Files"))
                 / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
-                Path(os.environ.get("SystemRoot", r"C:\\Windows"))
+                Path(os.environ.get("SystemRoot", "C:/Windows"))
                 / "System32" / "nvidia-smi.exe",
             ]
         elif name == "vulkaninfo":
