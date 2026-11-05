@@ -33,6 +33,7 @@ def maybe_run_four_engine_assist(
     cancel: Callable[[], bool] | None = None,
     protected_regions: tuple = (),
     preserve_all_v2_faces: bool = False,
+    progress: Callable[[int, str], None] | None = None,
 ) -> dict:
     """Run an optional four-engine candidate comparison after V2 safely saves.
 
@@ -61,6 +62,9 @@ def maybe_run_four_engine_assist(
     if baseline.suffix.lower() != ".png":
         return {"status": "unsupported_output_format", "v2_output_preserved": True}
 
+    output_dir: Path | None = None
+    persistent_output_dir = False
+    sidecar: Path | None = None
     try:
         with Image.open(baseline) as image:
             if image.mode not in ("RGB", "RGBA"):
@@ -94,13 +98,24 @@ def maybe_run_four_engine_assist(
                 "protected_regions": protected_regions,
                 "preserve_all_v2_faces": preserve_all_v2_faces,
             }
+        run_options = {
+            "real_engines": True,
+            "v2_reference": baseline,
+            **guard_options,
+        }
+        if cancel is not None:
+            run_options["cancel"] = cancel
+        if progress is not None:
+            run_options["progress_callback"] = progress
+
         if evidence_root:
             root = Path(evidence_root).expanduser()
             root.mkdir(parents=True, exist_ok=True)
             output_dir = root / ("v211-" + uuid4().hex)
             output_dir.mkdir(mode=0o700)
+            persistent_output_dir = True
             result = run(original, output_dir, Path(manifest_name), target_size,
-                         real_engines=True, v2_reference=baseline, **guard_options)
+                         **run_options)
             private_output = (result.get("four_engine_fusion") or {}).get("output")
         else:
             # Keep intermediate candidate images private and temporary.
@@ -108,19 +123,25 @@ def maybe_run_four_engine_assist(
             # can inspect it with Photoshop; the approved V2 stays untouched.
             private_output = None
             with tempfile.TemporaryDirectory(prefix="niyomsil-v211-") as temporary:
-                result = run(original, Path(temporary), Path(manifest_name),
-                             target_size, real_engines=True,
-                             v2_reference=baseline, **guard_options)
+                output_dir = Path(temporary)
+                result = run(original, output_dir, Path(manifest_name),
+                             target_size, **run_options)
+                if cancel and cancel():
+                    raise InterruptedError("Processing stopped by user")
                 fusion = result.get("four_engine_fusion") or {}
                 if fusion.get("fusion_implemented") and fusion.get("output"):
                     candidate = Path(fusion["output"])
                     name = baseline.stem + ".V211-4AI-QA-" + uuid4().hex[:8] + ".png"
-                    destination = baseline.with_name(name)
+                    sidecar = baseline.with_name(name)
                     # Copy to a unique private QA file; never use os.replace
                     # against a user-selected print export.
-                    with destination.open("xb") as dest, candidate.open("rb") as src:
-                        shutil.copyfileobj(src, dest)
-                    private_output = str(destination)
+                    try:
+                        with sidecar.open("xb") as dest, candidate.open("rb") as src:
+                            shutil.copyfileobj(src, dest)
+                    except BaseException:
+                        sidecar.unlink(missing_ok=True)
+                        raise
+                    private_output = str(sidecar)
 
         fusion = result.get("four_engine_fusion") or {}
         preview = result.get("three_engine_priority_preview") or {}
@@ -154,7 +175,17 @@ def maybe_run_four_engine_assist(
             "quality_certified": False,
             "v2_output_preserved": True,
         }
+    except InterruptedError:
+        if persistent_output_dir and output_dir is not None:
+            shutil.rmtree(output_dir, ignore_errors=True)
+        if sidecar is not None:
+            sidecar.unlink(missing_ok=True)
+        return {"status": "cancelled", "v2_output_preserved": True}
     except Exception as exc:
+        if persistent_output_dir and output_dir is not None:
+            shutil.rmtree(output_dir, ignore_errors=True)
+        if sidecar is not None:
+            sidecar.unlink(missing_ok=True)
         # A sidecar failure cannot fail the accepted V2 enhancement job.
         _LOG.warning("Optional V2.1.1 four-engine candidate run failed: %s", exc)
         return {
