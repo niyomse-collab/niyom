@@ -9,7 +9,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
+import tempfile
 import urllib.request
 import zipfile
 
@@ -139,26 +141,69 @@ def audit_archive(path: Path) -> dict:
     }
 
 
-def download_archive(url: str, target: Path) -> None:
+def download_archive(
+    url: str,
+    target: Path,
+    expected_sha256: str | None = None,
+    observed_sha256: str | None = None,
+) -> dict:
+    """Download, verify and audit an archive before atomically publishing it.
+
+    Bytes are streamed to a same-directory temporary file. A failed network
+    transfer, digest check or ZIP audit never truncates a previously verified
+    archive at the target path. The temporary file is removed on every exit.
+    """
+    target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(url, headers={"User-Agent": "NiyomSilp-v211-asset-provenance-QA"})
+    fd, temporary_name = tempfile.mkstemp(
+        prefix="." + target.name + ".", suffix=".part", dir=target.parent
+    )
+    os.close(fd)
+    temporary = Path(temporary_name)
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "NiyomSilp-v211-asset-provenance-QA"}
+    )
     downloaded = 0
     try:
-        with urllib.request.urlopen(request, timeout=90) as response, target.open("wb") as out:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                downloaded += len(chunk)
-                if downloaded > MAX_ARCHIVE_BYTES:
-                    raise ValueError("archive exceeded download limit")
-                out.write(chunk)
-    except BaseException:
-        target.unlink(missing_ok=True)
-        raise
-    if downloaded == 0:
-        target.unlink(missing_ok=True)
-        raise ValueError("empty official archive")
+        with urllib.request.urlopen(request, timeout=90) as response:
+            raw_length = getattr(response, "headers", {}).get("Content-Length")
+            expected_length = None
+            if raw_length:
+                try:
+                    expected_length = int(raw_length)
+                except (TypeError, ValueError):
+                    raise ValueError("invalid archive Content-Length")
+                if expected_length < 0 or expected_length > MAX_ARCHIVE_BYTES:
+                    raise ValueError("archive exceeds download limit")
+            with temporary.open("wb") as out:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    downloaded += len(chunk)
+                    if downloaded > MAX_ARCHIVE_BYTES:
+                        raise ValueError("archive exceeded download limit")
+                    out.write(chunk)
+                out.flush()
+                os.fsync(out.fileno())
+
+        if downloaded == 0:
+            raise ValueError("empty official archive")
+        if expected_length is not None and downloaded != expected_length:
+            raise ValueError("incomplete archive download")
+        if not zipfile.is_zipfile(temporary):
+            raise ValueError("downloaded archive is not a ZIP archive")
+
+        digest = verify_archive_hash(
+            temporary, expected_sha256, observed_sha256
+        )
+        audit_archive(temporary)
+        # Same-directory replace is atomic on the target filesystem. Existing
+        # archives remain untouched until every validation above has passed.
+        os.replace(temporary, target)
+        return digest
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def audit_official_releases(destination: Path, report_path: Path) -> dict:
@@ -181,7 +226,7 @@ def audit_official_releases(destination: Path, report_path: Path) -> dict:
             "verified_for_inference": False,
         }
         try:
-            download_archive(package["url"], target)
+            download_archive(package["url"], target, package.get("release_sha256"), package.get("observed_sha256"))
             entry.update(verify_archive_hash(target, package["release_sha256"], package.get("observed_sha256")))
             entry.update(audit_archive(target))
             entry["status"] = "archive_audited_not_inference_verified"
