@@ -7,6 +7,7 @@ A passing run proves execution, NOT visual improvement over approved V2.
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -26,13 +27,23 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def run(manifest: Path, source: Path, output_dir: Path) -> dict:
+def run(
+    manifest: Path, source: Path, output_dir: Path, *, timeout_seconds: int | None = None
+) -> dict:
     # A missing or untrusted installation must still leave a failure report.
     # Do not create output images or invoke any executable until all hashes pass.
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "real_inference_report.json"
     try:
-        processors = make_processors(load_real_engine_manifest(manifest))
+        commands = load_real_engine_manifest(manifest)
+        if timeout_seconds is not None:
+            if not 1 <= int(timeout_seconds) <= 1800:
+                raise ValueError("timeout_seconds must be between 1 and 1800")
+            commands = {
+                name: replace(command, timeout_seconds=min(command.timeout_seconds, int(timeout_seconds)))
+                for name, command in commands.items()
+            }
+        processors = make_processors(commands)
     except Exception as exc:
         report_path.write_text(json.dumps({
             "real_inference_verified": False,
@@ -136,8 +147,12 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--timeout-seconds", type=int)
     args = parser.parse_args()
-    result = run(args.manifest, args.input, args.output_dir)
+    result = run(
+        args.manifest, args.input, args.output_dir,
+        timeout_seconds=args.timeout_seconds,
+    )
     print(json.dumps(result, indent=2))
     if not result["real_inference_verified"]:
         raise SystemExit(1)
