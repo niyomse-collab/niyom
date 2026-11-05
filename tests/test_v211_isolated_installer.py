@@ -84,3 +84,14 @@ def test_installer_silent_mode_is_noninteractive_but_still_provisions():
     assert "def main(*, silent: bool = False)" in cli
     assert "if silent:" in cli
     assert "installer-setup.log" in cli
+
+def test_frozen_spec_installs_basicsr_compat_before_pyinstaller_collection():
+    spec = (ROOT / "NiyomsilV2ArmCore.spec").read_text(encoding="utf-8")
+    alias = '"torchvision.transforms.functional_tensor"'
+    assert "from torchvision.transforms.functional import rgb_to_grayscale" in spec
+    assert alias in spec
+    assert "sys.modules[_compat_name] = _compat_module" in spec
+    assert spec.index("sys.modules[_compat_name] = _compat_module") < spec.index(
+        'collect_submodules("basicsr")'
+    )
+    assert 'runtime_hooks=[str(ROOT / "pyi_rth_basicsr_compat.py")]' in spec
