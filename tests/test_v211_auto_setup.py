@@ -31,17 +31,18 @@ def test_one_time_provision_checks_four_without_shipping_models(tmp_path, monkey
     packages = {name: {"url": "https://example.org/test-only"}
                 for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")}
     monkeypatch.setattr(official, "PACKAGES", packages)
-    def simulated_download(url, dest):
-        saved.append(dest.name)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(b"synthetic ZIP placeholder; never run")
+    def simulated_verified_archive(dest, package):
+        saved.append(Path(dest).name)
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(b"synthetic ZIP placeholder; never run")
+        return {"status": "downloaded_verified"}
     def fake_provision(archives, folder, manifest):
         assert sorted(saved) == sorted(name + ".zip" for name in packages)
         assert archives.is_dir()
         folder.mkdir(parents=True, exist_ok=True)
         manifest.write_text('{"four_models":"test"}', encoding="utf-8")
         return {"research_only": True}
-    monkeypatch.setattr(official, "download_archive", simulated_download)
+    monkeypatch.setattr(provisioning, "ensure_verified_archive", simulated_verified_archive)
     monkeypatch.setattr(provisioning, "provision_from_archives", fake_provision)
     monkeypatch.setattr(manifests, "load_real_engine_manifest", lambda path:
                         {name: "model stub" for name in packages})
