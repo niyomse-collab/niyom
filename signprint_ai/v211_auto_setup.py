@@ -35,8 +35,10 @@ def provision_after_consent() -> dict:
     must fail closed. Existing installs are never overwritten, even when
     only partially present; a human must review/correct their QA directory.
     """
-    from tools.v211_official_assets_audit import PACKAGES, download_archive
-    from tools.v211_provision_four_engines import provision_from_archives
+    from tools.v211_official_assets_audit import PACKAGES
+    from tools.v211_provision_four_engines import (
+        ensure_verified_archive, provision_from_archives,
+    )
     from tools.v211_real_engine_manifest import load_real_engine_manifest
 
     root = qa_root()
@@ -49,8 +51,7 @@ def provision_after_consent() -> dict:
     archives.mkdir(parents=True, exist_ok=True)
     for name, package in PACKAGES.items():
         target = archives / (name + ".zip")
-        if not target.exists():
-            download_archive(package["url"], target)
+        ensure_verified_archive(target, package)
     details = provision_from_archives(archives, root / "engines", manifest)
     verified = load_real_engine_manifest(manifest)
     if len(verified) != 4:
