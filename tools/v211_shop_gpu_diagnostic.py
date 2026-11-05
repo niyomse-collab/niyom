@@ -347,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(json.dumps(report, indent=2, ensure_ascii=False))
     print("Report saved: " + str(output_dir / "shop_gpu_diagnostic.json"))
-    return 0 if report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"] else 1
+    return 0 if report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"] else 1
 
 
 if __name__ == "__main__":
