@@ -89,7 +89,10 @@ begin
       Log('V2.1.1: could not create the fresh four-engine setup pending marker');
   end;
 
-  if (CurStep = ssPostInstall) and WizardIsTaskSelected('installfourai') then
+  { ssDone is reached after the [Run] entries have completed. Checking at
+    ssPostInstall would run too early, before the provisioning command writes
+    its fresh completion marker (especially breaking silent installs). }
+  if (CurStep = ssDone) and WizardIsTaskSelected('installfourai') then
   begin
     if FourAISetupArmed and
        FileExists(FourAICompletionMarker()) and
