@@ -179,3 +179,23 @@ def test_fusion_rejects_non_integer_scale(tmp_path):
         im.resize((24, 24)).save(v2)
     with pytest.raises(ValueError, match="2x or 4x"):
         fuse_four_engine_details(src, v2, cands, tmp_path / "invalid-scale.png")
+
+
+
+def test_cancel_between_fusion_tiles_leaves_no_partial_qa_file(tmp_path, monkeypatch):
+    from tools import v211_four_engine_fusion as fusion
+    src, v2, cands = _fixture(tmp_path)
+    output = tmp_path / "cancelled-fusion.png"
+    monkeypatch.setattr(fusion, "TILE", 8)
+    checks = {"count": 0}
+
+    def cancel_after_first_tile():
+        checks["count"] += 1
+        return checks["count"] >= 2
+
+    with pytest.raises(InterruptedError, match="stopped"):
+        fusion.fuse_four_engine_details(
+            src, v2, cands, output, cancel_check=cancel_after_first_tile
+        )
+    assert checks["count"] == 2
+    assert not output.exists()
