@@ -29,6 +29,7 @@ hiddenimports = [
     "tools.v211_three_engine_priority_preview",
     "tools.v211_four_engine_fusion",
     "signprint_ai.v211_auto_setup",
+    "signprint_ai.v211_setup_cli",
     "tools.v211_official_assets_audit",
     "tools.v211_provision_four_engines",
 ]

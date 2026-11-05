@@ -13,9 +13,11 @@ Branch: `work/v211-four-engine-v2-bridge-20261103` / Draft PR #20.
 - Intermediate candidate images are deleted by default; explicit `NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR` can retain them in a private local QA folder for A/B. Customer images must not be uploaded publicly.
 - Normal V2 export, TIFF/PDF jobs, unsupported scales, incomplete model installations and machine failures fail closed back to V2 instead of blocking the customer's completed V2 export.
 
-## Windows first-run
+## Windows setup-time provisioning
 
-In the experimental `v2.1.1` desktop app, one-time confirmation allows downloads of approved upstream packages. After setup, processing eligible 2x jobs calls the four engines automatically, without four per-model switches. There is **no surprise download**; setup can be declined. The models stay under `%LOCALAPPDATA%\NiyomSilp\V211-FourAI-QA`. Optional environment override is `NIYOMSIL_V211_FOUR_AI_MANIFEST`; `NIYOMSIL_V211_FOUR_AI=0` disables research explicitly.
+The experimental installer offers a checked-by-default **Install all four AI engines for offline use** task. If selected, it runs the packaged setup command under the installing user's account, downloads the official upstream archives, verifies SHA256 and archive contents, then installs into `%LOCALAPPDATA%\NiyomSilp\V211-FourAI-QA`. The setup must finish before the installer offers to launch the editor. This keeps the download/consent step inside installation; opening the image editor never triggers a download or consent prompt. The task can be unchecked for an offline/no-download installation; in that case the accepted V2 processing path remains available and the four-engine research bridge reports models not installed. Subsequent eligible jobs use the installed engines offline, without per-model switches.
+
+The command is `NiyomsilAIEnhancer.exe --provision-v211-four-ai`; the frozen import smoke includes its CLI module. Optional environment override is `NIYOMSIL_V211_FOUR_AI_MANIFEST`; `NIYOMSIL_V211_FOUR_AI=0` disables research explicitly.
 
 Real-ESRGAN, Waifu2x and Real-CUGAN were previously exercised individually on the shop Windows PC as reported by the owner. That is **not** proof that the newly integrated four-model fusion has passed an A/B comparison on that PC.
 

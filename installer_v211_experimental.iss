@@ -38,8 +38,10 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+Name: "installfourai"; Description: "Install all four AI engines for offline use (requires internet)"; GroupDescription: "V2.1.1 AI setup:"; Flags: checkedonce
 
 [Run]
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--provision-v211-four-ai"; Description: "Download and verify the four AI engines for offline use"; StatusMsg: "Downloading and verifying the four AI engines..."; Flags: runhidden waituntilterminated runascurrentuser skipifsilent; Tasks: installfourai
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [Code]

@@ -62,3 +62,11 @@ def test_setup_fails_closed_if_any_native_engine_missing(tmp_path, monkeypatch):
                         (_ for _ in ()).throw(ValueError("missing AI model")))
     with pytest.raises(ValueError, match="missing AI model"):
         setup.provision_after_consent()
+
+
+
+def test_editor_source_never_prompts_or_downloads_on_startup():
+    app_source = (Path(__file__).resolve().parents[1] /
+                  "signprint_ai" / "app_v2.py").read_text(encoding="utf-8")
+    assert "_offer_v211_four_ai_setup" not in app_source
+    assert "provision_after_consent" not in app_source

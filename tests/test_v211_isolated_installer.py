@@ -35,3 +35,16 @@ def test_v211_build_dispatch_and_workflow_only_publish_unique_installer():
     assert 'NiyomSilp-Design-v211-EXPERIMENTAL-Setup' in ps
     assert 'release/NiyomSilp-Design-v211-EXPERIMENTAL-Setup*' in workflow
     assert 'release/NiyomSilp-Design-v2-Setup*' not in workflow
+
+
+
+def test_four_engine_setup_runs_during_install_not_when_editor_opens():
+    qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
+    app = (ROOT / "signprint_ai" / "app_v2.py").read_text(encoding="utf-8")
+    assert 'Name: "installfourai"' in qa
+    assert "Flags: checkedonce" in qa
+    assert 'Parameters: "--provision-v211-four-ai"' in qa
+    assert "runascurrentuser" in qa
+    assert "waituntilterminated" in qa
+    assert "_offer_v211_four_ai_setup" not in app
+    assert "provision_after_consent" not in app
