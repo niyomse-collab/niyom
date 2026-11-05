@@ -41,10 +41,56 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Name: "installfourai"; Description: "Install all four AI engines for offline use (requires internet)"; GroupDescription: "V2.1.1 AI setup:"; Flags: checkedonce
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--provision-v211-four-ai"; Description: "Download and verify the four AI engines for offline use"; StatusMsg: "Downloading and verifying the four AI engines..."; Flags: waituntilterminated runascurrentuser skipifsilent; Tasks: installfourai
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Parameters: "{code:GetProvisionParameters}"; Description: "Download and verify the four AI engines for offline use"; StatusMsg: "Downloading and verifying the four AI engines..."; Flags: waituntilterminated runascurrentuser; Tasks: installfourai
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Check: ShouldLaunchEditor; Flags: nowait postinstall skipifsilent
 
 [Code]
+var
+  FourAISetupExitCode: Integer;
+
+function GetProvisionParameters(Param: String): String;
+begin
+  Result := '--provision-v211-four-ai';
+  if WizardSilent then
+    Result := Result + ' --silent';
+end;
+
+function FourAICompletionMarker: String;
+begin
+  Result := ExpandConstant('{localappdata}\NiyomSilp\V211-FourAI-QA\setup-complete.flag');
+end;
+
+function ShouldLaunchEditor: Boolean;
+begin
+  Result := (not WizardIsTaskSelected('installfourai')) or
+            FileExists(FourAICompletionMarker());
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssInstall) and WizardIsTaskSelected('installfourai') then
+  begin
+    { Clear stale success from a previous attempt before running this setup. }
+    if FileExists(FourAICompletionMarker()) then
+      DeleteFile(FourAICompletionMarker());
+    { Fail closed unless the current installer run publishes a new marker. }
+    FourAISetupExitCode := 1;
+  end;
+
+  if (CurStep = ssPostInstall) and WizardIsTaskSelected('installfourai') then
+  begin
+    if FileExists(FourAICompletionMarker()) then
+      FourAISetupExitCode := 0
+    else
+      FourAISetupExitCode := 1;
+  end;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  Result := FourAISetupExitCode;
+end;
+
 function IsInFolder(const Candidate, RootFolder: String): Boolean;
 var
   C, R: String;
