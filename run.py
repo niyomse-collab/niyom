@@ -6,9 +6,12 @@ if __name__ == "__main__":
     # The experimental installer offers this one-time setup task before the
     # editor launches. Keep it ahead of app_v2 imports so provisioning does
     # not start the UI or display a second consent prompt.
-    if sys.argv[1:] == ["--provision-v211-four-ai"]:
+    if sys.argv[1:] in (
+        ["--provision-v211-four-ai"],
+        ["--provision-v211-four-ai", "--silent"],
+    ):
         from signprint_ai.v211_setup_cli import main as provision_main
-        raise SystemExit(provision_main())
+        raise SystemExit(provision_main(silent="--silent" in sys.argv[1:]))
 
     # Import app_v2 before smoke handling so the frozen EXE proves that the
     # normal V2/PyTorch/BasicSR/RealESRGAN import graph is complete.
