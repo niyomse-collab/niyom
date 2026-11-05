@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import ctypes
 from datetime import datetime, timezone
 import io
 import json
@@ -93,9 +94,46 @@ def _run_probe(executable: str | None, args: list[str], timeout: int = 15) -> di
     }
 
 
+def _find_tool(name: str) -> str | None:
+    found = shutil.which(name) or shutil.which(name + ".exe")
+    if found:
+        return found
+    if os.name == "nt":
+        if name == "nvidia-smi":
+            roots = [
+                Path(os.environ.get("ProgramFiles", r"C:\\Program Files"))
+                / "NVIDIA Corporation" / "NVSMI" / "nvidia-smi.exe",
+                Path(os.environ.get("SystemRoot", r"C:\\Windows"))
+                / "System32" / "nvidia-smi.exe",
+            ]
+        elif name == "vulkaninfo":
+            sdk = os.environ.get("VULKAN_SDK")
+            roots = [Path(sdk) / "Bin" / "vulkaninfo.exe"] if sdk else []
+        else:
+            roots = []
+        for candidate in roots:
+            if candidate.is_file():
+                return str(candidate)
+    return None
+
+
+def _probe_vulkan_loader() -> bool:
+    """Check whether the platform Vulkan loader can be loaded."""
+    try:
+        if os.name == "nt":
+            ctypes.WinDLL("vulkan-1.dll")
+        elif os.name == "posix":
+            ctypes.CDLL("libvulkan.so.1")
+        else:
+            return False
+        return True
+    except (AttributeError, OSError):
+        return False
+
+
 def probe_gpu() -> dict:
-    """Collect only GPU names, driver, VRAM and Vulkan device/API identifiers."""
-    nvidia_exe = shutil.which("nvidia-smi")
+    """Collect only GPU names, driver, VRAM and Vulkan loader/device identifiers."""
+    nvidia_exe = _find_tool("nvidia-smi")
     nvidia = _run_probe(
         nvidia_exe,
         [
@@ -106,7 +144,8 @@ def probe_gpu() -> dict:
     gpus = _parse_nvidia_smi_csv(nvidia.pop("stdout", ""))
     nvidia["devices"] = gpus
 
-    vulkan_exe = shutil.which("vulkaninfo") or shutil.which("vulkaninfo.exe")
+    vulkan_loader_available = _probe_vulkan_loader()
+    vulkan_exe = _find_tool("vulkaninfo")
     vulkan = _run_probe(vulkan_exe, ["--summary"])
     summary = _parse_vulkan_summary(vulkan.pop("stdout", ""))
     vulkan.update(summary)
@@ -118,6 +157,7 @@ def probe_gpu() -> dict:
         "vulkaninfo": vulkan,
         "gtx_1660_ti_detected_by_nvidia_smi": target_nvidia,
         "gtx_1660_ti_detected_by_vulkan": target_vulkan,
+        "vulkan_loader_available": vulkan_loader_available,
         "vulkaninfo_succeeded": bool(vulkan.get("success")),
         "vram_budget_6gb_detected": any(
             item["memory_total_mib"] >= 5500 for item in gpus
@@ -246,8 +286,7 @@ def run_diagnostic(
     )
     gpu_ready = bool(
         gpu.get("gtx_1660_ti_detected_by_nvidia_smi")
-        and gpu.get("gtx_1660_ti_detected_by_vulkan")
-        and gpu.get("vulkaninfo_succeeded")
+        and gpu.get("vulkan_loader_available")
     )
     report = {
         "schema_version": 1,
