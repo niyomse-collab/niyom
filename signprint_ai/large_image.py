@@ -651,7 +651,7 @@ def process_large(adapter, src, dst, settings, source_size, target_size,
             gc.collect()
     if failure:
         raise_failure(failure, cancel)
-    if progress:
+    if progress and complete_progress:
         progress(100, "เสร็จแล้ว")
     return {
         "input": str(src), "output": str(dst), "original_size": source_size,
