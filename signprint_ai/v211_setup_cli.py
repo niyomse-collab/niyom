@@ -45,12 +45,30 @@ def _log_path() -> Path:
     return completion_marker_path().with_name("installer-setup.log")
 
 
+_SAFE_FAILURE_CODES = {
+    "permission_denied", "missing_asset", "network_timeout", "network_error",
+    "invalid_archive", "verification_failed", "filesystem_error",
+    "setup_failed", "ui_unavailable",
+}
+
+
 def _record(message: str) -> None:
+    """Persist only fixed status codes and the exact verified engine set."""
+    safe_message = "FAILED setup_failed"
+    if isinstance(message, str) and message.startswith("FAILED "):
+        code = message[len("FAILED "):]
+        if code in _SAFE_FAILURE_CODES:
+            safe_message = message
+    elif isinstance(message, str) and message.startswith("SUCCESS verified engines: "):
+        names = message[len("SUCCESS verified engines: "):].split(",")
+        if len(names) == len(_REQUIRED_ENGINES) and set(names) == _REQUIRED_ENGINES:
+            safe_message = "SUCCESS verified engines: " + ",".join(sorted(_REQUIRED_ENGINES))
+
     try:
         path = _log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as stream:
-            stream.write(message.replace("\r", " ").replace("\n", " ") + "\n")
+            stream.write(safe_message + "\\n")
     except OSError:
         # Logging must never convert a successful verified install into failure.
         pass
