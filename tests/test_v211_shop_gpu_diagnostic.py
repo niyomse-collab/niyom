@@ -1,4 +1,5 @@
 import json
+import struct
 from pathlib import Path
 
 import pytest
@@ -122,6 +123,105 @@ def test_vulkan_summary_parser_extracts_device_and_api():
     )
     assert parsed["device_names"] == ["NVIDIA GeForce GTX 1660 Ti"]
     assert parsed["api_versions"] == ["1.3.0"]
+    assert parsed["device_inventory"] == [{
+        "index": 0, "name": "NVIDIA GeForce GTX 1660 Ti"
+    }]
+
+
+def test_vulkan_device_properties_decoder_reads_nvidia_adapter():
+    raw = bytearray(1024)
+    struct.pack_into("<IIIII", raw, 0, 1 << 22, 12, 0x10DE, 0x2184, 1)
+    raw[20:20 + len(b"NVIDIA GeForce GTX 1660 Ti\0")] = b"NVIDIA GeForce GTX 1660 Ti\0"
+
+    parsed = diagnostic._decode_vulkan_device_properties(bytes(raw), 2)
+
+    assert parsed["index"] == 2
+    assert parsed["name"] == "NVIDIA GeForce GTX 1660 Ti"
+    assert parsed["vendor_id"] == 0x10DE
+    assert parsed["device_type"] == 1
+
+
+def test_probe_gpu_uses_native_vulkan_loader_when_vulkaninfo_is_missing(
+    monkeypatch,
+):
+    def find_tool(name):
+        return "nvidia-smi.exe" if name == "nvidia-smi" else None
+
+    def run_probe(executable, args, timeout=15):
+        if executable == "nvidia-smi.exe":
+            return {
+                "available": True, "success": True, "status": "ok",
+                "stdout": '"NVIDIA GeForce GTX 1660 Ti", 32.0.16.1742, 6144, 5500\n',
+                "stderr": "",
+            }
+        return {"available": False, "success": False, "status": "not_found"}
+
+    monkeypatch.setattr(diagnostic, "_find_tool", find_tool)
+    monkeypatch.setattr(diagnostic, "_run_probe", run_probe)
+    monkeypatch.setattr(diagnostic, "_probe_vulkan_loader", lambda: True)
+    monkeypatch.setattr(diagnostic, "_enumerate_vulkan_devices_native", lambda: {
+        "available": True, "success": True, "status": "ok",
+        "source": "vulkan_loader_native",
+        "device_inventory": [{
+            "index": 1, "name": "NVIDIA GeForce GTX 1660 Ti",
+            "vendor_id": 0x10DE, "device_id": 0x2184, "device_type": 1,
+        }],
+        "device_names": ["NVIDIA GeForce GTX 1660 Ti"],
+    })
+
+    report = diagnostic.probe_gpu()
+
+    assert report["gtx_1660_ti_detected_by_nvidia_smi"]
+    assert report["gtx_1660_ti_detected_by_vulkan"]
+    assert report["vulkaninfo_succeeded"]
+    assert report["vulkan_device_index"] == 1
+    assert report["vulkan_device_inventory"][0]["name"] == "NVIDIA GeForce GTX 1660 Ti"
+    assert report["vulkaninfo"]["inventory_source"] == "vulkan_loader_native"
+
+
+def test_anime4k_probe_maps_nvidia_device_by_processor(tmp_path, monkeypatch):
+    executable = tmp_path / "ac_cli.exe"
+    executable.write_bytes(b"synthetic executable placeholder")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "anime4k": {
+            "executable": str(executable),
+            "args": ["-i", "{input}", "-o", "{output}", "-f", "2"],
+        }
+    }), encoding="utf-8")
+
+    def fake_probe(path, args, timeout=15):
+        if args == ["--lp"]:
+            return {
+                "available": True, "success": True, "status": "ok",
+                "return_code": 0,
+                "stdout": "Processors:\n  auto Auto\n  cpu CPU\n  opencl OpenCL\n  cuda CUDA\n",
+                "stderr": "",
+            }
+        return {
+            "available": True, "success": True, "status": "ok",
+            "return_code": 0,
+            "stdout": (
+                "Devices:\nCPU:\n  [0] x86 CPU\n"
+                "OpenCL:\n  [0] Intel Graphics\n"
+                "CUDA:\n  [0] NVIDIA GeForce GTX 1660 Ti (6144MB, CC 7.5)\n"
+            ),
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(diagnostic, "_run_probe", fake_probe)
+    result = diagnostic.probe_anime4k_backend(manifest)
+
+    assert result["device_inventory_by_processor"]["cuda"] == [{
+        "index": 0, "name": "NVIDIA GeForce GTX 1660 Ti"
+    }]
+    assert result["recommended_gpu_processor_device"] == {
+        "processor": "cuda",
+        "device_index": 0,
+        "device_name": "NVIDIA GeForce GTX 1660 Ti",
+    }
+    assert result["processor_selection_verified"] is False
+    assert result["device_selection_verified"] is False
 
 
 def test_synthetic_pngs_include_rgb_rgba_icc_and_300dpi(tmp_path):
