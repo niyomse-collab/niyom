@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 import os
+import inspect
 
 from PIL import Image
 
@@ -107,6 +108,21 @@ def _safe_process_record(value: dict | None) -> dict | None:
     return {key: value[key] for key in allowed if key in value}
 
 
+def _make_processors_with_telemetry(commands, execution_records: dict) -> dict:
+    """Pass telemetry to the production runner; tolerate legacy test doubles."""
+    try:
+        parameters = inspect.signature(make_processors).parameters
+        supports_records = (
+            "execution_records" in parameters
+            or any(item.kind == inspect.Parameter.VAR_KEYWORD for item in parameters.values())
+        )
+    except (TypeError, ValueError):
+        supports_records = False
+    if supports_records:
+        return make_processors(commands, execution_records=execution_records)
+    return make_processors(commands)
+
+
 
 def run(
     manifest: Path, source: Path, output_dir: Path, *, timeout_seconds: int | None = None
@@ -125,7 +141,7 @@ def run(
                 for name, command in commands.items()
             }
         process_telemetry = {}
-        processors = make_processors(commands, execution_records=process_telemetry)
+        processors = _make_processors_with_telemetry(commands, process_telemetry)
     except Exception as exc:
         report_path.write_text(json.dumps({
             "real_inference_verified": False,

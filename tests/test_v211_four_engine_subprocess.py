@@ -168,9 +168,14 @@ def test_cancel_terminates_active_native_process_and_removes_partial_output(tmp_
         for engine in ENGINES
     }
     started = time.monotonic()
+    records = {}
     processor = make_processors(
-        commands, cancel_check=lambda: time.monotonic() - started >= 0.25
+        commands,
+        cancel_check=lambda: time.monotonic() - started >= 0.25,
+        execution_records=records,
     )["real_esrgan"]
     with pytest.raises(InterruptedError, match="stopped"):
         processor(source, destination)
+    assert records["real_esrgan"]["status"] == "cancelled"
+    assert records["real_esrgan"]["process_started"] is True
     assert not destination.exists()

@@ -250,15 +250,18 @@ def make_processors(
                     raise InterruptedError("Processing stopped by user")
                 record["status"] = "output_ready"
             except InterruptedError:
+                destination.unlink(missing_ok=True)
                 if record["status"] in ("not_started", "running"):
                     record["status"] = "cancelled"
                 record["failure_type"] = "InterruptedError"
                 raise
             except TimeoutError:
+                destination.unlink(missing_ok=True)
                 record["status"] = "timed_out"
                 record["failure_type"] = "TimeoutError"
                 raise
             except BaseException as exc:
+                destination.unlink(missing_ok=True)
                 if process_handle is not None and record["exit_code"] is None:
                     try:
                         observed_code = process_handle.poll()
