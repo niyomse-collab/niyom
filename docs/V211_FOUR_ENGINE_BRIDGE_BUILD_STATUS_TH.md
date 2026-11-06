@@ -157,3 +157,14 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Diagnostic สร้างภาพสังเคราะห์ RGB/RGBA เท่านั้น; ตรวจ NVIDIA-SMI, Vulkan loader, `vulkaninfo`, การเห็น GTX 1660 Ti ในทั้ง NVIDIA-SMI/Vulkan, งบ VRAM ประมาณ 6 GiB และรัน Native CLI ทั้งสี่เพื่อตรวจ output dimensions, alpha, ICC และ DPI. ผล JSON อยู่ใน `shop_gpu_diagnostic.json`; ไม่มีการเปิดภาพลูกค้า, network, upload หรือเก็บภาพทดสอบ. ค่า `four_engine_cli_passed_on_gtx1660ti_vulkan_host=true` จะเป็นจริงเมื่อทั้งสี่ CLI ผ่านและตรวจพบสภาพแวดล้อม GPU/Vulkan ตามเกณฑ์ แต่ยังไม่พิสูจน์ว่าแต่ละ CLI เลือก adapter เดียวกันหรือคุณภาพภาพดีขึ้น.
 - สถานะ release ยังคง `real_inference_verified=false` และ `quality_certified=false` จนกว่าจะมีรายงาน diagnostic จากเครื่องร้าน, ตรวจ device/backend จริง, A/B ภาพคน/สัตว์/วัตถุ/กรอบ/ลายไทย/อักษรไทย-อังกฤษ-จีน/พื้นสีเรียบ/gradient/ขอบ RGBA/ใบหน้า, ทดสอบงานเกิน 18MP, VRAM 6GB และ print workflow. ปัจจุบัน >18MP, CMYK/PDF/PSD four-engine route และ Native 4x/8x multi-pass ยังไม่รองรับ; output ปกติยังเป็น V2 และ Four-Engine QA เป็น sidecar แยกเท่านั้น.
 - ห้าม Merge/Release; ห้ามแก้ V1 หรือ V2 Stable; ไม่ Commit binary, weights หรือภาพลูกค้า.
+
+
+
+## 6 พฤศจิกายน 2569 — แยกผล Native CLI ตาม Backend (Diagnostic schema 3)
+
+- Real-ESRGAN, Waifu2x และ Real-CUGAN เป็นกลุ่ม NCNN/Vulkan จึงรายงานแยกเป็น ncnn_vulkan_engine_names และ three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host.
+- Anime4KCPP v3.2.0 เป็นอีก backend family: processor auto อาจเลือก CPU/OpenCL/CUDA; ไม่ใช่ NCNN/Vulkan และไม่ควรนับเป็นหลักฐาน Vulkan inference.
+- anime4k_cli_outputs_validated_on_both_synthetic_cases แยกการผ่าน CLI/Output ของ Anime4K ออกจากผลของสาม NCNN engines; anime4k_backend_inventory แสดงรายการ processor/device ที่มี แต่ยังไม่พิสูจน์การเลือกจริง.
+- per_engine_backend_selection_verified และ anime4k_backend_selection_verified เป็น false จนกว่าจะมี telemetry จาก process ขณะ inference บนเครื่องร้าน.
+- all_four_cli_validated_on_gtx1660ti_vulkan_equipped_host หมายถึงทั้งสี่ CLI ผ่านบนเครื่องที่ตรวจพบ GTX 1660 Ti และ Vulkan พร้อมกันเท่านั้น ไม่ได้อ้างว่าทุก process ใช้ GTX adapter. ฟิลด์เดิม four_engine_cli_passed_on_gtx1660ti_vulkan_host คงไว้เพื่อ compatibility และมีความหมายเดียวกัน.
+- เพิ่ม Regression แยกกรณี Anime4K ล้มแต่สาม NCNN ผ่าน และกรณี NCNN ตัวใดตัวหนึ่งล้ม; ไม่มีการเปลี่ยนการประมวลผลภาพ, Installer, Fusion, V1 หรือ V2 Stable.

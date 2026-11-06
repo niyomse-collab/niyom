@@ -26,6 +26,10 @@ from signprint_ai.v211_auto_setup import default_manifest, qa_root
 from tools.v211_four_engine_real_inference_qa import run as run_real_inference_qa
 from tools.v211_four_engine_subprocess import ENGINES
 
+# Real-ESRGAN, Waifu2x and Real-CUGAN are NCNN/Vulkan engines.
+# Anime4KCPP v3 has a separate CPU/OpenCL/CUDA processor model.
+NCNN_VULKAN_ENGINES = ("real_esrgan", "waifu2x", "real_cugan")
+
 
 def _parse_nvidia_smi_csv(value: str) -> list[dict]:
     devices = []
@@ -358,6 +362,10 @@ def run_diagnostic(
     all_four = manifest_preflight_passed and all(
         item["both_cases_pass"] for item in engine_matrix.values()
     )
+    ncnn_vulkan_engines_pass = manifest_preflight_passed and all(
+        engine_matrix[name]["both_cases_pass"] for name in NCNN_VULKAN_ENGINES
+    )
+    anime4k_cli_pass = bool(engine_matrix["anime4k"]["both_cases_pass"])
     # A Vulkan loader DLL alone does not prove that the target adapter is
     # visible to Vulkan. Require the GTX 1660 Ti to appear in both NVIDIA-SMI
     # and vulkaninfo, a successful vulkaninfo probe, the loader, and the
@@ -370,16 +378,40 @@ def run_diagnostic(
         and gpu.get("vram_budget_6gb_detected")
     )
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "manifest_present": manifest.is_file(),
         "manifest_preflight_passed": manifest_preflight_passed,
         "gpu": gpu,
         "anime4k_backend_inventory": anime4k_backend,
         "engine_matrix": engine_matrix,
+        "engine_backend_expectations": {
+            name: {
+                "expected_backend": (
+                    "NCNN Vulkan; manifest uses upstream device default"
+                    if name in NCNN_VULKAN_ENGINES
+                    else "Anime4KCPP processor auto (CPU/OpenCL/CUDA)"
+                ),
+                "target_adapter_selection_verified": False,
+            }
+            for name in ENGINES
+        },
+        "per_engine_backend_selection_verified": {
+            name: False for name in ENGINES
+        },
+        "anime4k_backend_selection_verified": False,
+        "ncnn_vulkan_engine_names": list(NCNN_VULKAN_ENGINES),
+        "three_ncnn_vulkan_cli_outputs_validated_on_both_synthetic_cases": ncnn_vulkan_engines_pass,
+        "three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host": bool(
+            ncnn_vulkan_engines_pass and gpu_ready
+        ),
+        "anime4k_cli_outputs_validated_on_both_synthetic_cases": anime4k_cli_pass,
         "cases": cases,
         "all_four_native_cli_outputs_validated_on_both_synthetic_cases": all_four,
         "gtx_1660_ti_and_vulkan_environment_detected": gpu_ready,
+        "all_four_cli_validated_on_gtx1660ti_vulkan_equipped_host": bool(all_four and gpu_ready),
+        # Backward-compatible alias. This means co-presence on a Vulkan-ready
+        # host, not that Anime4KCPP or each process selected the GTX adapter.
         "four_engine_cli_passed_on_gtx1660ti_vulkan_host": bool(all_four and gpu_ready),
         "quality_improvement_verified": False,
         "visual_quality_certified": False,

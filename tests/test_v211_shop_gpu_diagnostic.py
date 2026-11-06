@@ -164,7 +164,14 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
     )
     assert saved["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert saved["anime4k_backend_inventory"]["status"] == "manifest_unavailable"
-    assert saved["schema_version"] == 2
+    assert saved["schema_version"] == 3
+    assert saved["three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host"]
+    assert saved["anime4k_cli_outputs_validated_on_both_synthetic_cases"]
+    assert saved["anime4k_backend_selection_verified"] is False
+    assert all(
+        value is False
+        for value in saved["per_engine_backend_selection_verified"].values()
+    )
 
 
 
@@ -260,3 +267,68 @@ def test_timeout_bounds_are_validated(tmp_path):
             gpu_probe=_gpu, engine_runner=_successful_runner,
             timeout_seconds=0,
         )
+
+
+
+def test_anime4k_failure_is_separate_from_three_ncnn_vulkan_engine_gate(tmp_path):
+    def anime4k_fails(manifest, source, output, *, timeout_seconds):
+        result = _successful_runner(
+            manifest, source, output, timeout_seconds=timeout_seconds
+        )
+        result["real_inference_verified"] = False
+        result["completed_engine_count"] = 3
+        result["engines"]["anime4k"]["status"] = "failed"
+        result["failures"] = {
+            "anime4k": {
+                "error_type": "RuntimeError",
+                "error_class": "subprocess_or_candidate_failure",
+            }
+        }
+        return result
+
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test manifest", encoding="utf-8")
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu, engine_runner=anime4k_fails,
+    )
+
+    assert report["three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host"]
+    assert not report["anime4k_cli_outputs_validated_on_both_synthetic_cases"]
+    assert not report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
+    assert not report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"]
+    assert report["engine_backend_expectations"]["anime4k"]["expected_backend"].startswith(
+        "Anime4KCPP processor auto"
+    )
+
+
+def test_ncnn_failure_blocks_three_engine_vulkan_host_gate(tmp_path):
+    def ncnn_fails(manifest, source, output, *, timeout_seconds):
+        result = _successful_runner(
+            manifest, source, output, timeout_seconds=timeout_seconds
+        )
+        result["real_inference_verified"] = False
+        result["completed_engine_count"] = 3
+        result["engines"]["waifu2x"]["status"] = "failed"
+        result["failures"] = {
+            "waifu2x": {
+                "error_type": "RuntimeError",
+                "error_class": "vulkan_initialization_failed",
+            }
+        }
+        return result
+
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test manifest", encoding="utf-8")
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu, engine_runner=ncnn_fails,
+    )
+
+    assert report["anime4k_cli_outputs_validated_on_both_synthetic_cases"]
+    assert not report["three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host"]
+    assert not report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
+    assert all(
+        value is False
+        for value in report["per_engine_backend_selection_verified"].values()
+    )
