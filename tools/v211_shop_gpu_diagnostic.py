@@ -26,6 +26,7 @@ from PIL import Image, ImageCms, ImageDraw
 from signprint_ai.v211_auto_setup import default_manifest, qa_root
 from tools.v211_four_engine_real_inference_qa import run as run_real_inference_qa
 from tools.v211_four_engine_subprocess import ENGINES
+from tools.v211_gpu_device_binding import GPUDeviceBindingError, write_bound_manifest
 
 # Real-ESRGAN, Waifu2x and Real-CUGAN are NCNN/Vulkan engines.
 # Anime4KCPP v3 has a separate CPU/OpenCL/CUDA processor model.
@@ -552,6 +553,7 @@ def run_diagnostic(
     engine_runner=run_real_inference_qa,
     anime4k_probe=probe_anime4k_backend,
     timeout_seconds: int = 180,
+    bind_devices: bool = True,
 ) -> dict:
     """Run all four verified native CLIs on RGB and RGBA synthetic images."""
     manifest = Path(manifest)
@@ -563,26 +565,48 @@ def run_diagnostic(
     gpu = gpu_probe()
     anime4k_backend = anime4k_probe(manifest)
     cases = {}
+    device_binding = None
+    binding_error = None
     with tempfile.TemporaryDirectory(prefix="v211-shop-gpu-", dir=output_dir) as temporary:
         work_root = Path(temporary)
+        bound_manifest = Path(manifest)
+        if bind_devices:
+            try:
+                device_binding = write_bound_manifest(
+                    manifest, work_root / "manifest.runtime-bound.json",
+                    gpu, anime4k_backend,
+                )
+                bound_manifest = work_root / "manifest.runtime-bound.json"
+            except GPUDeviceBindingError as exc:
+                binding_error = exc
         for case_name, rgba in (("rgb_icc_dpi", False), ("rgba_alpha_icc_dpi", True)):
             source = work_root / (case_name + "-synthetic.png")
             case_output = work_root / case_name
             create_synthetic_png(source, rgba=rgba)
-            try:
-                result = engine_runner(
-                    manifest, source, case_output, timeout_seconds=timeout_seconds
-                )
-            except Exception as exc:
-                result = _read_local_report(case_output / "real_inference_report.json")
-                if not result:
-                    result = {
-                        "real_inference_verified": False,
-                        "completed_engine_count": 0,
-                        "failed_stage": "execution",
-                        "failure_type": type(exc).__name__,
-                        "engines": {},
-                    }
+            if binding_error is not None:
+                result = {
+                    "real_inference_verified": False,
+                    "completed_engine_count": 0,
+                    "failed_stage": "gpu_binding",
+                    "failure_type": type(binding_error).__name__,
+                    "engines": {},
+                }
+            else:
+                try:
+                    result = engine_runner(
+                        bound_manifest, source, case_output,
+                        timeout_seconds=timeout_seconds,
+                    )
+                except Exception as exc:
+                    result = _read_local_report(case_output / "real_inference_report.json")
+                    if not result:
+                        result = {
+                            "real_inference_verified": False,
+                            "completed_engine_count": 0,
+                            "failed_stage": "execution",
+                            "failure_type": type(exc).__name__,
+                            "engines": {},
+                        }
             cases[case_name] = _case_summary(result)
 
     engine_matrix = {
@@ -620,6 +644,7 @@ def run_diagnostic(
         and gpu.get("vulkaninfo_succeeded")
         and gpu.get("vram_budget_6gb_detected")
     )
+    device_binding_applied = bool(bind_devices and device_binding and binding_error is None)
     report = {
         "schema_version": 3,
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -631,13 +656,23 @@ def run_diagnostic(
         "vulkan_target_device_index_unambiguous": gpu.get("vulkan_device_index") is not None,
         "anime4k_backend_inventory": anime4k_backend,
         "anime4k_gpu_recommendation": anime4k_backend.get("recommended_gpu_processor_device"),
+        "device_binding": device_binding,
+        "device_binding_applied": device_binding_applied,
+        "device_binding_block_reason": str(binding_error) if binding_error else None,
         "engine_matrix": engine_matrix,
         "engine_backend_expectations": {
             name: {
                 "expected_backend": (
-                    "NCNN Vulkan; manifest uses upstream device default"
+                    "NCNN Vulkan; explicit -g index when binding is enabled"
                     if name in NCNN_VULKAN_ENGINES
-                    else "Anime4KCPP processor auto (CPU/OpenCL/CUDA)"
+                    else "Anime4KCPP CUDA/OpenCL; explicit -p/-d when binding is enabled"
+                ),
+                "device_index_configured": (
+                    device_binding["ncnn_vulkan"]["device_index"]
+                    if device_binding and name in NCNN_VULKAN_ENGINES
+                    else device_binding["anime4k"]["device_index"]
+                    if device_binding and name == "anime4k"
+                    else None
                 ),
                 "target_adapter_selection_verified": False,
             }
@@ -650,16 +685,18 @@ def run_diagnostic(
         "ncnn_vulkan_engine_names": list(NCNN_VULKAN_ENGINES),
         "three_ncnn_vulkan_cli_outputs_validated_on_both_synthetic_cases": ncnn_vulkan_engines_pass,
         "three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host": bool(
-            ncnn_vulkan_engines_pass and gpu_ready
+            ncnn_vulkan_engines_pass and gpu_ready and device_binding_applied
         ),
         "anime4k_cli_outputs_validated_on_both_synthetic_cases": anime4k_cli_pass,
         "cases": cases,
         "all_four_native_cli_outputs_validated_on_both_synthetic_cases": all_four,
         "gtx_1660_ti_and_vulkan_environment_detected": gpu_ready,
-        "all_four_cli_validated_on_gtx1660ti_vulkan_equipped_host": bool(all_four and gpu_ready),
-        # Backward-compatible alias. This means co-presence on a Vulkan-ready
-        # host, not that Anime4KCPP or each process selected the GTX adapter.
-        "four_engine_cli_passed_on_gtx1660ti_vulkan_host": bool(all_four and gpu_ready),
+        "all_four_cli_validated_on_gtx1660ti_vulkan_equipped_host": bool(
+            all_four and gpu_ready and device_binding_applied
+        ),
+        "four_engine_cli_passed_on_gtx1660ti_vulkan_host": bool(
+            all_four and gpu_ready and device_binding_applied
+        ),
         "quality_improvement_verified": False,
         "visual_quality_certified": False,
         "print_quality_certified": False,
@@ -672,8 +709,8 @@ def run_diagnostic(
             "The report verifies native CLI execution, output dimensions, alpha, ICC and DPI only.",
             "It does not prove visual improvement, face identity, CMYK/RIP quality or print acceptance.",
             "Shop GPU readiness requires GTX 1660 Ti visibility in NVIDIA-SMI and Vulkan physical-device inventory (from vulkaninfo or direct loader enumeration), the Vulkan loader, and the expected 6 GiB VRAM budget; this still does not prove which adapter each CLI selected.",
-            "The Vulkan inventory records the physical-device index used by NCNN -g. The current manifest still uses upstream auto/default arguments, so this index is diagnostic only until runtime binding is implemented.",
-            "Anime4KCPP v3 is not an NCNN Vulkan engine; its per-processor CUDA/OpenCL device indexes and recommended NVIDIA device are recorded separately, but the manifest remains processor auto/device 0 and inference selection is not yet verified.",
+            "When bind_devices is enabled, a private per-run manifest explicitly configures the unique Vulkan index with -g for all three NCNN engines and the unique Anime4KCPP CUDA/OpenCL backend/device with -p/-d. The installed manifest is never modified.",
+            "Device binding proves the selected CLI arguments were configured from local inventories; runtime telemetry is still required before claiming that each native process actually used the selected adapter.",
         ],
     }
     report_path = output_dir / "shop_gpu_diagnostic.json"
