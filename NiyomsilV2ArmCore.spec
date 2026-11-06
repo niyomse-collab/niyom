@@ -54,6 +54,7 @@ hiddenimports = [
     "tools.v211_official_assets_audit",
     "tools.v211_provision_four_engines",
     "tools.v211_shop_gpu_diagnostic",
+    "tools.v211_gpu_device_binding",
 ]
 # BasicSR discovers several modules dynamically (including basicsr.ops).
 # Do not use collect_submodules here: PyInstaller executes that helper in an
