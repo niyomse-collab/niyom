@@ -22,18 +22,44 @@ def test_four_engine_runner_produces_four_valid_candidates(tmp_path):
         "im=Image.open(sys.argv[1]); im.save(sys.argv[2])"
     )
     config = tmp_path / "engines.json"
-    config.write_text(
-        json.dumps({
-            name: [sys.executable, "-c", code, "{input}", "{output}"]
-            for name in ENGINES
-        }), encoding="utf-8"
-    )
+    commands = {}
+    for name in ENGINES:
+        device_args = (
+            ["-g", "0"] if name in ("real_esrgan", "waifu2x", "real_cugan")
+            else ["-p", "cuda", "-d", "0"]
+        )
+        commands[name] = [
+            sys.executable, "-c", code, "{input}", "{output}", *device_args
+        ]
+    config.write_text(json.dumps(commands), encoding="utf-8")
     result = run(source, tmp_path / "outputs", config, (8, 8), real_engines=False)
     assert result["ready_for_fusion_research"]
     assert not result["fusion_implemented"]
     assert not result["quality_certified"]
     assert set(result["candidates"]) == set(ENGINES)
     assert not result["failures"]
+    assert result["runtime_device_use_verified"] is False
+    assert "physical adapter use" in result["execution_evidence_scope"]
+    assert set(result["engine_execution"]) == set(ENGINES)
+    for name, evidence in result["engine_execution"].items():
+        process = evidence["process"]
+        assert process["status"] == "output_ready"
+        assert process["process_started"] is True
+        assert isinstance(process["pid"], int) and process["pid"] > 0
+        assert process["exit_code"] == 0
+        assert process["process_elapsed_ms"] >= 0
+        assert evidence["runtime_device_use_verified"] is False
+        assert evidence["device_configuration"]["explicitly_configured"] is True
+        assert evidence["device_configuration"]["actual_adapter_verified"] is False
+        assert not ({"argv", "stdout", "stderr", "source", "destination"} & set(process))
+    assert result["engine_execution"]["real_esrgan"]["device_configuration"] == {
+        "backend": "ncnn_vulkan", "device_index": 0,
+        "explicitly_configured": True, "actual_adapter_verified": False,
+    }
+    assert result["engine_execution"]["anime4k"]["device_configuration"] == {
+        "backend": "cuda", "device_index": 0,
+        "explicitly_configured": True, "actual_adapter_verified": False,
+    }
     for output in result["candidates"].values():
         with Image.open(output) as image:
             assert image.size == (8, 8)
@@ -57,6 +83,15 @@ def test_runner_reports_failed_engine(tmp_path):
     assert not result["ready_for_fusion_research"]
     assert "anime4k" in result["failures"]
     assert len(result["candidates"]) == 3
+    execution = result["engine_execution"]
+    assert execution["anime4k"]["process"]["status"] == "process_failed"
+    assert execution["anime4k"]["process"]["process_started"] is True
+    assert execution["anime4k"]["process"]["exit_code"] == 4
+    assert all(
+        execution[name]["process"]["status"] == "output_ready"
+        for name in ENGINES if name != "anime4k"
+    )
+    assert result["real_engine_inference_proven"] is False
 
 
 
