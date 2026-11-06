@@ -478,7 +478,7 @@ def test_anime4k_failure_is_separate_from_three_ncnn_vulkan_engine_gate(tmp_path
     assert not report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert not report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"]
     assert report["engine_backend_expectations"]["anime4k"]["expected_backend"].startswith(
-        "Anime4KCPP processor auto"
+        "Anime4KCPP CUDA/OpenCL"
     )
 
 
