@@ -56,6 +56,26 @@ def _record(message: str) -> None:
         pass
 
 
+def safe_failure_code(exc: BaseException) -> str:
+    """Map setup failures to fixed, privacy-safe codes; never expose exception text."""
+    name = type(exc).__name__
+    if isinstance(exc, PermissionError):
+        return "permission_denied"
+    if isinstance(exc, FileNotFoundError):
+        return "missing_asset"
+    if isinstance(exc, TimeoutError):
+        return "network_timeout"
+    if name in {"HTTPError", "URLError"}:
+        return "network_error"
+    if name == "BadZipFile":
+        return "invalid_archive"
+    if isinstance(exc, ValueError):
+        return "verification_failed"
+    if isinstance(exc, OSError):
+        return "filesystem_error"
+    return "setup_failed"
+
+
 def _clear_completion_marker() -> Path:
     marker = completion_marker_path()
     marker.unlink(missing_ok=True)
@@ -88,7 +108,7 @@ def _run_and_publish_success() -> dict:
         return result
     except Exception as exc:
         marker.unlink(missing_ok=True)
-        _record("FAILED " + type(exc).__name__ + ": " + str(exc))
+        _record("FAILED " + safe_failure_code(exc))
         raise
 
 
@@ -101,7 +121,7 @@ def main(*, silent: bool = False) -> int:
     try:
         _clear_completion_marker()
     except Exception as exc:
-        _record("FAILED could not clear stale completion marker: " + type(exc).__name__)
+        _record("FAILED " + safe_failure_code(exc))
         return 1
 
     if silent:
@@ -114,8 +134,8 @@ def main(*, silent: bool = False) -> int:
     try:
         import tkinter as tk
         from tkinter import messagebox, ttk
-    except Exception as exc:
-        _record("FAILED Tk UI unavailable: " + type(exc).__name__)
+    except Exception:
+        _record("FAILED ui_unavailable")
         return 2
 
     root = tk.Tk()
@@ -144,7 +164,7 @@ def main(*, silent: bool = False) -> int:
         try:
             events.put(("success", _run_and_publish_success()))
         except Exception as exc:
-            events.put(("failure", exc))
+            events.put(("failure", safe_failure_code(exc)))
 
     def poll() -> None:
         try:
@@ -167,7 +187,7 @@ def main(*, silent: bool = False) -> int:
             "NiyomSilp Design · ติดตั้ง AI ไม่สำเร็จ",
             "ไม่สามารถติดตั้งและตรวจสอบ AI ทั้ง 4 ตัวได้\n"
             "V2 เดิมยังใช้งานได้ และสามารถลองติดตั้งใหม่ภายหลัง\n\n"
-            + type(payload).__name__ + ": " + str(payload),
+            + "รหัสสาเหตุ: " + str(payload),
             parent=root,
         )
         root.destroy()
