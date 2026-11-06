@@ -68,7 +68,7 @@ def _record(message: str) -> None:
         path = _log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as stream:
-            stream.write(safe_message + "\\n")
+            stream.write(safe_message + "\n")
     except OSError:
         # Logging must never convert a successful verified install into failure.
         pass
