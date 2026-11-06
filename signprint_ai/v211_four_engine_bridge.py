@@ -21,6 +21,7 @@ from uuid import uuid4
 from typing import Callable
 
 from PIL import Image, ImageOps
+from tools.v211_gpu_device_binding import GPUDeviceBindingError, write_bound_manifest
 
 _LOG = logging.getLogger(__name__)
 _FLAG = "NIYOMSIL_V211_FOUR_AI"
@@ -36,6 +37,24 @@ _V2_RASTER_FORMATS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 def _metadata(image: Image.Image) -> dict:
     return {key: image.info[key] for key in ("icc_profile", "dpi") if key in image.info}
+
+
+def _prepare_runtime_bound_manifest(manifest_path: Path, work_dir: Path) -> tuple[Path, dict]:
+    """Bind every native CLI to the uniquely detected GTX 1660 Ti for this run.
+
+    The installed manifest is read-only. A private temporary copy receives
+    explicit NCNN -g and Anime4KCPP -p/-d values after fresh local inventory.
+    """
+    from tools.v211_shop_gpu_diagnostic import probe_gpu, probe_anime4k_backend
+
+    bound_path = Path(work_dir) / "manifest.runtime-bound.json"
+    selection = write_bound_manifest(
+        Path(manifest_path),
+        bound_path,
+        probe_gpu(),
+        probe_anime4k_backend(Path(manifest_path)),
+    )
+    return bound_path, selection
 
 
 def _oriented_size(image: Image.Image) -> tuple[int, int]:
@@ -250,10 +269,19 @@ def maybe_run_four_engine_assist(
             )
             if cancel and cancel():
                 raise InterruptedError("Processing stopped by user")
-            result = run(
-                seed, work_dir, Path(manifest_name), padded_size,
-                real_engines=True, v2_reference=reference, **run_options,
+            bound_manifest, device_binding = _prepare_runtime_bound_manifest(
+                Path(manifest_name), work_dir
             )
+            try:
+                result = run(
+                    seed, work_dir, bound_manifest, padded_size,
+                    real_engines=True, v2_reference=reference, **run_options,
+                )
+            finally:
+                # The persistent installation manifest remains untouched and
+                # no temporary absolute paths are retained with private evidence.
+                bound_manifest.unlink(missing_ok=True)
+            result["device_binding"] = device_binding
             return result, target_size, padded_size, source_size, metadata
 
         if evidence_root:
@@ -341,6 +369,7 @@ def maybe_run_four_engine_assist(
             "all_four_engine_pixels_contributed": bool(fusion.get("all_four_engine_pixels_contributed")),
             "engine_pixel_effect_pixels": fusion.get("engine_pixel_effect_pixels"),
             "engine_pixel_effect_verified": fusion.get("engine_pixel_effect_verified"),
+            "device_binding": result.get("device_binding"),
             "quality_certified": False,
             "v2_output_preserved": True,
         }
@@ -350,6 +379,18 @@ def maybe_run_four_engine_assist(
         if sidecar is not None:
             sidecar.unlink(missing_ok=True)
         return {"status": "cancelled", "v2_output_preserved": True}
+    except GPUDeviceBindingError as exc:
+        if persistent_output_dir and output_dir is not None:
+            shutil.rmtree(output_dir, ignore_errors=True)
+        if sidecar is not None:
+            sidecar.unlink(missing_ok=True)
+        _LOG.warning("Optional V2.1.1 four-engine GPU binding blocked: %s", exc)
+        return {
+            "status": "gpu_binding_unverified",
+            "reason": str(exc),
+            "v2_output_preserved": True,
+            "quality_certified": False,
+        }
     except Exception as exc:
         if persistent_output_dir and output_dir is not None:
             shutil.rmtree(output_dir, ignore_errors=True)
