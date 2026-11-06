@@ -20,6 +20,8 @@ def _gpu():
         "vulkaninfo": {"available": True, "success": True,
                        "device_names": ["NVIDIA GeForce GTX 1660 Ti"],
                        "api_versions": ["1.3.0"]},
+        "vulkan_device_index": 0,
+        "vulkan_target_device_match_count": 1,
         "gtx_1660_ti_detected_by_nvidia_smi": True,
         "gtx_1660_ti_detected_by_vulkan": True,
         "vulkan_loader_available": True,
@@ -306,6 +308,7 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
     [
         ("gtx_1660_ti_detected_by_nvidia_smi", False),
         ("gtx_1660_ti_detected_by_vulkan", False),
+        ("vulkan_device_index", None),
         ("vulkan_loader_available", False),
         ("vulkaninfo_succeeded", False),
         ("vram_budget_6gb_detected", False),
