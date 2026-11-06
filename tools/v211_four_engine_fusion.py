@@ -121,6 +121,17 @@ def fuse_four_engine_details(
                 center = (slice(y - yy, y - yy + h), slice(x - xx, x - xx + w))
                 base_c = base_rgb[center]
                 base_hp = _gray_highpass(base.crop(box))[center]
+                # Preserve V2 RGB beneath transparent and antialiased cutout
+                # boundaries. Exact alpha alone is not enough: changing hidden
+                # RGB at partially transparent pixels can create fringes when
+                # downstream print/layout software resamples the PNG.
+                alpha_tile = (
+                    np.asarray(
+                        base.crop((x, y, x + w, y + h)).getchannel("A"),
+                        dtype=np.uint8,
+                    )
+                    if base.mode == "RGBA" else None
+                )
                 if preserve_all_v2_faces:
                     terms = {name: np.zeros((h, w), dtype=np.float32) for name in ENGINES}
                     edge_gate = np.zeros((h, w), dtype=bool)
@@ -148,6 +159,10 @@ def fuse_four_engine_details(
                         anime_agrees, anime, 0.0
                     )
                     edge_gate &= ~_protected_mask(x, y, w, h, (W, H), protected_regions)
+                    if alpha_tile is not None:
+                        # Only fully opaque V2 pixels may receive new detail;
+                        # semi-transparent edge pixels remain bit-identical.
+                        edge_gate &= alpha_tile == 255
                     terms = {
                         name: np.where(edge_gate, term, 0.0)
                         for name, term in terms.items()
@@ -188,8 +203,7 @@ def fuse_four_engine_details(
                 if base.mode == "RGBA":
                     # Alpha is copied unchanged from V2; prevents fringe and
                     # satisfies PSD/AI transparent print workflow.
-                    alpha = np.asarray(base.crop((x, y, x+w, y+h)).getchannel("A"), dtype="uint8")
-                    output_array = np.dstack((rgb, alpha))
+                    output_array = np.dstack((rgb, alpha_tile))
                 else:
                     output_array = rgb
                 fused.paste(Image.fromarray(output_array, mode=base.mode), (x, y))
