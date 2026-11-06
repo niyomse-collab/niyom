@@ -214,8 +214,10 @@ def _parse_vulkan_summary(value: str) -> dict:
         device = re.search(r"deviceName\s*=\s*(.+)$", line, re.IGNORECASE)
         if device:
             name = device.group(1).strip()
-            if name and not any(item["name"] == name for item in inventory):
-                index = fallback_index if current_index is None else current_index
+            index = fallback_index if current_index is None else current_index
+            if name and not any(
+                item["index"] == index and item["name"] == name for item in inventory
+            ):
                 inventory.append({"index": index, "name": name[:160]})
                 fallback_index += 1
         api = re.search(r"apiVersion\s*=\s*(.+)$", line, re.IGNORECASE)
