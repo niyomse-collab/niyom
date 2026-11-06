@@ -5,9 +5,10 @@ from pathlib import Path
 import sys
 import types
 
-# PyInstaller analyses collect_submodules before runtime_hooks execute. BasicSR
-# 1.4.2 still imports TorchVision's removed functional_tensor path, so install
-# the same narrow rgb_to_grayscale compatibility alias in the analysis process.
+# PyInstaller runs this spec in its analysis process; packaged runtime hooks
+# execute later and cannot repair imports needed during analysis. BasicSR 1.4.2
+# still imports TorchVision's removed functional_tensor path, so install the
+# narrow rgb_to_grayscale compatibility alias before static package discovery.
 try:
     from torchvision.transforms.functional import rgb_to_grayscale
 except Exception as exc:
