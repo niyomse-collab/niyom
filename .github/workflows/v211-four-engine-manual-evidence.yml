@@ -13,7 +13,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: work/v211-four-engine-v2-bridge-20261103
+          # Checkout the exact ref that dispatched this workflow. This keeps
+          # PR #20 evidence on its branch and remains correct after a future merge.
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:
