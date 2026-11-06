@@ -9,7 +9,7 @@ import pytest
 
 from PIL import Image
 
-from tools.v211_four_engine_run import run
+from tools.v211_four_engine_run import run, _privacy_safe_report
 from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES
 
@@ -77,7 +77,11 @@ def test_runner_reports_failed_engine(tmp_path):
         name: [sys.executable, "-c", code, "{input}", "{output}"]
         for name in ENGINES
     }
-    commands["anime4k"] = [sys.executable, "-c", "import sys;sys.exit(4)", "{input}", "{output}"]
+    commands["anime4k"] = [
+        sys.executable, "-c",
+        "import sys;print(sys.argv[1], file=sys.stderr);sys.exit(4)",
+        "{input}", "{output}",
+    ]
     config.write_text(json.dumps(commands), encoding="utf-8")
     result = run(source, tmp_path / "outputs", config, (8, 8), real_engines=False)
     assert not result["ready_for_fusion_research"]
@@ -92,6 +96,37 @@ def test_runner_reports_failed_engine(tmp_path):
         for name in ENGINES if name != "anime4k"
     )
     assert result["real_engine_inference_proven"] is False
+    assert result["failures"]["anime4k"]["details_redacted"] is True
+    assert result["failures"]["anime4k"]["error_type"] == "RuntimeError"
+    persisted = (tmp_path / "outputs" / "four_engine_report.json").read_text(encoding="utf-8")
+    assert str(tmp_path) not in persisted
+    assert "stderr" not in persisted
+    assert "candidate_files" in json.loads(persisted)
+    assert "candidates" not in json.loads(persisted)
+
+
+def test_privacy_safe_report_redacts_nested_output_paths(tmp_path):
+    report = {
+        "candidates": {"real_esrgan": str(tmp_path / "engine" / "real_esrgan.png")},
+        "failures": {"waifu2x": "RuntimeError: private stderr " + str(tmp_path)},
+        "three_engine_priority_preview": {
+            "selected": "real_esrgan",
+            "output": str(tmp_path / "preview.png"),
+        },
+        "four_engine_fusion": {
+            "fusion_implemented": True,
+            "output": str(tmp_path / "fused.png"),
+        },
+        "fusion_error": "OSError: " + str(tmp_path / "private"),
+    }
+    safe = _privacy_safe_report(report)
+    serialized = json.dumps(safe)
+    assert str(tmp_path) not in serialized
+    assert "private stderr" not in serialized
+    assert safe["candidate_files"] == {"real_esrgan": "real_esrgan.png"}
+    assert safe["three_engine_priority_preview"]["output_filename"] == "preview.png"
+    assert safe["four_engine_fusion"]["output_filename"] == "fused.png"
+    assert safe["fusion_error"]["details_redacted"] is True
 
 
 
