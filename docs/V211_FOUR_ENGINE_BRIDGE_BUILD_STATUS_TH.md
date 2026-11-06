@@ -168,3 +168,14 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - per_engine_backend_selection_verified และ anime4k_backend_selection_verified เป็น false จนกว่าจะมี telemetry จาก process ขณะ inference บนเครื่องร้าน.
 - all_four_cli_validated_on_gtx1660ti_vulkan_equipped_host หมายถึงทั้งสี่ CLI ผ่านบนเครื่องที่ตรวจพบ GTX 1660 Ti และ Vulkan พร้อมกันเท่านั้น ไม่ได้อ้างว่าทุก process ใช้ GTX adapter. ฟิลด์เดิม four_engine_cli_passed_on_gtx1660ti_vulkan_host คงไว้เพื่อ compatibility และมีความหมายเดียวกัน.
 - เพิ่ม Regression แยกกรณี Anime4K ล้มแต่สาม NCNN ผ่าน และกรณี NCNN ตัวใดตัวหนึ่งล้ม; ไม่มีการเปลี่ยนการประมวลผลภาพ, Installer, Fusion, V1 หรือ V2 Stable.
+
+## 6 พฤศจิกายน 2569 — ปกป้อง RGB ใต้ขอบโปร่งใสของ PNG ระหว่าง Four-Engine Fusion
+
+- ตรวจพบช่องว่างใน QA เดิม: Fusion คัดลอก Alpha จาก V2 ได้ตรง แต่ยังอาจเปลี่ยนค่า RGB ใต้พิกเซลที่ Alpha เป็น 0 หรือเป็นขอบ antialias (Alpha 1–254). ค่านี้มองไม่เห็นทันทีบนพื้นหลังบางชนิด แต่มีโอกาสเกิด fringe เมื่อโปรแกรมจัดหน้า/พิมพ์ resample PNG.
+- Commit `220de9f420a51576b8ff84aff579bcf8621aa4ff` ปรับ Fusion ให้สร้าง edge gate จาก Alpha ของ V2 ในแต่ละ tile และอนุญาต detail fusion เฉพาะพิกเซลที่ Alpha = 255; พิกเซลโปร่งใสและกึ่งโปร่งใสคง RGB/Alpha จาก V2 เดิม.
+- Commit `da466dee0994bcc882de10ac787c4e3010a43a0f` เพิ่ม Regression `test_rgba_fusion_preserves_rgb_under_transparent_and_antialiased_edges` ซึ่งตรวจ RGB ของทุกพิกเซลที่ Alpha < 255 ให้ตรงกับ V2 แบบ pixel-identical.
+- Independent Core regression ที่ครอบคลุม branch code นี้ผ่าน: Windows **701 passed, 1 skipped**; Ubuntu **699 passed, 3 skipped**; compileall ผ่านทั้งสองระบบ — [GitHub Actions #42179684393](https://github.com/niyomse-collab/niyom/actions/runs/42179684393).
+- Windows Candidate Build ที่ยืนยันได้ล่าสุดก่อนการแก้ RGBA คือ **#42170845434** บน HEAD `ae8f5cae9c75159c476e4b956939617f810c13a1`; Build, packaged-import smoke และ artifact upload ผ่าน แต่ Artifact นี้ **ยังไม่มี** การแก้ RGBA สอง Commit ข้างต้น จึงห้ามใช้เป็น Installer acceptance ของโค้ดล่าสุด. ต้อง Build Candidate ใหม่บน HEAD หลังการแก้.
+- PR #20 ยังคง Open / Draft / Not Merged. PR #18 ยัง Open / Draft / Not Merged. Git blob SHA ของ `face_protection.py`, `large_faces.py`, `v211_face_contract.py` และ `face_module/__init__.py` ยังคงตรงกันระหว่าง PR #18 HEAD, PR #20 base และ PR #20 head.
+- PR #20 base branch `feature/v2.1.1-super-ai` อยู่ข้างหน้า branch นี้ 1 commit (PR #18 เพิ่มเฉพาะการปรับ workflow manual evidence); compare สถานะเป็น diverged และ GitHub รายงาน `mergeable=false`. ยังไม่ merge/rebase/เปลี่ยน base ในรอบนี้; ต้องจัดการ branch synchronization แยกก่อนพิจารณา merge.
+- คง `real_inference_verified=false`, `quality_certified=false`, `print_quality_certified=false`. การทดสอบนี้เป็น synthetic pixel regression ไม่ใช่ Native inference หรือ Print QA บน GTX 1660 Ti.
