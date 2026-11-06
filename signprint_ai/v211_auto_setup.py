@@ -21,11 +21,24 @@ def default_manifest() -> Path:
 
 
 def needs_initial_setup() -> bool:
+    """Return false only when the selected manifest verifies all four engines.
+
+    A stale, truncated, or hand-created manifest must never suppress setup by
+    mere file existence. An explicit manifest override is validated exactly
+    like the default LOCALAPPDATA manifest.
+    """
     if os.environ.get("NIYOMSIL_V211_FOUR_AI") == "0":
         return False
-    if os.environ.get("NIYOMSIL_V211_FOUR_AI_MANIFEST", "").strip():
-        return False
-    return not default_manifest().is_file()
+
+    override = os.environ.get("NIYOMSIL_V211_FOUR_AI_MANIFEST", "").strip()
+    manifest = Path(override) if override else default_manifest()
+    try:
+        from tools.v211_real_engine_manifest import load_real_engine_manifest
+
+        verified = load_real_engine_manifest(manifest)
+        return set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
+    except (ImportError, OSError, ValueError, KeyError, TypeError):
+        return True
 
 
 def provision_after_consent() -> dict:
