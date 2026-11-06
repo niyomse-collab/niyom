@@ -208,3 +208,11 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Artifact เก่า ID 13486100336 ยังไม่หมดอายุ ณ เวลาตรวจ แต่เป็น build ของ SHA เก่า; ไม่ได้ดาวน์โหลดหรือติดตั้งบนเครื่องร้าน.
 - PR #20 ยังคง Open / Draft / Not Merged และ PR #18 ยังคง Open / Draft / Not Merged. Blob SHA ของ face_protection.py, large_faces.py, v211_face_contract.py และ face_module/__init__.py ยังตรงกันระหว่าง PR #18 HEAD และ PR #20 HEAD; ไม่มีการแก้ Face/GFPGAN ในชุด diagnostic รอบนี้.
 - คง real_inference_verified=false, quality_certified=false, print_quality_certified=false. ยังไม่มี Native four-engine inference บน Windows GTX 1660 Ti, ไม่มี A/B ภาพลูกค้า และไม่มีการทดสอบติดตั้ง/ถอนการติดตั้งบนเครื่องร้าน.
+
+
+## 6 พฤศจิกายน 2569 — ปิดช่องว่างกรณีพบ GTX 1660 Ti มากกว่าหนึ่ง Vulkan index
+
+- ปรับ GPU-ready gate ให้ต้องมี Vulkan physical-device index ของ GTX 1660 Ti ที่ไม่กำกวม (vulkan_device_index ต้องมีค่า). ถ้าพบการ์ดชื่อเดียวกันหลาย index จะไม่ตั้งสถานะ GPU-ready แม้ชื่อการ์ดจะตรงกัน.
+- เพิ่ม Regression ให้กรณี index ไม่ชัดเจนต้องไม่ผ่าน GPU-ready gate; ผลการตรวจ output ของ CLI ยังแยกจากความพร้อมของเครื่องเหมือนเดิม.
+- Independent Core regression บน code HEAD a8cd370ab01f2abf464bf65768c607eccdf0ec10 ผ่าน run #42199175096: Windows และ Ubuntu ผ่าน pytest และ compileall — https://github.com/niyomse-collab/niyom/actions/runs/42199175096.
+- Windows Candidate Build ยังต้อง dispatch ใหม่เพื่อรวม diagnostic changes; Candidate artifact #42179678964 เป็น SHA เก่า da466dee0994bcc882de10ac787c4e3010a43a0f และไม่ครอบคลุม Native Vulkan loader inventory, Anime4K per-processor mapping หรือ unique-index gate. ห้ามใช้ artifact เก่าแทนการ Build/Install acceptance ของ HEAD ปัจจุบัน.
