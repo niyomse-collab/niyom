@@ -40,6 +40,58 @@ def _safe_execution_record(record: dict | None) -> dict | None:
     return {key: record[key] for key in allowed if key in record}
 
 
+def _safe_error_summary(value: object) -> dict:
+    """Retain a stable error class without leaking stderr or local paths."""
+    raw = str(value)
+    prefix = raw.split(":", 1)[0].strip()
+    error_type = prefix if prefix.isidentifier() else "EngineError"
+    lowered = raw.casefold()
+    if "vkcreateinstance failed -9" in lowered or "vulkan" in lowered:
+        error_class = "vulkan_initialization_failed"
+    elif "timed out" in lowered or "timeout" in lowered:
+        error_class = "timeout"
+    elif "no usable output" in lowered or "produced no output" in lowered:
+        error_class = "missing_output"
+    elif "icc" in lowered or "alpha" in lowered or "dimension" in lowered:
+        error_class = "output_validation_failed"
+    else:
+        error_class = "engine_failed"
+    return {
+        "error_type": error_type,
+        "error_class": error_class,
+        "details_redacted": True,
+    }
+
+
+def _privacy_safe_report(report: dict) -> dict:
+    """Create a shareable report without local paths or native stderr."""
+    safe = dict(report)
+    candidate_paths = safe.pop("candidates", {})
+    if isinstance(candidate_paths, dict):
+        safe["candidate_files"] = {
+            str(name): Path(path).name
+            for name, path in candidate_paths.items()
+        }
+    failures = safe.get("failures")
+    if isinstance(failures, dict):
+        safe["failures"] = {
+            str(name): _safe_error_summary(value)
+            for name, value in failures.items()
+        }
+    for key in ("priority_preview_error", "fusion_error"):
+        if key in safe:
+            safe[key] = _safe_error_summary(safe[key])
+    for key in ("three_engine_priority_preview", "four_engine_fusion"):
+        detail = safe.get(key)
+        if isinstance(detail, dict) and "output" in detail:
+            detail = dict(detail)
+            output = detail.pop("output")
+            detail["output_filename"] = Path(str(output)).name
+            detail["output_location"] = "local_only"
+            safe[key] = detail
+    return safe
+
+
 def _option_value(argv: tuple[str, ...], flags: tuple[str, ...]) -> str | None:
     for index, token in enumerate(argv[:-1]):
         if token in flags:
@@ -169,8 +221,9 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
     if cancel and cancel():
         raise InterruptedError("Processing stopped by user")
     output_dir.mkdir(parents=True, exist_ok=True)
+    safe_report = _privacy_safe_report(report)
     (output_dir / "four_engine_report.json").write_text(
-        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+        json.dumps(safe_report, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     return report
 
@@ -189,7 +242,7 @@ def main() -> None:
     args = parser.parse_args()
     report = run(args.source, args.output_dir, args.config, (args.width, args.height),
                  real_engines=not args.research_commands, v2_reference=args.v2_reference)
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    print(json.dumps(_privacy_safe_report(report), ensure_ascii=False, indent=2))
     if not report["ready_for_fusion_research"]:
         raise SystemExit(1)
 
