@@ -5,6 +5,22 @@ import pytest
 from PIL import Image, ImageCms
 
 from signprint_ai import v211_four_engine_bridge as bridge
+from tools.v211_gpu_device_binding import GPUDeviceBindingError
+
+
+@pytest.fixture(autouse=True)
+def _stub_runtime_device_binding(monkeypatch):
+    def prepare(_manifest_path, work_dir):
+        bound = Path(work_dir) / "manifest.runtime-bound.json"
+        bound.write_text("{}", encoding="utf-8")
+        return bound, {
+            "binding_configured": True,
+            "runtime_device_use_verified": False,
+            "ncnn_vulkan": {"device_index": 2, "device_name": "NVIDIA GeForce GTX 1660 Ti"},
+            "anime4k": {"backend": "cuda", "device_index": 1,
+                        "device_name": "NVIDIA GeForce GTX 1660 Ti"},
+        }
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", prepare)
 
 
 def _images(tmp_path):
@@ -13,6 +29,30 @@ def _images(tmp_path):
     Image.new("RGBA", (8, 8), (20, 30, 40, 120)).save(src)
     Image.new("RGBA", (16, 16), (30, 40, 50, 120)).save(baseline)
     return src, baseline
+
+
+def test_gpu_binding_failure_blocks_native_runner_and_preserves_v2(tmp_path, monkeypatch):
+    source, baseline = _images(tmp_path)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+
+    def blocked(_manifest, _work_dir):
+        raise GPUDeviceBindingError("ambiguous GTX 1660 Ti Vulkan index")
+
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", blocked)
+    from tools import v211_four_engine_run
+
+    def must_not_run(*args, **kwargs):
+        pytest.fail("native engines must not run without a verified device binding")
+
+    monkeypatch.setattr(v211_four_engine_run, "run", must_not_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+
+    assert result["status"] == "gpu_binding_unverified"
+    assert "ambiguous" in result["reason"]
+    assert result["v2_output_preserved"] is True
+    assert baseline.read_bytes() == before
 
 
 def test_default_disabled_preserves_print_output(tmp_path, monkeypatch):
