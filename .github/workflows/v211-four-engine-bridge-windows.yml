@@ -61,17 +61,17 @@ jobs:
         run: choco install innosetup -y --no-progress
       - name: Build V2-based experimental candidate
         shell: powershell
-        run: .\\build_windows.ps1 -Channel v2 -Version 2.1.1-beta.${{ github.run_number }}
+        run: .\build_windows.ps1 -Channel v2 -Version 2.1.1-beta.${{ github.run_number }}
       - name: Check packaged V2 imports without claiming real four-engine inference
         shell: powershell
         run: |
-          .\\tools\\Test-V2-Package.ps1 -Exe '.\\dist\\NiyomsilAIEnhancer\\NiyomsilAIEnhancer.exe' -OutputDir package-smoke -Mode imports -TimeoutSeconds 180
+          .\tools\Test-V2-Package.ps1 -Exe '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe' -OutputDir package-smoke -Mode imports -TimeoutSeconds 180
       - name: Verify candidate provenance and every installer slice SHA256
         shell: pwsh
         run: |
-          $proofPath = '.\\dist\\NiyomsilAIEnhancer\\BUILD_PROOF.txt'
-          $installer = '.\\release\\NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe'
-          $sumsPath = '.\\release\\SHA256SUMS.txt'
+          $proofPath = '.\dist\NiyomsilAIEnhancer\BUILD_PROOF.txt'
+          $installer = '.\release\NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe'
+          $sumsPath = '.\release\SHA256SUMS.txt'
           foreach ($required in @($proofPath, $installer, $sumsPath)) {
             if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
               throw "Candidate provenance input missing: $required"
@@ -79,7 +79,7 @@ jobs:
           }
 
           $proof = Get-Content -LiteralPath $proofPath -Raw
-          if ($proof -notmatch '(?m)^Source commit:\\s*([0-9a-f]{40})\\s*$') {
+          if ($proof -notmatch '(?m)^Source commit:\s*([0-9a-f]{40})\s*$') {
             throw 'BUILD_PROOF does not contain a valid source commit.'
           }
           $proofCommit = $Matches[1].ToLowerInvariant()
@@ -89,14 +89,14 @@ jobs:
           if ($proof -notmatch '(?m)^NIYOMSIL DESIGN v2 - VERIFIED INSTALLER BUILD PROOF$') {
             throw 'BUILD_PROOF is not a V2 channel build.'
           }
-          if ($proof -notmatch '(?m)^Version: 2\\.1\\.1-beta\\.\\d+$') {
+          if ($proof -notmatch '(?m)^Version: 2\.1\.1-beta\.\d+$') {
             throw 'BUILD_PROOF version is not a V2.1.1 beta candidate.'
           }
 
           $verified = @()
           foreach ($line in Get-Content -LiteralPath $sumsPath) {
             if ([string]::IsNullOrWhiteSpace($line)) { continue }
-            if ($line -notmatch '^([0-9a-fA-F]{64})\\s+(.+)$') {
+            if ($line -notmatch '^([0-9a-fA-F]{64})\s+(.+)$') {
               throw 'SHA256SUMS contains a malformed entry.'
             }
             $expected = $Matches[1].ToLowerInvariant()
@@ -104,7 +104,7 @@ jobs:
             if ([IO.Path]::GetFileName($name) -ne $name) {
               throw 'SHA256SUMS contains a non-local filename.'
             }
-            $file = Join-Path '.\\release' $name
+            $file = Join-Path '.\release' $name
             if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
               throw "Installer slice listed in SHA256SUMS is missing."
             }
@@ -146,7 +146,7 @@ jobs:
             quality_certified = $false
           }
           $provenance | ConvertTo-Json -Depth 6 |
-            Set-Content -LiteralPath '.\\release\\CANDIDATE_PROVENANCE.json' -Encoding utf8
+            Set-Content -LiteralPath '.\release\CANDIDATE_PROVENANCE.json' -Encoding utf8
 
       - name: Upload experimental package; no release published
         uses: actions/upload-artifact@v4
