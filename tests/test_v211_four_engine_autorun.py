@@ -84,7 +84,11 @@ def test_installed_four_ai_is_auto_executed_and_exports_separate_result(tmp_path
     assert fused.parent == v2.parent
     assert ".V211-4AI-QA-" in fused.name
     assert v2.read_bytes() == before
-    assert calls == [((8, 8), manifest, (16, 16), True, (16, 16))]
+    assert len(calls) == 1
+    assert calls[0][0] == (8, 8)
+    assert calls[0][1] != manifest
+    assert calls[0][1].name == "manifest.runtime-bound.json"
+    assert calls[0][2:] == ((16, 16), True, (16, 16))
     assert Image.open(fused).size == (16, 16)
 
 
