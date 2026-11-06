@@ -384,10 +384,14 @@ def maybe_run_four_engine_assist(
             shutil.rmtree(output_dir, ignore_errors=True)
         if sidecar is not None:
             sidecar.unlink(missing_ok=True)
-        _LOG.warning("Optional V2.1.1 four-engine GPU binding blocked: %s", exc)
+        _LOG.warning(
+            "Optional V2.1.1 four-engine GPU binding blocked (%s)",
+            type(exc).__name__,
+        )
         return {
             "status": "gpu_binding_unverified",
-            "reason": str(exc),
+            "reason": "GTX 1660 Ti GPU selection was ambiguous or unavailable",
+            "error_type": type(exc).__name__,
             "v2_output_preserved": True,
             "quality_certified": False,
         }
@@ -396,9 +400,16 @@ def maybe_run_four_engine_assist(
             shutil.rmtree(output_dir, ignore_errors=True)
         if sidecar is not None:
             sidecar.unlink(missing_ok=True)
-        _LOG.warning("Optional V2.1.1 four-engine candidate run failed: %s", exc)
+        # Native exception messages can include customer filenames, LOCALAPPDATA
+        # locations, or command details. Keep diagnostics useful without logging
+        # or returning the sensitive message.
+        _LOG.warning(
+            "Optional V2.1.1 four-engine candidate run failed (%s)",
+            type(exc).__name__,
+        )
         return {
             "status": "error",
-            "error": type(exc).__name__ + ": " + str(exc),
+            "error_type": type(exc).__name__,
+            "error_class": "processing_failed",
             "v2_output_preserved": True,
         }
