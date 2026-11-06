@@ -609,12 +609,13 @@ def run_diagnostic(
     )
     anime4k_cli_pass = bool(engine_matrix["anime4k"]["both_cases_pass"])
     # A Vulkan loader DLL alone does not prove that the target adapter is
-    # visible to Vulkan. Require the GTX 1660 Ti to appear in both NVIDIA-SMI
-    # and vulkaninfo, a successful vulkaninfo probe, the loader, and the
-    # expected approximately 6 GiB VRAM budget before labeling this a shop GPU.
+    # visible to Vulkan. Require one unambiguous GTX 1660 Ti physical-device
+    # index visible to both NVIDIA-SMI and Vulkan, a successful inventory,
+    # the loader, and the expected approximately 6 GiB VRAM budget.
     gpu_ready = bool(
         gpu.get("gtx_1660_ti_detected_by_nvidia_smi")
         and gpu.get("gtx_1660_ti_detected_by_vulkan")
+        and gpu.get("vulkan_device_index") is not None
         and gpu.get("vulkan_loader_available")
         and gpu.get("vulkaninfo_succeeded")
         and gpu.get("vram_budget_6gb_detected")
@@ -627,6 +628,7 @@ def run_diagnostic(
         "gpu": gpu,
         "gpu_device_inventory_source": (gpu.get("vulkaninfo") or {}).get("inventory_source"),
         "ncnn_vulkan_target_device_index": gpu.get("vulkan_device_index"),
+        "vulkan_target_device_index_unambiguous": gpu.get("vulkan_device_index") is not None,
         "anime4k_backend_inventory": anime4k_backend,
         "anime4k_gpu_recommendation": anime4k_backend.get("recommended_gpu_processor_device"),
         "engine_matrix": engine_matrix,
