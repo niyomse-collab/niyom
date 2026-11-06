@@ -124,3 +124,25 @@ def test_setup_ui_worker_queues_only_safe_failure_code():
     assert 'events.put(("failure", safe_failure_code(exc)))' in source
     assert 'str(payload)' in source  # payload is the fixed safe code, not an Exception
     assert 'str(exc)' not in source
+
+
+def test_setup_log_writer_allowlists_messages_and_engine_names(monkeypatch, tmp_path):
+    log_path = tmp_path / "installer-setup.log"
+    monkeypatch.setattr(v211_setup_cli, "_log_path", lambda: log_path)
+    secret = r"C:\Users\Customer\Artwork\private-sign.png"
+
+    v211_setup_cli._record("FAILED " + secret)
+    v211_setup_cli._record("FAILED setup_failed\\n" + secret)
+    v211_setup_cli._record("SUCCESS verified engines: " + secret)
+    v211_setup_cli._record(
+        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x"
+    )
+
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert lines == [
+        "FAILED setup_failed",
+        "FAILED setup_failed",
+        "FAILED setup_failed",
+        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
+    ]
+    assert secret not in log_path.read_text(encoding="utf-8")
