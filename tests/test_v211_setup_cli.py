@@ -150,15 +150,15 @@ def test_setup_log_writer_allowlists_messages_and_engine_names(monkeypatch, tmp_
 @pytest.mark.parametrize(
     "payload",
     [
-        "FAILED setup_failed\\nSUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
-        "FAILED setup_failed\\r\\nSUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
-        "FAILED setup_failed\\rSUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
-        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x\\nSUCCESS verified engines: real_esrgan",
-        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x\\r\\nFAILED setup_failed",
-        "FAILED setup_failed\\u2028C:\\\\Users\\\\Customer\\\\Artwork\\\\secret.png",
-        "FAILED setup_failed\\x00C:\\\\Users\\\\Customer\\\\Artwork\\\\secret.png",
-        "FAILED setup_failed\\tC:\\\\Users\\\\Customer\\\\Artwork\\\\secret.png",
-        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x\\nC:\\\\Users\\\\Customer\\\\Artwork\\\\secret.png",
+        "FAILED setup_failed\nSUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
+        "FAILED setup_failed\r\nSUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
+        "FAILED setup_failed\rSUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
+        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x\nSUCCESS verified engines: real_esrgan",
+        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x\r\nFAILED setup_failed",
+        "FAILED setup_failed\u2028C:\\Users\\Customer\\Artwork\\secret.png",
+        "FAILED setup_failed\x00C:\\Users\\Customer\\Artwork\\secret.png",
+        "FAILED setup_failed\tC:\\Users\\Customer\\Artwork\\secret.png",
+        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x\nC:\\Users\\Customer\\Artwork\\secret.png",
     ],
 )
 def test_setup_log_writer_rejects_real_linebreaks_and_control_injection(
@@ -190,7 +190,7 @@ def test_setup_log_writer_canonicalizes_only_exact_success_engine_set(
         "SUCCESS verified engines: waifu2x,real_esrgan,anime4k,real_cugan,waifu2x"
     )
     v211_setup_cli._record(
-        "SUCCESS verified engines: waifu2x,real_esrgan,anime4k,real_cugan\\rFAILED setup_failed"
+        "SUCCESS verified engines: waifu2x,real_esrgan,anime4k,real_cugan\rFAILED setup_failed"
     )
 
     assert log_path.read_text(encoding="utf-8").splitlines() == [
