@@ -11,6 +11,24 @@ from signprint_ai import v211_four_engine_bridge as bridge
 from tools import v211_four_engine_run
 
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _stub_runtime_device_binding(monkeypatch):
+    def prepare(_manifest_path, work_dir):
+        bound = Path(work_dir) / "manifest.runtime-bound.json"
+        bound.write_text("{}", encoding="utf-8")
+        return bound, {
+            "binding_configured": True,
+            "runtime_device_use_verified": False,
+            "ncnn_vulkan": {"device_index": 0, "device_name": "NVIDIA GeForce GTX 1660 Ti"},
+            "anime4k": {"backend": "cuda", "device_index": 0,
+                        "device_name": "NVIDIA GeForce GTX 1660 Ti"},
+        }
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", prepare)
+
+
 def _source_and_v2(tmp_path):
     source, baseline = tmp_path / "source.png", tmp_path / "approved-V2.png"
     Image.new("RGB", (8, 8), (30, 100, 50)).save(source, dpi=(300, 300))
