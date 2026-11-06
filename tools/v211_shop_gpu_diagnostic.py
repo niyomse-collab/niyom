@@ -18,6 +18,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import struct
 import tempfile
 
 from PIL import Image, ImageCms, ImageDraw
@@ -51,21 +52,182 @@ def _parse_nvidia_smi_csv(value: str) -> list[dict]:
     return devices
 
 
+def _decode_vulkan_device_properties(raw: bytes, index: int) -> dict:
+    """Decode the stable leading fields of VkPhysicalDeviceProperties.
+
+    Vulkan defines five uint32 fields followed by deviceName[256]. Reading only
+    this prefix avoids requiring the Vulkan SDK or a third-party Python binding.
+    """
+    if len(raw) < 276:
+        raise ValueError("VkPhysicalDeviceProperties buffer is too small")
+    api_version, driver_version, vendor_id, device_id, device_type = struct.unpack_from(
+        "<IIIII", raw, 0
+    )
+    name = raw[20:276].split(b"\0", 1)[0].decode("utf-8", "replace").strip()
+    if not name:
+        raise ValueError("Vulkan physical device has no name")
+    return {
+        "index": int(index),
+        "name": name[:160],
+        "api_version_raw": int(api_version),
+        "driver_version_raw": int(driver_version),
+        "vendor_id": int(vendor_id),
+        "device_id": int(device_id),
+        "device_type": int(device_type),
+    }
+
+
+def _enumerate_vulkan_devices_native() -> dict:
+    """Enumerate Vulkan physical devices through the installed loader.
+
+    This works without the optional Vulkan SDK/vulkaninfo utility. The returned
+    index follows vkEnumeratePhysicalDevices order, the index consumed by NCNN -g.
+    """
+    try:
+        if os.name == "nt":
+            library = ctypes.WinDLL("vulkan-1.dll")
+        elif os.name == "posix":
+            library = ctypes.CDLL("libvulkan.so.1")
+        else:
+            return {"available": False, "success": False, "status": "unsupported_platform"}
+    except OSError:
+        return {"available": False, "success": False, "status": "loader_not_found"}
+
+    class VkApplicationInfo(ctypes.Structure):
+        _fields_ = [
+            ("sType", ctypes.c_uint32),
+            ("pNext", ctypes.c_void_p),
+            ("pApplicationName", ctypes.c_char_p),
+            ("applicationVersion", ctypes.c_uint32),
+            ("pEngineName", ctypes.c_char_p),
+            ("engineVersion", ctypes.c_uint32),
+            ("apiVersion", ctypes.c_uint32),
+        ]
+
+    class VkInstanceCreateInfo(ctypes.Structure):
+        _fields_ = [
+            ("sType", ctypes.c_uint32),
+            ("pNext", ctypes.c_void_p),
+            ("flags", ctypes.c_uint32),
+            ("pApplicationInfo", ctypes.POINTER(VkApplicationInfo)),
+            ("enabledLayerCount", ctypes.c_uint32),
+            ("ppEnabledLayerNames", ctypes.POINTER(ctypes.c_char_p)),
+            ("enabledExtensionCount", ctypes.c_uint32),
+            ("ppEnabledExtensionNames", ctypes.POINTER(ctypes.c_char_p)),
+        ]
+
+    instance = ctypes.c_void_p()
+    created = False
+    try:
+        create_instance = library.vkCreateInstance
+        create_instance.argtypes = [
+            ctypes.POINTER(VkInstanceCreateInfo), ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        create_instance.restype = ctypes.c_int32
+        enumerate_devices = library.vkEnumeratePhysicalDevices
+        enumerate_devices.argtypes = [
+            ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32),
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        enumerate_devices.restype = ctypes.c_int32
+        get_properties = library.vkGetPhysicalDeviceProperties
+        get_properties.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        get_properties.restype = None
+        destroy_instance = library.vkDestroyInstance
+        destroy_instance.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        destroy_instance.restype = None
+
+        app = VkApplicationInfo(
+            0, None, b"NiyomSilp V2.1.1 GPU QA", 1,
+            b"NiyomSilp", 1, (1 << 22),
+        )
+        create_info = VkInstanceCreateInfo(
+            1, None, 0, ctypes.pointer(app), 0, None, 0, None
+        )
+        result = int(create_instance(ctypes.byref(create_info), None, ctypes.byref(instance)))
+        if result != 0:
+            return {
+                "available": True, "success": False,
+                "status": "vkCreateInstance_failed", "vk_result": result,
+            }
+        created = True
+
+        count = ctypes.c_uint32(0)
+        result = int(enumerate_devices(instance, ctypes.byref(count), None))
+        if result != 0:
+            return {
+                "available": True, "success": False,
+                "status": "vkEnumeratePhysicalDevices_failed", "vk_result": result,
+            }
+        if count.value == 0:
+            return {
+                "available": True, "success": False,
+                "status": "no_vulkan_physical_devices", "device_inventory": [],
+            }
+
+        handles = (ctypes.c_void_p * count.value)()
+        result = int(enumerate_devices(instance, ctypes.byref(count), handles))
+        if result != 0:
+            return {
+                "available": True, "success": False,
+                "status": "vkEnumeratePhysicalDevices_failed", "vk_result": result,
+            }
+
+        inventory = []
+        for index in range(count.value):
+            properties = ctypes.create_string_buffer(1024)
+            get_properties(handles[index], ctypes.byref(properties))
+            inventory.append(_decode_vulkan_device_properties(properties.raw, index))
+        return {
+            "available": True,
+            "success": bool(inventory),
+            "status": "ok" if inventory else "no_vulkan_physical_devices",
+            "source": "vulkan_loader_native",
+            "device_inventory": inventory,
+            "device_names": [item["name"] for item in inventory],
+        }
+    except (AttributeError, OSError, TypeError, ValueError, struct.error) as exc:
+        return {
+            "available": True,
+            "success": False,
+            "status": "native_enumeration_error",
+            "error_type": type(exc).__name__,
+        }
+    finally:
+        if created and instance.value:
+            try:
+                destroy_instance(instance, None)
+            except Exception:
+                pass
+
+
 def _parse_vulkan_summary(value: str) -> dict:
-    devices = []
+    inventory = []
     api_versions = []
+    current_index = None
+    fallback_index = 0
     for line in value.splitlines():
+        gpu = re.search(r"^\s*GPU(\d+)\s*:", line, re.IGNORECASE)
+        if gpu:
+            current_index = int(gpu.group(1))
         device = re.search(r"deviceName\s*=\s*(.+)$", line, re.IGNORECASE)
         if device:
             name = device.group(1).strip()
-            if name and name not in devices:
-                devices.append(name[:160])
+            if name and not any(item["name"] == name for item in inventory):
+                index = fallback_index if current_index is None else current_index
+                inventory.append({"index": index, "name": name[:160]})
+                fallback_index += 1
         api = re.search(r"apiVersion\s*=\s*(.+)$", line, re.IGNORECASE)
         if api:
             version = api.group(1).strip()
             if version and version not in api_versions:
                 api_versions.append(version[:40])
-    return {"device_names": devices, "api_versions": api_versions}
+    return {
+        "device_inventory": inventory,
+        "device_names": [item["name"] for item in inventory],
+        "api_versions": api_versions,
+    }
 
 
 def _run_probe(executable: str | None, args: list[str], timeout: int = 15) -> dict:
@@ -136,6 +298,28 @@ def _probe_vulkan_loader() -> bool:
         return False
 
 
+def _parse_anime4k_device_inventory(value: str) -> dict:
+    """Parse the official Anime4KCPP -l output by processor section."""
+    inventory = {}
+    current = None
+    for line in value.splitlines():
+        section = re.match(r"^\s*(CPU|OpenCL|CUDA)\s*:\s*$", line, re.IGNORECASE)
+        if section:
+            current = section.group(1).lower()
+            inventory.setdefault(current, [])
+            continue
+        entry = re.match(r"^\s*\[(\d+)\]\s+(.+)$", line)
+        if entry and current:
+            raw_name = entry.group(2).strip()
+            name = raw_name.split(" (", 1)[0].strip()
+            if name:
+                inventory.setdefault(current, []).append({
+                    "index": int(entry.group(1)),
+                    "name": name[:160],
+                })
+    return inventory
+
+
 def probe_anime4k_backend(manifest: Path) -> dict:
     """Inventory Anime4KCPP processors/devices without treating it as Vulkan.
 
@@ -171,6 +355,22 @@ def probe_anime4k_backend(manifest: Path) -> dict:
             name for name in ("cpu", "opencl", "cuda")
             if re.search(r"\b" + name + r"\b", processor_text, re.IGNORECASE)
         ]
+        device_inventory_by_processor = _parse_anime4k_device_inventory(device_text)
+        recommended_gpu = None
+        for backend in ("cuda", "opencl"):
+            if backend not in available_processors:
+                continue
+            matching = [
+                item for item in device_inventory_by_processor.get(backend, [])
+                if "gtx 1660 ti" in item["name"].lower()
+            ]
+            if len(matching) == 1:
+                recommended_gpu = {
+                    "processor": backend,
+                    "device_index": matching[0]["index"],
+                    "device_name": matching[0]["name"],
+                }
+                break
         return {
             "status": "ok" if processors.get("success") and devices.get("success")
                       else "partial_or_failed",
@@ -190,6 +390,8 @@ def probe_anime4k_backend(manifest: Path) -> dict:
                 "output": device_text,
             },
             "available_processors": available_processors,
+            "device_inventory_by_processor": device_inventory_by_processor,
+            "recommended_gpu_processor_device": recommended_gpu,
             "gtx_1660_ti_visible_in_device_inventory":
                 "gtx 1660 ti" in device_text.lower(),
             "configured_processor": option_value("-p", "--processor", "auto"),
@@ -208,7 +410,11 @@ def probe_anime4k_backend(manifest: Path) -> dict:
 
 
 def probe_gpu() -> dict:
-    """Collect only GPU names, driver, VRAM and Vulkan loader/device identifiers."""
+    """Collect GPU names, driver, VRAM and indexed Vulkan physical devices.
+
+    vulkaninfo is optional. If the SDK utility is absent, enumerate devices
+    directly through vulkan-1.dll/libvulkan so end-user PCs need no SDK install.
+    """
     nvidia_exe = _find_tool("nvidia-smi")
     nvidia = _run_probe(
         nvidia_exe,
@@ -218,23 +424,57 @@ def probe_gpu() -> dict:
         ],
     )
     gpus = _parse_nvidia_smi_csv(nvidia.pop("stdout", ""))
+    nvidia.pop("stderr", None)
     nvidia["devices"] = gpus
 
     vulkan_loader_available = _probe_vulkan_loader()
     vulkan_exe = _find_tool("vulkaninfo")
     vulkan = _run_probe(vulkan_exe, ["--summary"])
     summary = _parse_vulkan_summary(vulkan.pop("stdout", ""))
+    vulkan.pop("stderr", None)
+    inventory_source = "vulkaninfo"
+    if not summary["device_inventory"]:
+        native = _enumerate_vulkan_devices_native()
+        if native.get("success"):
+            summary = {
+                "device_inventory": native.get("device_inventory", []),
+                "device_names": native.get("device_names", []),
+                "api_versions": [],
+            }
+            vulkan.update({
+                "available": True,
+                "success": True,
+                "status": "native_loader_enumeration",
+                "source": "vulkan_loader_native",
+            })
+            inventory_source = "vulkan_loader_native"
+        else:
+            vulkan["native_enumeration"] = {
+                "status": native.get("status", "unavailable"),
+                "vk_result": native.get("vk_result"),
+                "error_type": native.get("error_type"),
+            }
     vulkan.update(summary)
+    vulkan["inventory_source"] = inventory_source if summary["device_inventory"] else None
 
     target_nvidia = any("gtx 1660 ti" in item["name"].lower() for item in gpus)
-    target_vulkan = any("gtx 1660 ti" in name.lower() for name in summary["device_names"])
+    target_vulkan_devices = [
+        item for item in summary["device_inventory"]
+        if "gtx 1660 ti" in item["name"].lower()
+    ]
+    target_vulkan = bool(target_vulkan_devices)
     return {
         "nvidia_smi": nvidia,
         "vulkaninfo": vulkan,
+        "vulkan_device_inventory": summary["device_inventory"],
+        "vulkan_device_index": (
+            target_vulkan_devices[0]["index"] if len(target_vulkan_devices) == 1 else None
+        ),
+        "vulkan_target_device_match_count": len(target_vulkan_devices),
         "gtx_1660_ti_detected_by_nvidia_smi": target_nvidia,
         "gtx_1660_ti_detected_by_vulkan": target_vulkan,
         "vulkan_loader_available": vulkan_loader_available,
-        "vulkaninfo_succeeded": bool(vulkan.get("success")),
+        "vulkaninfo_succeeded": bool(vulkan.get("success") and summary["device_inventory"]),
         "vram_budget_6gb_detected": any(
             item["memory_total_mib"] >= 5500 for item in gpus
             if "gtx 1660 ti" in item["name"].lower()
