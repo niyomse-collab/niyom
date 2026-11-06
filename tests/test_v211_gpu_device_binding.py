@@ -149,7 +149,7 @@ def test_replaces_existing_device_flags_without_duplicates():
     assert bound["real_esrgan"]["args"].count("-g") == 1
     assert bound["real_esrgan"]["args"][-1] == "2"
     assert bound["anime4k"]["args"].count("--processor") == 1
-    assert bound["anime4k"]["args"][-3:] == ["--processor", "cuda", "--device", "1"]
+    assert bound["anime4k"]["args"][-4:] == ["--processor", "cuda", "--device", "1"]
 
 
 def test_duplicate_gpu_flags_are_rejected():
