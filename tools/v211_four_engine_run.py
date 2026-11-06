@@ -26,6 +26,56 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+_NCNN_ENGINES = ("real_esrgan", "waifu2x", "real_cugan")
+
+
+def _safe_execution_record(record: dict | None) -> dict | None:
+    """Keep only non-sensitive process facts in the local QA report."""
+    if not isinstance(record, dict):
+        return None
+    allowed = (
+        "status", "process_started", "pid", "exit_code",
+        "process_elapsed_ms", "elapsed_ms_total", "failure_type",
+    )
+    return {key: record[key] for key in allowed if key in record}
+
+
+def _option_value(argv: tuple[str, ...], flags: tuple[str, ...]) -> str | None:
+    for index, token in enumerate(argv[:-1]):
+        if token in flags:
+            return argv[index + 1]
+    return None
+
+
+def _configured_device_selection(engine: str, command: EngineCommand) -> dict:
+    """Record only backend/index flags passed to the CLI, never adapter usage."""
+    argv = tuple(str(item) for item in command.argv[1:])
+    if engine in _NCNN_ENGINES:
+        raw_index = _option_value(argv, ("-g", "--gpu"))
+        try:
+            index = int(raw_index) if raw_index is not None else None
+        except (TypeError, ValueError):
+            index = None
+        return {
+            "backend": "ncnn_vulkan",
+            "device_index": index,
+            "explicitly_configured": raw_index is not None and index is not None,
+            "actual_adapter_verified": False,
+        }
+    raw_backend = _option_value(argv, ("-p", "--processor"))
+    raw_index = _option_value(argv, ("-d", "--device"))
+    try:
+        index = int(raw_index) if raw_index is not None else None
+    except (TypeError, ValueError):
+        index = None
+    return {
+        "backend": raw_backend or "auto",
+        "device_index": index,
+        "explicitly_configured": raw_backend in ("cuda", "opencl") and index is not None,
+        "actual_adapter_verified": False,
+    }
+
+
 def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None, protected_regions: tuple = (), preserve_all_v2_faces: bool = False, cancel: Callable[[], bool] | None = None, progress_callback: Callable[[int, str], None] | None = None) -> dict:
     output_dir = Path(output_dir)
     if real_engines:
@@ -40,14 +90,31 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             if not isinstance(argv, list) or not argv or not all(isinstance(v, str) for v in argv):
                 raise ValueError("invalid argv for " + name)
             commands[name] = EngineCommand(tuple(argv))
+    execution_records: dict[str, dict] = {}
+    processors = make_processors(
+        commands, cancel_check=cancel, execution_records=execution_records
+    )
     result = run_candidates(
-        source, output_dir, size, make_processors(commands, cancel_check=cancel),
+        source, output_dir, size, processors,
         cancel_check=cancel, progress_callback=progress_callback,
     )
     report = {
         "research_only": True,
         "real_engine_manifest_preflight_passed": real_engines,
-        "real_engine_inference_proven": False,  # Successful subprocess output alone cannot prove model inference.
+        "real_engine_inference_proven": False,  # Process success is not proof of physical adapter use.
+        "runtime_device_use_verified": False,
+        "execution_evidence_scope": (
+            "native process lifecycle, exit code, and configured CLI backend/index only; "
+            "physical adapter use and visual quality remain unverified"
+        ),
+        "engine_execution": {
+            name: {
+                "process": _safe_execution_record(execution_records.get(name)),
+                "device_configuration": _configured_device_selection(name, commands[name]),
+                "runtime_device_use_verified": False,
+            }
+            for name in ENGINES
+        },
         "completed_engine_count": len(result["candidates"]),
         "completed_engine_names": [item.engine for item in result["candidates"]],
         "fusion_implemented": False,
