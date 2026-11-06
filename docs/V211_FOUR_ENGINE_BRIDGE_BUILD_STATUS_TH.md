@@ -216,3 +216,14 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - เพิ่ม Regression ให้กรณี index ไม่ชัดเจนต้องไม่ผ่าน GPU-ready gate; ผลการตรวจ output ของ CLI ยังแยกจากความพร้อมของเครื่องเหมือนเดิม.
 - Independent Core regression บน code HEAD a8cd370ab01f2abf464bf65768c607eccdf0ec10 ผ่าน run #42199175096: Windows และ Ubuntu ผ่าน pytest และ compileall — https://github.com/niyomse-collab/niyom/actions/runs/42199175096.
 - Windows Candidate Build ยังต้อง dispatch ใหม่เพื่อรวม diagnostic changes; Candidate artifact #42179678964 เป็น SHA เก่า da466dee0994bcc882de10ac787c4e3010a43a0f และไม่ครอบคลุม Native Vulkan loader inventory, Anime4K per-processor mapping หรือ unique-index gate. ห้ามใช้ artifact เก่าแทนการ Build/Install acceptance ของ HEAD ปัจจุบัน.
+
+
+## 6 พฤศจิกายน 2569 17:50 น. — ตรวจ Regression บน PR HEAD และคิว Windows Candidate ใหม่
+
+- ตรวจ PR #20 HEAD `8e4ace8be9011772eba4b5d6cd22b615ee87c44b` (สาขา `work/v211-four-engine-v2-bridge-20261103`): Open / Draft / Not Merged; GitHub รายงาน mergeable=true. PR #18 ยังคง Open / Draft / Not Merged.
+- Independent Core regression ที่ผูกกับ PR HEAD เดียวกันผ่าน run **#42199342233**: Ubuntu **705 passed, 3 skipped**; Windows **707 passed, 1 skipped**; `compileall` ผ่านทั้งสองระบบ. Job logs ยืนยันว่า pytest และ compileall สำเร็จ — https://github.com/niyomse-collab/niyom/actions/runs/42199342233.
+- ตรวจ Windows Candidate workflow `.github/workflows/v211-four-engine-bridge-windows.yml`: มี `push` trigger เมื่อแก้ `docs/V211_FOUR_ENGINE_BRIDGE_BUILD_STATUS_TH.md` บน branch นี้ จึงบันทึกผล regression รอบล่าสุดเพื่อให้เกิด Candidate Build ใหม่บน commit ที่ตามมา; การ Build นี้ยังต้องรอผล Actions และห้ามใช้ artifact เก่าแทน.
+- Candidate Build ล่าสุดที่ยืนยันได้ก่อนรอบนี้ยังเป็น run **#42179678964** บน code SHA `da466dee0994bcc882de10ac787c4e3010a43a0f`; ไม่รวม Native Vulkan inventory/unique-index gate ที่เพิ่มภายหลัง. Artifact เก่า ID `13486100336` จึงยังไม่ใช่ Candidate acceptance ของ PR HEAD.
+- ตรวจ Blob SHA ของ `signprint_ai/face_module/face_protection.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py` และ `signprint_ai/face_module/__init__.py` ระหว่าง PR #18 head branch `feature/v2.1.1-super-ai` กับ PR #20 branch: ทั้งสี่ไฟล์ตรงกันทุกตัวอักษร.
+- ขอบเขต GPU ยังไม่เปลี่ยน: Vulkan inventory เป็นเพียงรายการ Device; NCNN `-g` และ Anime4KCPP `-p/-d` ยังไม่ถูกผูกเข้ากับคำสั่ง inference. `per_engine_backend_selection_verified=false`, `anime4k_backend_selection_verified=false`; ไม่มีการอ้างว่า Native inference ทั้งสี่ผ่านบนเครื่องร้าน.
+- ไม่มีการแก้ Production Code ในรอบบันทึกนี้; ไม่มี Binary/Weights/ภาพลูกค้าเพิ่มใน Git; ไม่แก้ V1/V2 Stable, ไม่ Rebase/Force Push, ไม่ Merge/Release.
