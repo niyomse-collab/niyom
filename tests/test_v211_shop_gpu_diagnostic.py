@@ -20,6 +20,12 @@ def _gpu():
         "vulkaninfo": {"available": True, "success": True,
                        "device_names": ["NVIDIA GeForce GTX 1660 Ti"],
                        "api_versions": ["1.3.0"]},
+        "vulkan_device_inventory": [{
+            "index": 0,
+            "name": "NVIDIA GeForce GTX 1660 Ti",
+            "vendor_id": 0x10DE,
+            "device_id": 0x2184,
+        }],
         "vulkan_device_index": 0,
         "vulkan_target_device_match_count": 1,
         "gtx_1660_ti_detected_by_nvidia_smi": True,
@@ -30,8 +36,48 @@ def _gpu():
     }
 
 
+def _anime():
+    return {
+        "status": "ok",
+        "processor_probe": {"success": True},
+        "device_probe": {"success": True},
+        "available_processors": ["cpu", "opencl", "cuda"],
+        "device_inventory_by_processor": {
+            "cuda": [{"index": 0, "name": "NVIDIA GeForce GTX 1660 Ti"}],
+            "opencl": [{"index": 0, "name": "Intel Graphics"}],
+        },
+        "recommended_gpu_processor_device": {
+            "processor": "cuda",
+            "device_index": 0,
+            "device_name": "NVIDIA GeForce GTX 1660 Ti",
+        },
+    }
+
+
+def _write_manifest(path):
+    path.write_text(json.dumps({
+        name: {
+            "executable": f"C:/Niyom/{name}.exe",
+            "args": ["-i", "{input}", "-o", "{output}"],
+        }
+        for name in ENGINES
+    }), encoding="utf-8")
+    return path
+
+
 def _successful_runner(manifest, source, output, *, timeout_seconds):
     assert timeout_seconds == 180
+    try:
+        bound = json.loads(Path(manifest).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        bound = None
+    if bound is not None:
+        for name in ("real_esrgan", "waifu2x", "real_cugan"):
+            args = bound[name]["args"]
+            assert args[args.index("-g") + 1] == "0"
+        anime_args = bound["anime4k"]["args"]
+        assert anime_args[anime_args.index("-p") + 1] == "cuda"
+        assert anime_args[anime_args.index("-d") + 1] == "0"
     with Image.open(source) as image:
         assert image.format == "PNG"
         assert image.info.get("icc_profile")
@@ -269,15 +315,18 @@ def test_synthetic_pngs_include_rgb_rgba_icc_and_300dpi(tmp_path):
 
 
 def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text("test manifest", encoding="utf-8")
+    manifest = _write_manifest(tmp_path / "manifest.json")
     report = diagnostic.run_diagnostic(
         manifest, tmp_path / "report",
         gpu_probe=_gpu, engine_runner=_successful_runner,
+        anime4k_probe=lambda _manifest: _anime(),
     )
     assert report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert report["gtx_1660_ti_and_vulkan_environment_detected"]
     assert report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"]
+    assert report["device_binding_applied"] is True
+    assert report["device_binding"]["ncnn_vulkan"]["device_index"] == 0
+    assert report["device_binding"]["anime4k"]["backend"] == "cuda"
     assert all(item["both_cases_pass"] for item in report["engine_matrix"].values())
     assert report["quality_improvement_verified"] is False
     assert report["customer_artwork_used"] is False
@@ -291,7 +340,7 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
         (tmp_path / "report" / "shop_gpu_diagnostic.json").read_text(encoding="utf-8")
     )
     assert saved["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
-    assert saved["anime4k_backend_inventory"]["status"] == "manifest_unavailable"
+    assert saved["anime4k_backend_inventory"]["status"] == "ok"
     assert saved["schema_version"] == 3
     assert saved["three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host"]
     assert saved["anime4k_cli_outputs_validated_on_both_synthetic_cases"]
@@ -324,6 +373,7 @@ def test_gpu_readiness_requires_real_vulkan_adapter_and_vram(
     report = diagnostic.run_diagnostic(
         manifest, tmp_path / "report",
         gpu_probe=lambda: gpu, engine_runner=_successful_runner,
+        bind_devices=False,
     )
     # Engine output validity and target-machine readiness are independent.
     assert report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
@@ -360,11 +410,11 @@ def test_one_engine_failure_is_not_reported_as_four_engine_success(tmp_path):
         }
         return result
 
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text("test manifest", encoding="utf-8")
+    manifest = _write_manifest(tmp_path / "manifest.json")
     report = diagnostic.run_diagnostic(
         manifest, tmp_path / "report",
         gpu_probe=_gpu, engine_runner=one_engine_fails,
+        anime4k_probe=lambda _manifest: _anime(),
     )
     assert not report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert not report["engine_matrix"]["waifu2x"]["both_cases_pass"]
@@ -378,6 +428,7 @@ def test_invalid_manifest_exception_fails_closed_without_retaining_images(tmp_pa
     report = diagnostic.run_diagnostic(
         tmp_path / "missing.json", tmp_path / "report",
         gpu_probe=_gpu, engine_runner=bad_manifest,
+        bind_devices=False,
     )
     assert not report["manifest_preflight_passed"]
     assert not report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
@@ -415,11 +466,11 @@ def test_anime4k_failure_is_separate_from_three_ncnn_vulkan_engine_gate(tmp_path
         }
         return result
 
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text("test manifest", encoding="utf-8")
+    manifest = _write_manifest(tmp_path / "manifest.json")
     report = diagnostic.run_diagnostic(
         manifest, tmp_path / "report",
         gpu_probe=_gpu, engine_runner=anime4k_fails,
+        anime4k_probe=lambda _manifest: _anime(),
     )
 
     assert report["three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host"]
@@ -447,11 +498,11 @@ def test_ncnn_failure_blocks_three_engine_vulkan_host_gate(tmp_path):
         }
         return result
 
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text("test manifest", encoding="utf-8")
+    manifest = _write_manifest(tmp_path / "manifest.json")
     report = diagnostic.run_diagnostic(
         manifest, tmp_path / "report",
         gpu_probe=_gpu, engine_runner=ncnn_fails,
+        anime4k_probe=lambda _manifest: _anime(),
     )
 
     assert report["anime4k_cli_outputs_validated_on_both_synthetic_cases"]
