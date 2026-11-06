@@ -623,7 +623,10 @@ def run_diagnostic(
         "manifest_present": manifest.is_file(),
         "manifest_preflight_passed": manifest_preflight_passed,
         "gpu": gpu,
+        "gpu_device_inventory_source": (gpu.get("vulkaninfo") or {}).get("inventory_source"),
+        "ncnn_vulkan_target_device_index": gpu.get("vulkan_device_index"),
         "anime4k_backend_inventory": anime4k_backend,
+        "anime4k_gpu_recommendation": anime4k_backend.get("recommended_gpu_processor_device"),
         "engine_matrix": engine_matrix,
         "engine_backend_expectations": {
             name: {
@@ -664,8 +667,9 @@ def run_diagnostic(
             "Only generated synthetic RGB/RGBA PNGs were processed.",
             "The report verifies native CLI execution, output dimensions, alpha, ICC and DPI only.",
             "It does not prove visual improvement, face identity, CMYK/RIP quality or print acceptance.",
-            "Shop GPU readiness requires GTX 1660 Ti visibility in both NVIDIA-SMI and vulkaninfo, successful vulkaninfo, the Vulkan loader, and the expected 6 GiB VRAM budget; this still does not prove which adapter each CLI selected.",
-            "Anime4KCPP v3 is not an NCNN Vulkan engine; its CPU/OpenCL/CUDA processor and device inventory is recorded separately and does not prove the backend selected for inference.",
+            "Shop GPU readiness requires GTX 1660 Ti visibility in NVIDIA-SMI and Vulkan physical-device inventory (from vulkaninfo or direct loader enumeration), the Vulkan loader, and the expected 6 GiB VRAM budget; this still does not prove which adapter each CLI selected.",
+            "The Vulkan inventory records the physical-device index used by NCNN -g. The current manifest still uses upstream auto/default arguments, so this index is diagnostic only until runtime binding is implemented.",
+            "Anime4KCPP v3 is not an NCNN Vulkan engine; its per-processor CUDA/OpenCL device indexes and recommended NVIDIA device are recorded separately, but the manifest remains processor auto/device 0 and inference selection is not yet verified.",
         ],
     }
     report_path = output_dir / "shop_gpu_diagnostic.json"
