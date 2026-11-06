@@ -19,11 +19,20 @@ def _source(tmp_path, rgba=False):
 def _prepare(monkeypatch, *, failed_engine=None, wrong_geometry=None, failure_message=None):
     calls = []
 
-    def factory(_manifest):
+    def factory(_manifest, *, execution_records=None):
         mapping = {}
         for name in ENGINES:
             def candidate(source, destination, *, engine=name):
                 calls.append(engine)
+                if execution_records is not None:
+                    execution_records[engine] = {
+                        "status": "process_failed" if engine == failed_engine else "output_ready",
+                        "process_started": True,
+                        "pid": 12000 + list(ENGINES).index(engine),
+                        "exit_code": 1 if engine == failed_engine else 0,
+                        "process_elapsed_ms": 12,
+                        "elapsed_ms_total": 15,
+                    }
                 if engine == failed_engine:
                     raise RuntimeError(failure_message or "simulated subprocess failure")
                 with Image.open(source) as image:
@@ -47,6 +56,10 @@ def test_all_four_candidates_valid_no_visual_certification(tmp_path, monkeypatch
     assert result["quality_improvement_verified"] is False
     assert result["completed_engine_count"] == 4
     assert not result["failures"]
+    assert result["runtime_device_use_verified"] is False
+    assert result["engines"]["real_esrgan"]["process"]["exit_code"] == 0
+    assert result["engines"]["real_esrgan"]["process"]["pid"] == 12000
+    assert result["engines"]["real_esrgan"]["device_configuration"] is None
     assert json.loads((tmp_path / "outputs" / "real_inference_report.json").read_text())["completed_engine_count"] == 4
 
 
@@ -58,6 +71,7 @@ def test_one_failure_does_not_hide_other_three_engine_results(tmp_path, monkeypa
     assert result["real_inference_verified"] is False
     assert result["completed_engine_count"] == 3
     assert set(result["failures"]) == {"real_esrgan"}
+    assert result["failures"]["real_esrgan"]["process"]["exit_code"] == 1
     assert (tmp_path / "outputs" / "anime4k.png").is_file()
 
 
@@ -75,6 +89,42 @@ def test_alpha_image_qa_uses_original_cutout(tmp_path, monkeypatch):
     result = qa.run(tmp_path / "manifest.json", _source(tmp_path, rgba=True), tmp_path / "out")
     assert result["real_inference_verified"] is True
     assert result["engines"]["anime4k"]["alpha_preserved"] is True
+
+
+def test_device_configuration_reports_cli_flags_without_claiming_actual_adapter():
+    from tools.v211_four_engine_subprocess import EngineCommand
+
+    ncnn = EngineCommand((
+        "realesrgan.exe", "-i", "{input}", "-o", "{output}", "-g", "2"
+    ))
+    anime = EngineCommand((
+        "ac_cli.exe", "-i", "{input}", "-o", "{output}", "-p", "cuda", "-d", "0"
+    ))
+    assert qa._configured_device_selection("real_esrgan", ncnn) == {
+        "backend": "ncnn_vulkan",
+        "device_index": 2,
+        "explicitly_configured": True,
+        "actual_adapter_verified": False,
+    }
+    assert qa._configured_device_selection("anime4k", anime) == {
+        "backend": "cuda",
+        "device_index": 0,
+        "explicitly_configured": True,
+        "actual_adapter_verified": False,
+    }
+
+
+def test_process_telemetry_report_omits_paths_and_raw_output(tmp_path, monkeypatch):
+    _prepare(monkeypatch)
+    source = _source(tmp_path)
+    result = qa.run(tmp_path / "manifest.json", source, tmp_path / "private-report")
+    payload = json.dumps(result)
+    assert str(tmp_path) not in payload
+    assert '"argv"' not in payload
+    assert '"stdout"' not in payload
+    assert '"stderr"' not in payload
+    assert result["runtime_device_use_verified"] is False
+
 
 
 def test_preflight_fail_does_not_claim_execution(tmp_path, monkeypatch):
@@ -96,7 +146,7 @@ def test_timeout_override_caps_each_native_engine(tmp_path, monkeypatch):
     }
     observed = {}
 
-    def factory(value):
+    def factory(value, *, execution_records=None):
         observed.update(value)
         mapping = {}
         for name in ENGINES:

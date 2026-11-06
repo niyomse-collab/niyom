@@ -16,6 +16,8 @@ import os
 from PIL import Image
 
 from tools.v211_four_engine_subprocess import ENGINES, make_processors
+
+NCNN_VULKAN_ENGINES = ("real_esrgan", "waifu2x", "real_cugan")
 from tools.v211_real_engine_manifest import load_real_engine_manifest
 
 
@@ -35,6 +37,8 @@ def _classify_engine_failure(exc: Exception) -> tuple[str, bool]:
     on a host with a working Vulkan loader/device. It is not evidence of model
     quality and must never be counted as successful inference.
     """
+    if isinstance(exc, InterruptedError):
+        return "cancelled", False
     if isinstance(exc, TimeoutError):
         return "timeout", False
     if isinstance(exc, FileNotFoundError):
@@ -49,6 +53,58 @@ def _classify_engine_failure(exc: Exception) -> tuple[str, bool]:
     )):
         return "vulkan_initialization_failed", True
     return "subprocess_or_candidate_failure", False
+
+
+def _option_value(argv: tuple[str, ...], flags: tuple[str, ...]) -> str | None:
+    for index, token in enumerate(argv[:-1]):
+        if token in flags:
+            return argv[index + 1]
+    return None
+
+
+def _configured_device_selection(engine: str, command) -> dict | None:
+    """Describe only backend/index flags passed to the CLI; never claim adapter use."""
+    argv = getattr(command, "argv", None)
+    if not isinstance(argv, (tuple, list)) or not argv:
+        return None
+    args = tuple(str(item) for item in argv[1:])
+    if engine in NCNN_VULKAN_ENGINES:
+        raw_index = _option_value(args, ("-g", "--gpu"))
+        try:
+            device_index = int(raw_index) if raw_index is not None else None
+        except (TypeError, ValueError):
+            device_index = None
+        return {
+            "backend": "ncnn_vulkan",
+            "device_index": device_index,
+            "explicitly_configured": raw_index is not None and device_index is not None,
+            "actual_adapter_verified": False,
+        }
+    raw_backend = _option_value(args, ("-p", "--processor"))
+    raw_index = _option_value(args, ("-d", "--device"))
+    try:
+        device_index = int(raw_index) if raw_index is not None else None
+    except (TypeError, ValueError):
+        device_index = None
+    return {
+        "backend": raw_backend or "auto",
+        "device_index": device_index,
+        "explicitly_configured": (
+            raw_backend in ("cuda", "opencl") and device_index is not None
+        ),
+        "actual_adapter_verified": False,
+    }
+
+
+def _safe_process_record(value: dict | None) -> dict | None:
+    """Whitelist non-sensitive process facts; omit paths, argv and raw output."""
+    if not isinstance(value, dict):
+        return None
+    allowed = (
+        "status", "process_started", "pid", "exit_code",
+        "process_elapsed_ms", "elapsed_ms_total", "failure_type",
+    )
+    return {key: value[key] for key in allowed if key in value}
 
 
 
@@ -68,7 +124,8 @@ def run(
                 name: replace(command, timeout_seconds=min(command.timeout_seconds, int(timeout_seconds)))
                 for name, command in commands.items()
             }
-        processors = make_processors(commands)
+        process_telemetry = {}
+        processors = make_processors(commands, execution_records=process_telemetry)
     except Exception as exc:
         report_path.write_text(json.dumps({
             "real_inference_verified": False,
@@ -81,6 +138,10 @@ def run(
     report = {
         "real_inference_verified": False,
         "quality_improvement_verified": False,
+        "runtime_device_use_verified": False,
+        "execution_evidence_scope": (
+            "native process launch/exit, configured CLI backend/index and output invariants only"
+        ),
         "engines": {},
     }
     try:
@@ -134,8 +195,14 @@ def run(
                     len(output_dpi) != len(source_dpi) or
                     any(abs(float(a) - float(b)) > 0.1 for a, b in zip(source_dpi, output_dpi))):
                     raise ValueError(engine + ": print DPI changed or lost")
+                process_record = _safe_process_record(process_telemetry.get(engine))
                 report["engines"][engine] = {
                     "status": "binary_executed_and_2x_output_validated",
+                    "process": process_record,
+                    "device_configuration": _configured_device_selection(
+                        engine, commands.get(engine)
+                    ) if isinstance(commands, dict) else None,
+                    "runtime_device_use_verified": False,
                     "sha256": sha256(destination),
                     "size": list(image.size),
                     "mode": image.mode,
@@ -153,6 +220,11 @@ def run(
             failure = {
                 "error_type": type(exc).__name__,
                 "error_class": failure_class,
+                "process": _safe_process_record(process_telemetry.get(engine)),
+                "device_configuration": _configured_device_selection(
+                    engine, commands.get(engine)
+                ) if isinstance(commands, dict) else None,
+                "runtime_device_use_verified": False,
             }
             if retry_on_vulkan_host:
                 failure["retry_on_vulkan_capable_host"] = True

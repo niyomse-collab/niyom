@@ -36,6 +36,60 @@ def test_four_real_subprocess_invocations(tmp_path):
             assert output.getpixel((0, 0)) == (20, 40, 60)
 
 
+def test_execution_records_capture_pid_exit_and_elapsed_without_command_paths(tmp_path):
+    from PIL import Image
+    source = tmp_path / "source.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    script = (
+        "import pathlib,sys; "
+        "pathlib.Path(sys.argv[2]).write_bytes(pathlib.Path(sys.argv[1]).read_bytes())"
+    )
+    commands = {
+        engine: EngineCommand((sys.executable, "-c", script, "{input}", "{output}"))
+        for engine in ENGINES
+    }
+    records = {}
+    processors = make_processors(commands, execution_records=records)
+    destination = tmp_path / "telemetry.png"
+    processors["real_esrgan"](source, destination)
+
+    record = records["real_esrgan"]
+    assert record["status"] == "output_ready"
+    assert record["process_started"] is True
+    assert isinstance(record["pid"], int) and record["pid"] > 0
+    assert record["exit_code"] == 0
+    assert record["process_elapsed_ms"] >= 0
+    assert record["elapsed_ms_total"] >= record["process_elapsed_ms"]
+    assert "argv" not in record
+    assert "stdout" not in record
+    assert "stderr" not in record
+
+
+def test_timeout_records_process_exit_and_uses_timeout_error(tmp_path):
+    from PIL import Image
+    source = tmp_path / "source.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    script = "import time; time.sleep(10)"
+    commands = {
+        engine: EngineCommand(
+            (sys.executable, "-c", script, "{input}", "{output}"),
+            timeout_seconds=0.15,
+        )
+        for engine in ENGINES
+    }
+    records = {}
+    processor = make_processors(commands, execution_records=records)["real_esrgan"]
+    with pytest.raises(TimeoutError, match="timed out"):
+        processor(source, tmp_path / "timeout.png")
+    record = records["real_esrgan"]
+    assert record["status"] == "timed_out"
+    assert record["process_started"] is True
+    assert isinstance(record["pid"], int)
+    assert record["elapsed_ms_total"] >= 0
+    assert not (tmp_path / "timeout.png").exists()
+
+
+
 def test_real_portable_engine_runs_with_models_relative_to_its_binary(tmp_path, monkeypatch):
     from PIL import Image
     from tools import v211_four_engine_subprocess as module
