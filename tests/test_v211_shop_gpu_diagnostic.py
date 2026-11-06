@@ -128,6 +128,17 @@ def test_vulkan_summary_parser_extracts_device_and_api():
     }]
 
 
+def test_vulkan_summary_keeps_same_model_names_at_distinct_indexes():
+    parsed = diagnostic._parse_vulkan_summary(
+        "GPU0:\n  deviceName = NVIDIA GeForce GTX 1660 Ti\n"
+        "GPU1:\n  deviceName = NVIDIA GeForce GTX 1660 Ti\n"
+    )
+    assert parsed["device_inventory"] == [
+        {"index": 0, "name": "NVIDIA GeForce GTX 1660 Ti"},
+        {"index": 1, "name": "NVIDIA GeForce GTX 1660 Ti"},
+    ]
+
+
 def test_vulkan_device_properties_decoder_reads_nvidia_adapter():
     raw = bytearray(1024)
     struct.pack_into("<IIIII", raw, 0, 1 << 22, 12, 0x10DE, 0x2184, 1)
