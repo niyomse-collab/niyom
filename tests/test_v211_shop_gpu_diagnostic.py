@@ -332,3 +332,18 @@ def test_ncnn_failure_blocks_three_engine_vulkan_host_gate(tmp_path):
         value is False
         for value in report["per_engine_backend_selection_verified"].values()
     )
+
+
+def test_frozen_exe_diagnostic_dispatch_is_before_editor_and_packaged():
+    """The documented one-command shop QA must work in the frozen EXE."""
+    root = Path(__file__).resolve().parents[1]
+    run_source = (root / "run.py").read_text(encoding="utf-8")
+    spec_source = (root / "NiyomsilV2ArmCore.spec").read_text(encoding="utf-8")
+
+    dispatch = 'if len(sys.argv) >= 2 and sys.argv[1] == "--diagnose-v211-four-ai":'
+    editor_import = "from signprint_ai.app_v2 import main"
+    assert dispatch in run_source
+    assert run_source.index(dispatch) < run_source.index(editor_import)
+    assert "diagnostic_main(sys.argv[2:])" in run_source
+    assert '"tools.v211_shop_gpu_diagnostic"' in run_source
+    assert '"tools.v211_shop_gpu_diagnostic"' in spec_source
