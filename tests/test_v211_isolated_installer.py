@@ -85,13 +85,22 @@ def test_installer_silent_mode_is_noninteractive_but_still_provisions():
     assert "if silent:" in cli
     assert "installer-setup.log" in cli
 
-def test_frozen_spec_installs_basicsr_compat_before_pyinstaller_collection():
+
+def test_frozen_spec_installs_basicsr_compat_before_static_package_discovery():
     spec = (ROOT / "NiyomsilV2ArmCore.spec").read_text(encoding="utf-8")
     alias = '"torchvision.transforms.functional_tensor"'
+    registration = "sys.modules[_compat_name] = _compat_module"
+    discovery_import = (
+        "from tools.v211_frozen_imports import discover_package_modules"
+    )
+
     assert "from torchvision.transforms.functional import rgb_to_grayscale" in spec
     assert alias in spec
-    assert "sys.modules[_compat_name] = _compat_module" in spec
-    assert spec.index("sys.modules[_compat_name] = _compat_module") < spec.index(
-        'collect_submodules("basicsr")'
-    )
+    assert registration in spec
+    # The analysis-process alias must exist before our static filesystem scan
+    # imports the package-discovery helper. PyInstaller's collect_submodules()
+    # uses an isolated interpreter and is deliberately not used in this spec.
+    assert spec.index(registration) < spec.index(discovery_import)
+    assert "discover_package_modules(Path(package_spec.origin).parent, package)" in spec
+    assert "collect_submodules(" not in spec
     assert 'runtime_hooks=[str(ROOT / "pyi_rth_basicsr_compat.py")]' in spec
