@@ -151,7 +151,7 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Local diagnostic ถูกบรรจุใน Frozen EXE แล้ว; หลังติดตั้ง V2.1.1 และเลือก one-time four-engine setup ให้รัน PowerShell บนเครื่องร้าน:
 
 ```powershell
-& "$env:ProgramFiles\\NiyomSilpDesignV211Experimental\\NiyomsilAIEnhancer.exe" --diagnose-v211-four-ai --output-dir "$env:USERPROFILE\\Desktop\\NiyomSilp-V211-GPU-QA"
+& "$env:ProgramFiles\NiyomSilpDesignV211Experimental\NiyomsilAIEnhancer.exe" --diagnose-v211-four-ai --output-dir "$env:USERPROFILE\Desktop\NiyomSilp-V211-GPU-QA"
 ```
 
 - Diagnostic สร้างภาพสังเคราะห์ RGB/RGBA เท่านั้น; ตรวจ NVIDIA-SMI, Vulkan loader, `vulkaninfo`, การเห็น GTX 1660 Ti ในทั้ง NVIDIA-SMI/Vulkan, งบ VRAM ประมาณ 6 GiB และรัน Native CLI ทั้งสี่เพื่อตรวจ output dimensions, alpha, ICC และ DPI. ผล JSON อยู่ใน `shop_gpu_diagnostic.json`; ไม่มีการเปิดภาพลูกค้า, network, upload หรือเก็บภาพทดสอบ. ค่า `four_engine_cli_passed_on_gtx1660ti_vulkan_host=true` จะเป็นจริงเมื่อทั้งสี่ CLI ผ่านและตรวจพบสภาพแวดล้อม GPU/Vulkan ตามเกณฑ์ แต่ยังไม่พิสูจน์ว่าแต่ละ CLI เลือก adapter เดียวกันหรือคุณภาพภาพดีขึ้น.
