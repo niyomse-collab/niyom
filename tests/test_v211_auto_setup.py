@@ -9,14 +9,40 @@ from tools import v211_provision_four_engines as provisioning
 from tools import v211_real_engine_manifest as manifests
 
 
-def test_first_run_setup_required_until_valid_manifest_exists(tmp_path, monkeypatch):
+def test_first_run_setup_required_until_manifest_is_verified(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
     monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
     assert setup.needs_initial_setup() is True
+
     setup.default_manifest().parent.mkdir(parents=True)
-    setup.default_manifest().write_text("placeholder, verified at use", encoding="utf-8")
+    setup.default_manifest().write_text("placeholder, not a verified manifest", encoding="utf-8")
+    assert setup.needs_initial_setup() is True
+
+    monkeypatch.setattr(
+        manifests,
+        "load_real_engine_manifest",
+        lambda path: {
+            name: object()
+            for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
+        },
+    )
     assert setup.needs_initial_setup() is False
+
+
+def test_explicit_manifest_override_must_also_verify_all_four(tmp_path, monkeypatch):
+    override = tmp_path / "external-manifest.json"
+    override.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(override))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+    assert setup.needs_initial_setup() is True
+
+    monkeypatch.setattr(
+        manifests,
+        "load_real_engine_manifest",
+        lambda path: {"real_esrgan": object(), "waifu2x": object()},
+    )
+    assert setup.needs_initial_setup() is True
 
 
 def test_explicit_disable_prevents_setup_prompt(tmp_path, monkeypatch):
