@@ -92,6 +92,26 @@ def test_rgba_keeps_identical_alpha_and_transparent_edges(tmp_path):
         np.testing.assert_array_equal(np.asarray(base.getchannel("A")), np.asarray(fused.getchannel("A")))
 
 
+def test_rgba_fusion_preserves_rgb_under_transparent_and_antialiased_edges(tmp_path):
+    src, v2, cands = _fixture(tmp_path, rgba=True)
+    with Image.open(v2) as base:
+        pixels = np.asarray(base).copy()
+    # Model candidates alter the existing high-contrast contour at columns 7/8.
+    # Make one pixel column antialiased and the next fully transparent in V2.
+    pixels[:, 7, 3] = 128
+    pixels[:, 8, 3] = 0
+    Image.fromarray(pixels, "RGBA").save(v2, dpi=(300, 300))
+
+    output = tmp_path / "rgba-edge-safe.png"
+    fuse_four_engine_details(src, v2, cands, output)
+    with Image.open(v2) as base, Image.open(output) as fused:
+        original = np.asarray(base)
+        result = np.asarray(fused)
+        np.testing.assert_array_equal(result[..., 3], original[..., 3])
+        protected = original[..., 3] < 255
+        np.testing.assert_array_equal(result[..., :3][protected], original[..., :3][protected])
+
+
 def test_face_protection_region_copies_v2_pixel_for_pixel(tmp_path):
     src, v2, cands = _fixture(tmp_path)
     output = tmp_path / "faces.png"
