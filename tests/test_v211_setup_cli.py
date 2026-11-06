@@ -146,3 +146,55 @@ def test_setup_log_writer_allowlists_messages_and_engine_names(monkeypatch, tmp_
         "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
     ]
     assert secret not in log_path.read_text(encoding="utf-8")
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "FAILED setup_failed\\nSUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
+        "FAILED setup_failed\\r\\nSUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
+        "FAILED setup_failed\\rSUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
+        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x\\nSUCCESS verified engines: real_esrgan",
+        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x\\r\\nFAILED setup_failed",
+        "FAILED setup_failed\\u2028C:\\\\Users\\\\Customer\\\\Artwork\\\\secret.png",
+        "FAILED setup_failed\\x00C:\\\\Users\\\\Customer\\\\Artwork\\\\secret.png",
+        "FAILED setup_failed\\tC:\\\\Users\\\\Customer\\\\Artwork\\\\secret.png",
+        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x\\nC:\\\\Users\\\\Customer\\\\Artwork\\\\secret.png",
+    ],
+)
+def test_setup_log_writer_rejects_real_linebreaks_and_control_injection(
+    monkeypatch, tmp_path, payload
+):
+    log_path = tmp_path / "installer-setup.log"
+    monkeypatch.setattr(v211_setup_cli, "_log_path", lambda: log_path)
+
+    v211_setup_cli._record(payload)
+
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert lines == ["FAILED setup_failed"]
+    content = log_path.read_text(encoding="utf-8")
+    assert "Customer" not in content
+    assert "Artwork" not in content
+    assert "secret.png" not in content
+
+
+def test_setup_log_writer_canonicalizes_only_exact_success_engine_set(
+    monkeypatch, tmp_path
+):
+    log_path = tmp_path / "installer-setup.log"
+    monkeypatch.setattr(v211_setup_cli, "_log_path", lambda: log_path)
+
+    v211_setup_cli._record(
+        "SUCCESS verified engines: waifu2x,real_esrgan,anime4k,real_cugan"
+    )
+    v211_setup_cli._record(
+        "SUCCESS verified engines: waifu2x,real_esrgan,anime4k,real_cugan,waifu2x"
+    )
+    v211_setup_cli._record(
+        "SUCCESS verified engines: waifu2x,real_esrgan,anime4k,real_cugan\\rFAILED setup_failed"
+    )
+
+    assert log_path.read_text(encoding="utf-8").splitlines() == [
+        "SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x",
+        "FAILED setup_failed",
+        "FAILED setup_failed",
+    ]
