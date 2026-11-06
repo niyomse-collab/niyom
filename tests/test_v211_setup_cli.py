@@ -92,13 +92,35 @@ def test_silent_setup_failure_removes_stale_marker_and_keeps_pending_gate(
     monkeypatch.setattr(v211_setup_cli, "completion_marker_path", lambda: marker)
     monkeypatch.setattr(v211_setup_cli, "pending_marker_path", lambda: pending)
 
+    private_detail = r"C:\Users\Customer\Artwork\secret-sign.png"
+
     def fail():
-        raise RuntimeError("simulated model verification failure")
+        raise RuntimeError("simulated model verification failure at " + private_detail)
 
     monkeypatch.setattr(v211_setup_cli, "install_for_offline_use", fail)
     assert v211_setup_cli.main(silent=True) == 1
     assert not marker.exists()
     assert pending.exists()
-    assert "FAILED RuntimeError" in marker.with_name("installer-setup.log").read_text(
-        encoding="utf-8"
-    )
+    log = marker.with_name("installer-setup.log").read_text(encoding="utf-8")
+    assert "FAILED setup_failed" in log
+    assert private_detail not in log
+    assert "simulated model verification failure" not in log
+
+
+def test_safe_failure_codes_never_include_exception_details():
+    from pathlib import Path
+
+    secret = r"C:\Users\Customer\Artwork\private.png"
+    assert v211_setup_cli.safe_failure_code(FileNotFoundError(secret)) == "missing_asset"
+    assert v211_setup_cli.safe_failure_code(PermissionError(secret)) == "permission_denied"
+    assert v211_setup_cli.safe_failure_code(TimeoutError(secret)) == "network_timeout"
+    assert v211_setup_cli.safe_failure_code(ValueError(secret)) == "verification_failed"
+    assert v211_setup_cli.safe_failure_code(RuntimeError(secret)) == "setup_failed"
+
+
+def test_setup_ui_worker_queues_only_safe_failure_code():
+    source = (Path(__file__).resolve().parents[1] /
+              "signprint_ai" / "v211_setup_cli.py").read_text(encoding="utf-8")
+    assert 'events.put(("failure", safe_failure_code(exc)))' in source
+    assert 'str(payload)' in source  # payload is the fixed safe code, not an Exception
+    assert 'str(exc)' not in source
