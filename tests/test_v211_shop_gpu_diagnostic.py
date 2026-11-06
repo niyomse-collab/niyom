@@ -117,6 +117,21 @@ def test_nvidia_smi_parser_handles_csv_device_names():
     }]
 
 
+def test_native_vulkan_enumerator_returns_structured_result():
+    result = diagnostic._enumerate_vulkan_devices_native()
+
+    assert isinstance(result, dict)
+    assert "success" in result
+    assert "status" in result
+    if result["success"]:
+        assert result["source"] == "vulkan_loader_native"
+        assert result["device_inventory"]
+        assert all(
+            isinstance(item["index"], int) and item["name"]
+            for item in result["device_inventory"]
+        )
+
+
 def test_vulkan_summary_parser_extracts_device_and_api():
     parsed = diagnostic._parse_vulkan_summary(
         "deviceName = NVIDIA GeForce GTX 1660 Ti\napiVersion = 1.3.0\n"
