@@ -9,7 +9,9 @@ import pytest
 
 from PIL import Image
 
-from tools.v211_four_engine_run import run, _privacy_safe_report
+from tools.v211_four_engine_run import (
+    run, _privacy_safe_report, _safe_error_summary,
+)
 from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES
 
@@ -128,6 +130,39 @@ def test_privacy_safe_report_redacts_nested_output_paths(tmp_path):
     assert safe["four_engine_fusion"]["output_filename"] == "fused.png"
     assert safe["fusion_error"]["details_redacted"] is True
 
+
+def test_safe_error_summary_does_not_trust_redaction_marker(tmp_path):
+    private_path = str(tmp_path / "customer-artwork.png")
+    supplied = {
+        "details_redacted": True,
+        "error_type": "RuntimeError",
+        "error_class": "engine_failed",
+        "stderr": "failed while opening " + private_path,
+        "path": private_path,
+        "argv": ["native-engine.exe", private_path],
+        "extra": {"customer_file": private_path},
+    }
+
+    safe = _safe_error_summary(supplied)
+
+    assert safe == {
+        "error_type": "RuntimeError",
+        "error_class": "engine_failed",
+        "details_redacted": True,
+    }
+    assert private_path not in json.dumps(safe)
+
+    malformed = {
+        "details_redacted": True,
+        "error_type": private_path,
+        "error_class": private_path,
+        "stderr": private_path,
+    }
+    assert _safe_error_summary(malformed) == {
+        "error_type": "EngineError",
+        "error_class": "engine_failed",
+        "details_redacted": True,
+    }
 
 
 def test_coordinator_cancellation_removes_already_completed_candidate_files(tmp_path):
