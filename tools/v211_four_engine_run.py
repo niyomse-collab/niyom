@@ -27,6 +27,13 @@ def _sha256(path: Path) -> str:
 
 
 _NCNN_ENGINES = ("real_esrgan", "waifu2x", "real_cugan")
+_SAFE_ERROR_CLASSES = {
+    "vulkan_initialization_failed",
+    "timeout",
+    "missing_output",
+    "output_validation_failed",
+    "engine_failed",
+}
 
 
 def _safe_execution_record(record: dict | None) -> dict | None:
@@ -41,17 +48,41 @@ def _safe_execution_record(record: dict | None) -> dict | None:
 
 
 def _safe_error_summary(value: object) -> dict:
-    """Retain a stable error class without leaking stderr or local paths."""
+    """Retain only allowlisted error metadata; never trust a redaction marker."""
     if (
         isinstance(value, dict)
         and value.get("details_redacted") is True
         and isinstance(value.get("error_type"), str)
         and isinstance(value.get("error_class"), str)
     ):
-        return dict(value)
+        supplied_type = value["error_type"]
+        error_type = (
+            supplied_type
+            if supplied_type.isascii()
+            and supplied_type.isidentifier()
+            and len(supplied_type) <= 64
+            else "EngineError"
+        )
+        supplied_class = value["error_class"]
+        error_class = (
+            supplied_class
+            if supplied_class in _SAFE_ERROR_CLASSES
+            else "engine_failed"
+        )
+        # Deliberately reconstruct the record instead of copying the caller's
+        # dictionary: extra keys may contain stderr, argv, or private paths.
+        return {
+            "error_type": error_type,
+            "error_class": error_class,
+            "details_redacted": True,
+        }
     raw = str(value)
     prefix = raw.split(":", 1)[0].strip()
-    error_type = prefix if prefix.isidentifier() else "EngineError"
+    error_type = (
+        prefix
+        if prefix.isascii() and prefix.isidentifier() and len(prefix) <= 64
+        else "EngineError"
+    )
     lowered = raw.casefold()
     if "vkcreateinstance failed -9" in lowered or "vulkan" in lowered:
         error_class = "vulkan_initialization_failed"
