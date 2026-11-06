@@ -42,6 +42,13 @@ def _safe_execution_record(record: dict | None) -> dict | None:
 
 def _safe_error_summary(value: object) -> dict:
     """Retain a stable error class without leaking stderr or local paths."""
+    if (
+        isinstance(value, dict)
+        and value.get("details_redacted") is True
+        and isinstance(value.get("error_type"), str)
+        and isinstance(value.get("error_class"), str)
+    ):
+        return dict(value)
     raw = str(value)
     prefix = raw.split(":", 1)[0].strip()
     error_type = prefix if prefix.isidentifier() else "EngineError"
@@ -175,7 +182,10 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         "source_sha256": _sha256(source),
         "candidate_sha256": {item.engine: _sha256(item.path) for item in result["candidates"]},
         "candidates": {item.engine: str(item.path) for item in result["candidates"]},
-        "failures": result["failures"],
+        "failures": {
+            name: _safe_error_summary(value)
+            for name, value in result["failures"].items()
+        },
     }
     if cancel and cancel():
         raise InterruptedError("Processing stopped by user")
@@ -193,7 +203,9 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
                 )
                 report["three_engine_priority_preview"] = selection
             except (OSError, ValueError, RuntimeError) as exc:
-                report["priority_preview_error"] = type(exc).__name__ + ": " + str(exc)
+                report["priority_preview_error"] = _safe_error_summary(
+                    type(exc).__name__ + ": " + str(exc)
+                )
                 (output_dir / "three_engine_priority_preview.png").unlink(missing_ok=True)
         else:
             report["priority_preview_error"] = "Three priority candidates required; Anime4K optional"
@@ -211,7 +223,9 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             except InterruptedError:
                 raise
             except (OSError, ValueError, RuntimeError, MemoryError) as exc:
-                report["fusion_error"] = type(exc).__name__ + ": " + str(exc)
+                report["fusion_error"] = _safe_error_summary(
+                    type(exc).__name__ + ": " + str(exc)
+                )
                 (output_dir / "four_engine_fused_preview.png").unlink(missing_ok=True)
                 # Keep four candidate images for private analysis, but do
                 # not describe an incomplete fusion as a release-capable job.
