@@ -39,7 +39,7 @@ def _png_pixel_count_from_header(path: Path) -> int:
             or header[12:16] != b"IHDR"):
         raise ValueError("V2 reference must be a valid RGB/RGBA PNG")
     expected_crc = int.from_bytes(header[29:33], "big")
-    if (zlib.crc32(header[12:25]) & 0xFFFFFFFF) != expected_crc:
+    if (zlib.crc32(header[12:29]) & 0xFFFFFFFF) != expected_crc:
         raise ValueError("V2 PNG IHDR checksum is invalid")
     width = int.from_bytes(header[16:20], "big")
     height = int.from_bytes(header[20:24], "big")
