@@ -517,6 +517,7 @@ def test_large_bridge_routes_streamed_seed_to_tiled_runner_and_streamed_qa(
     import tools.v211_four_engine_run as runner
     import tools.v211_four_engine_fusion as fusion
     from tools.v211_four_engine_coordinator import ENGINES
+    from tools.v211_four_engine_subprocess import EngineCommand
 
     source = tmp_path / "source.png"
     baseline = tmp_path / "accepted-v2.png"
@@ -534,14 +535,6 @@ def test_large_bridge_routes_streamed_seed_to_tiled_runner_and_streamed_qa(
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(manifest))
     monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
-
-    import traceback
-    failure_tracebacks = []
-
-    def capture_warning(*_args, **_kwargs):
-        failure_tracebacks.append(traceback.format_exc())
-
-    monkeypatch.setattr(bridge._LOG, "warning", capture_warning)
 
     # Force the exact same streamed code branches used above 18 MP without
     # allocating a 24 MP fixture in this orchestration test.
@@ -561,7 +554,12 @@ def test_large_bridge_routes_streamed_seed_to_tiled_runner_and_streamed_qa(
     monkeypatch.setattr(
         runner,
         "load_real_engine_manifest",
-        lambda _path: {name: object() for name in ENGINES},
+        lambda _path: {
+            name: EngineCommand(
+                (f"fake-{name}", "--input", "{input}", "--output", "{output}")
+            )
+            for name in ENGINES
+        },
     )
 
     def processor(_name):
@@ -610,7 +608,7 @@ def test_large_bridge_routes_streamed_seed_to_tiled_runner_and_streamed_qa(
         source, baseline, resize_mode="stretch"
     )
 
-    assert result.get("status") != "error", "\n".join(failure_tracebacks)
+    assert result.get("status") != "error", result
     assert streamed_prepare_calls == [source]
     assert tiled_runner_calls, "large bridge must route through disk-backed native tiles"
     assert result["completed_engine_count"] == 4
