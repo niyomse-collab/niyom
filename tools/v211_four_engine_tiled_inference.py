@@ -297,6 +297,8 @@ def run_tiled_candidates(
             seam_max = 0
             seam_mean_sum = 0.0
             tile_count = 0
+            tile_process_count = 0
+            tile_process_elapsed_ms_total = 0.0
             try:
                 with TemporaryDirectory(prefix=".v211_" + name + "_tiles_", dir=output_dir) as temp_name:
                     temp_dir = Path(temp_name)
@@ -326,7 +328,17 @@ def run_tiled_candidates(
                                 if cancel_check and cancel_check():
                                     discard_all()
                                     raise InterruptedError("Processing stopped by user")
-                                processors[name](tile_source, tile_output)
+                                try:
+                                    processors[name](tile_source, tile_output)
+                                finally:
+                                    if execution_records is not None:
+                                        process_record = execution_records.get(name)
+                                        if isinstance(process_record, dict):
+                                            elapsed = process_record.get("process_elapsed_ms")
+                                            if isinstance(elapsed, (int, float)) and elapsed >= 0:
+                                                tile_process_elapsed_ms_total += float(elapsed)
+                                            if process_record.get("process_started") is True:
+                                                tile_process_count += 1
                                 tile_count += 1
                                 _validate_tile_output(
                                     tile_output,
@@ -387,6 +399,8 @@ def run_tiled_candidates(
                 tile_reports[name] = {
                     "status": "stitched",
                     "tile_count": tile_count,
+                    "tile_process_count": tile_process_count,
+                    "tile_process_elapsed_ms_total": round(tile_process_elapsed_ms_total, 3),
                     "seam_count": seam_count,
                     "seam_max_channel_delta": seam_max,
                     "seam_mean_channel_delta": (
@@ -397,11 +411,6 @@ def run_tiled_candidates(
                     "seam_validation": "passed",
                     "output_pixels": pixels,
                 }
-                if execution_records is not None and isinstance(execution_records.get(name), dict):
-                    execution_records[name]["tile_count"] = tile_count
-                    execution_records[name]["tile_seam_count"] = seam_count
-                    execution_records[name]["tile_seam_max_channel_delta"] = seam_max
-                    execution_records[name]["tile_process_scope"] = "last_tile_lifecycle_only"
                 candidates.append(Candidate(name, destination, width, height))
             except InterruptedError:
                 discard_all()
@@ -412,11 +421,21 @@ def run_tiled_candidates(
                 tile_reports[name] = {
                     "status": "rejected",
                     "tile_count": tile_count,
+                    "tile_process_count": tile_process_count,
+                    "tile_process_elapsed_ms_total": round(tile_process_elapsed_ms_total, 3),
                     "seam_count": seam_count,
                     "seam_max_channel_delta": seam_max,
                     "seam_validation": "failed",
                     "error_type": type(exc).__name__,
                 }
+            finally:
+                if execution_records is not None and isinstance(execution_records.get(name), dict):
+                    execution_records[name]["tile_count"] = tile_count
+                    execution_records[name]["tile_process_count"] = tile_process_count
+                    execution_records[name]["tile_process_elapsed_ms_total"] = round(tile_process_elapsed_ms_total, 3)
+                    execution_records[name]["tile_seam_count"] = seam_count
+                    execution_records[name]["tile_seam_max_channel_delta"] = seam_max
+                    execution_records[name]["tile_process_scope"] = "all_tiles_aggregated"
         return {
             "research_only": True,
             "fusion_implemented": False,
