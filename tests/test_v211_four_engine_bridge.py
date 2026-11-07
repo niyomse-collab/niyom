@@ -535,6 +535,14 @@ def test_large_bridge_routes_streamed_seed_to_tiled_runner_and_streamed_qa(
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(manifest))
     monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
 
+    import traceback
+    failure_tracebacks = []
+
+    def capture_warning(*_args, **_kwargs):
+        failure_tracebacks.append(traceback.format_exc())
+
+    monkeypatch.setattr(bridge._LOG, "warning", capture_warning)
+
     # Force the exact same streamed code branches used above 18 MP without
     # allocating a 24 MP fixture in this orchestration test.
     monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 1024)
@@ -602,6 +610,7 @@ def test_large_bridge_routes_streamed_seed_to_tiled_runner_and_streamed_qa(
         source, baseline, resize_mode="stretch"
     )
 
+    assert result.get("status") != "error", "\n".join(failure_tracebacks)
     assert streamed_prepare_calls == [source]
     assert tiled_runner_calls, "large bridge must route through disk-backed native tiles"
     assert result["completed_engine_count"] == 4
