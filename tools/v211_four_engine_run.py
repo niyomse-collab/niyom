@@ -32,6 +32,11 @@ def _sha256(path: Path) -> str:
 
 MAX_FOUR_ENGINE_PIXELS = 18_000_000
 
+# Fusion currently supports one native pass at 2x or 4x. Reject other scales
+# before reading the model manifest or launching any GPU process; native 8x
+# multi-pass is a separate, not-yet-certified workflow.
+SUPPORTED_FUSION_SCALES = (2, 4)
+
 
 def _header_pixel_count(path: Path) -> int:
     """Preflight dimensions and raster mode without decoding customer pixels."""
@@ -260,6 +265,15 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         if tuple(reference_size) != tuple(size):
             raise ValueError(
                 "V2 reference dimensions differ from the requested four-engine target"
+            )
+        source_size = _header_image_size(source)
+        if not any(
+            tuple(size) == (source_size[0] * scale, source_size[1] * scale)
+            for scale in SUPPORTED_FUSION_SCALES
+        ):
+            raise ValueError(
+                "four-engine fusion requires exact 2x or 4x source geometry; "
+                "native 8x multi-pass is not implemented"
             )
         # Reject mismatched RGB/RGBA or ICC before manifest parsing and before
         # any native executable can consume GPU/CPU time on unusable candidates.
