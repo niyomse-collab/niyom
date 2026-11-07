@@ -465,7 +465,7 @@ def test_small_and_large_seed_paths_reject_one_sided_icc(tmp_path, source_has_ic
     assert not large_work.exists()
 
     small_work = tmp_path / "small-one-sided-icc"
-    with pytest.raises(ValueError, match="ICC presence/content differs"):
+    with pytest.raises(ValueError, match="ICC differs"):
         bridge._prepare_native_2x_inputs(source, baseline, small_work)
     assert not small_work.exists()
 
