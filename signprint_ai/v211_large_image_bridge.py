@@ -60,6 +60,41 @@ def _fallback_metadata(image) -> dict:
     return metadata
 
 
+def _header_exif_orientation(image) -> int | None:
+    """Read EXIF orientation from container metadata without decoding pixels.
+
+    Pillow's PNG getexif() calls load() when the file has no cached EXIF data.
+    That would decode the entire PNG before a large-image job reaches libvips.
+    PNG eXIf chunks are already captured in image.info during header parsing,
+    so parse those bytes directly. JPEG/TIFF readers expose their EXIF IFD from
+    the container header through getexif().
+    """
+    if image.format == "PNG":
+        exif_bytes = image.info.get("exif")
+        if not exif_bytes:
+            return None
+        exif = Image.Exif()
+        try:
+            exif.load(exif_bytes)
+        except (OSError, TypeError, ValueError, SyntaxError) as exc:
+            raise ValueError("PNG EXIF orientation metadata is invalid") from exc
+        orientation = exif.get(274)
+    else:
+        try:
+            orientation = image.getexif().get(274)
+        except (OSError, TypeError, ValueError) as exc:
+            raise ValueError("Image EXIF orientation metadata is invalid") from exc
+    if orientation is None:
+        return None
+    try:
+        orientation = int(orientation)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Image EXIF orientation value is invalid") from exc
+    if orientation not in (1, 2, 3, 4, 5, 6, 7, 8):
+        raise ValueError("Image EXIF orientation value is outside the TIFF range")
+    return orientation
+
+
 def inspect_image(path: Path, *, orient: bool = False) -> tuple[tuple[int, int], str, dict]:
     """Read dimensions/mode/print metadata without decoding customer pixels."""
     path = Path(path)
@@ -70,10 +105,7 @@ def inspect_image(path: Path, *, orient: bool = False) -> tuple[tuple[int, int],
             with opener(path) as image:
                 width, height = image.size
                 if orient:
-                    try:
-                        orientation = image.getexif().get(274)
-                    except (OSError, TypeError, ValueError):
-                        orientation = None
+                    orientation = _header_exif_orientation(image)
                     if orientation in (5, 6, 7, 8):
                         width, height = height, width
                 return (width, height), image.mode, {
