@@ -8,7 +8,10 @@ from __future__ import annotations
 import argparse
 import json
 import hashlib
+import warnings
 from pathlib import Path
+
+from PIL import Image
 from typing import Callable
 
 from tools.v211_four_engine_coordinator import run_candidates
@@ -24,6 +27,21 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+MAX_FOUR_ENGINE_PIXELS = 18_000_000
+
+
+def _header_pixel_count(path: Path) -> int:
+    """Read dimensions only; do not decode customer artwork for eligibility."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with Image.open(path) as image:
+                return image.width * image.height
+    except Image.DecompressionBombError:
+        # The file is certainly beyond this research path's 18 MP ceiling.
+        return MAX_FOUR_ENGINE_PIXELS + 1
 
 
 _NCNN_ENGINES = ("real_esrgan", "waifu2x", "real_cugan")
@@ -167,7 +185,17 @@ def _configured_device_selection(engine: str, command: EngineCommand) -> dict:
 
 
 def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None, protected_regions: tuple = (), preserve_all_v2_faces: bool = False, cancel: Callable[[], bool] | None = None, progress_callback: Callable[[int, str], None] | None = None) -> dict:
+    source = Path(source)
     output_dir = Path(output_dir)
+    if (not isinstance(size, (tuple, list)) or len(size) != 2
+            or any(not isinstance(value, int) or value < 1 for value in size)):
+        raise ValueError("four-engine target dimensions must be positive integers")
+    if max(_header_pixel_count(source), size[0] * size[1]) > MAX_FOUR_ENGINE_PIXELS:
+        raise RuntimeError(
+            "Four-engine native inference above 18 MP is disabled until the "
+            "runner and fusion use disk-backed tile streaming. Continue with "
+            "the approved V2 large-image pipeline; no V2 output was changed."
+        )
     if real_engines:
         commands = load_real_engine_manifest(config)
     else:
