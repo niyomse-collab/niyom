@@ -256,7 +256,7 @@ def test_over_18mp_fusion_fails_closed_from_png_header_without_decode(tmp_path):
     )
     chunk = b"IHDR" + ihdr
     header = (
-        b"\\x89PNG\\r\\n\\x1a\\n" + (13).to_bytes(4, "big")
+        b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big")
         + chunk + (zlib.crc32(chunk) & 0xFFFFFFFF).to_bytes(4, "big")
     )
     large.write_bytes(header)
