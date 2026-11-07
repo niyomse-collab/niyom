@@ -34,15 +34,41 @@ MAX_FOUR_ENGINE_PIXELS = 18_000_000
 
 
 def _header_pixel_count(path: Path) -> int:
-    """Read dimensions only; do not decode customer artwork for eligibility."""
+    """Preflight dimensions and raster mode without decoding customer pixels."""
+    path = Path(path)
+    if path.suffix.lower() == ".png":
+        # The bridge creates PNG seeds. Validate the fixed-size header and its
+        # CRC before any manifest is opened or native process can be launched.
+        width, height = _header_image_size(path)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with Image.open(path) as image:
+                if image.mode not in ("RGB", "RGBA"):
+                    raise ValueError("four-engine source must be RGB or RGBA")
+        return width * height
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", Image.DecompressionBombWarning)
             with Image.open(path) as image:
+                if image.mode not in ("RGB", "RGBA"):
+                    raise ValueError("four-engine source must be RGB or RGBA")
                 return image.width * image.height
     except Image.DecompressionBombError:
         # The file is certainly beyond this research path's 18 MP ceiling.
         return MAX_FOUR_ENGINE_PIXELS + 1
+
+
+def _validate_reference_contract(source: Path, reference: Path) -> None:
+    """Reject source/V2 mode or ICC mismatches before launching native engines."""
+    with Image.open(source) as source_image, Image.open(reference) as v2_image:
+        if source_image.mode not in ("RGB", "RGBA"):
+            raise ValueError("four-engine source must be RGB or RGBA")
+        if v2_image.mode not in ("RGB", "RGBA"):
+            raise ValueError("V2 reference must be RGB or RGBA")
+        if source_image.mode != v2_image.mode:
+            raise ValueError("V2 reference mode differs from native source")
+        if source_image.info.get("icc_profile") != v2_image.info.get("icc_profile"):
+            raise ValueError("V2 reference ICC differs from native source")
 
 
 def _header_image_size(path: Path) -> tuple[int, int]:
