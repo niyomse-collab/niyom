@@ -23,7 +23,7 @@ import zlib
 import numpy as np
 from PIL import Image, ImageFilter, PngImagePlugin
 
-from tools.v211_four_engine_coordinator import ENGINES, validate_candidate
+from tools.v211_four_engine_coordinator import ENGINES
 
 # Conservative detail weights: 3 Windows-verified favourite models dominate.
 WEIGHTS = {"real_esrgan": 0.37, "waifu2x": 0.28, "real_cugan": 0.35}
@@ -150,22 +150,61 @@ class _FusionRaster:
 
 
 def _validate_fusion_candidate(
-    source: Path, candidate: Path, target_size: tuple[int, int]
+    source: Path,
+    v2_reference: Path,
+    candidate: Path,
+    target_size: tuple[int, int],
+    *,
+    use_vips: bool,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> None:
-    """Validate RGB candidates by headers/metadata; RGBA also checks exact alpha."""
-    with _open_fusion_image(source) as original, _open_fusion_image(candidate) as output:
+    """Validate a candidate against the accepted V2 raster, including tiled alpha.
+
+    V2 is the alpha master: a research candidate must carry exactly the same
+    target-resolution alpha as the accepted V2 reference. Comparing to V2
+    avoids re-resizing the source alpha in a second, potentially different
+    resampler. Large RGBA checks use libvips regions and never decode the
+    complete customer raster through Pillow.
+    """
+    with ExitStack() as stack:
+        original = stack.enter_context(_open_fusion_image(source))
+        output = stack.enter_context(_open_fusion_image(candidate))
+        base = stack.enter_context(_open_fusion_image(v2_reference))
         if output.size != target_size:
             raise ValueError("candidate dimensions differ from target")
         if original.mode not in ("RGB", "RGBA") or output.mode != original.mode:
             raise ValueError("candidate changed image mode or transparency")
-        if original.info.get("icc_profile") != output.info.get("icc_profile"):
+        if base.size != target_size or base.mode != original.mode:
+            raise ValueError("accepted V2 mode or dimensions differ from candidate")
+        if (original.info.get("icc_profile") != output.info.get("icc_profile")
+                or base.info.get("icc_profile") != output.info.get("icc_profile")):
             raise ValueError("candidate lost or altered ICC profile")
+
         if original.mode == "RGBA":
-            if original.width * original.height > MAX_RGBA_VALIDATION_PIXELS:
-                raise RuntimeError(
-                    "large RGBA candidate alpha validation is not disk-backed yet"
-                )
-            validate_candidate(source, candidate, target_size)
+            base_reader = stack.enter_context(
+                _FusionRaster(v2_reference, use_vips=use_vips, image=base)
+            )
+            candidate_reader = stack.enter_context(
+                _FusionRaster(candidate, use_vips=use_vips, image=output)
+            )
+            width, height = target_size
+            for y in range(0, height, TILE):
+                for x in range(0, width, TILE):
+                    if cancel_check and cancel_check():
+                        raise InterruptedError("Processing stopped by user")
+                    w, h = min(TILE, width - x), min(TILE, height - y)
+                    box = (x, y, x + w, y + h)
+                    expected_alpha = np.asarray(
+                        base_reader.crop(box).getchannel("A"), dtype=np.uint8
+                    )
+                    actual_alpha = np.asarray(
+                        candidate_reader.crop(box).getchannel("A"), dtype=np.uint8
+                    )
+                    if not np.array_equal(expected_alpha, actual_alpha):
+                        raise ValueError(
+                            "candidate alpha differs from accepted V2 alpha; "
+                            "transparent edges cannot be used for fusion"
+                        )
 
 
 def _write_png_chunk(stream, kind: bytes, payload: bytes) -> None:
@@ -385,14 +424,6 @@ def fuse_four_engine_details(
         if base.format != "PNG" or base.mode not in ("RGB", "RGBA"):
             raise ValueError("V2 reference must be RGB/RGBA PNG")
         W, H = base.size
-        if base.mode == "RGBA" and W * H > MAX_RGBA_VALIDATION_PIXELS:
-            # Candidate alpha restoration and equality validation still use a
-            # full Pillow alpha resize. Keep large transparent masters fail-closed
-            # until that path is converted to disk-backed resampling as well.
-            raise RuntimeError(
-                "RGBA four-engine fusion above 18 MP remains disabled until "
-                "alpha restoration and validation are disk-backed; V2 is untouched."
-            )
         channels = 4 if base.mode == "RGBA" else 3
         row_bytes = W * channels
         if row_bytes > MAX_STREAMED_ROW_BYTES:
@@ -411,9 +442,14 @@ def fuse_four_engine_details(
             if not any((W, H) == (original.width * scale, original.height * scale) for scale in (2, 4)):
                 raise ValueError("four-engine fusion requires exact 2x or 4x dimensions")
         metadata = {key: base.info[key] for key in ("icc_profile", "dpi") if key in base.info}
-        for engine in ENGINES:
-            _validate_fusion_candidate(source, Path(candidates[engine]), (W, H))
+        # Above the Pillow validation threshold, every source/candidate/V2
+        # pixel access must go through bounded libvips regions, for RGB and RGBA.
         use_vips = W * H > MAX_RGBA_VALIDATION_PIXELS
+        for engine in ENGINES:
+            _validate_fusion_candidate(
+                source, v2_reference, Path(candidates[engine]), (W, H),
+                use_vips=use_vips, cancel_check=cancel_check,
+            )
         base_reader = stack.enter_context(
             _FusionRaster(v2_reference, use_vips=use_vips, image=base)
         )
