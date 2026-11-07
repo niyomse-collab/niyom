@@ -53,7 +53,7 @@ $env:NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR = "$qa\private-ab"
 - เมื่อครบ 4 engines และ fusion ผ่านการตรวจ จะสร้างไฟล์ QA แยกชื่อ `*.V211-4AI-QA-*.png` และแสดงใน Preview ด้านขวา ไฟล์ V2 ไม่ถูกแทนที่
 - คำสั่ง Cancel ถูกส่งไปยัง native subprocess; บน Windows ใช้การหยุด process tree และบน POSIX หยุด process group พร้อมตรวจ Cancel ระหว่าง fusion tiles
 - หากยกเลิก/ล้มเหลว ให้ลบ partial candidates และคงไฟล์ V2 เดิม; ถ้าใช้ Evidence Directory แบบส่วนตัว โฟลเดอร์งานที่ยกเลิกจะถูกล้าง
-- ขอบเขต Four-Engine Bridge ปัจจุบันรองรับ V2 raster RGB/RGBA PNG, JPEG และ TIFF ภายในงบไม่เกิน 18MP เพื่อสร้าง PNG QA sidecar แยกจากไฟล์ V2; CMYK, PDF, PSD และงานเกิน 18MP ใช้ V2 เดิมเท่านั้น
+- ขอบเขต Four-Engine Bridge รองรับ RGB/RGBA raster (PNG/JPEG/TIFF) และมี disk-backed path สำหรับงานเกิน 18MP ผ่าน libvips, native tile runner, streamed fusion และ streamed QA crop; CMYK, PDF, PSD และไฟล์ที่ libvips อ่านไม่ได้ยังคงใช้ V2 เดิมเท่านั้น. ขีดจำกัดจริงคือไม่เกิน 1,000 MP, row buffer ไม่เกิน 64 MiB และต้องผ่าน disk-space preflight.
 - ทุก Native Engine ยังประมวลผลเพียง 2x หนึ่ง pass จาก seed ครึ่งขนาดของเป้าหมาย ดังนั้นเป้าหมายภาพ 4x/8x เป็นเพียงขนาดปลายทางของ candidate ไม่ใช่ Native 4x/8x หรือ multi-pass inference
 - CI ที่ใช้ fake executables หรือ hosted runner ไม่มี Vulkan ไม่ใช่หลักฐาน real inference หรือคุณภาพบน GTX 1660 Ti; ต้องทดสอบบนเครื่องร้านและตรวจภาพ A/B จริงก่อนรับรอง
 
@@ -87,7 +87,7 @@ $env:NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR = "$qa\private-ab"
 
 ข้อจำกัดที่ต้องไม่สับสน:
 - เป้าหมาย 4x/8x เป็นขนาดภาพปลายทางที่สร้างจาก seed ครึ่งขนาดและใช้ Native 2x เพียงหนึ่ง pass ไม่ใช่ Native 4x/8x หรือ multi-pass inference
-- งาน Four-Engine ที่เกิน 18MP ยังไม่รองรับ; งานดังกล่าวต้องกลับไปใช้ V2 เดิมโดยไม่หยุดการส่งออก
+- งาน RGB/RGBA raster เกิน 18MP เข้าสู่ disk-backed Four-Engine path ได้แล้วใน source branch; อย่างไรก็ตามผล CI เป็น synthetic/fake-processor evidence ไม่ใช่ real inference บน GTX 1660 Ti และยังไม่รับรอง VRAM 6GB หรือคุณภาพงานพิมพ์
 - รายงาน JSON นี้เป็นหลักฐานการรัน CLI เท่านั้น การยืนยันคุณภาพยังต้อง A/B ภาพ V2 เทียบ QA และให้เจ้าของร้านตรวจด้วยตา
 
 
@@ -158,3 +158,14 @@ $env:NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR = "$qa\private-ab"
 - Artifact รายงานเท่านั้น: real CLI report ID 13569905331; archive audit report ID 13569796031. ไม่มี customer artwork หรือ model archive ใน artifact
 - License ของ executable แยกจากสิทธิ์ model weights; Anime4KCPP GPL-3.0 ยังไม่อนุมัติ redistribution/bundling และสิทธิ์ weights ของ Waifu2x/Real-CUGAN/Real-ESRGAN ยังเป็น review gate. ห้าม bundle หรือ commit weights/binaries จนกว่าจะปิดการตรวจสิทธิ์
 
+
+
+## 8 พฤศจิกายน 2569 — Application Bridge เชื่อม Disk-backed Large-image Tile Runner (research only)
+
+- Core Adapter บันทึกผล V2 ให้เสร็จก่อน แล้วจึงเรียก Four-Engine Bridge แม้ source หรือ V2 target เกิน 18 MP. Bridge ใช้ `prepare_native_2x_inputs_streamed` สร้าง half-target seed และ padded V2 reference ด้วย libvips; Runner เปลี่ยนไปใช้ `run_tiled_candidates`; Fusion อ่าน RGB/RGBA ด้วย libvips regions เมื่อเกิน 18 MP; QA crop ใช้ `save_cropped_png_streamed`. ผล V2 เดิมไม่ถูกเขียนทับ.
+- ค่า 18 MP เป็น threshold ที่เปลี่ยนไปใช้ disk-backed path ไม่ใช่ hard cap. ขอบเขตปัจจุบัน: สูงสุด 1,000 MP, row buffer สูงสุด 64 MiB, tile core 512 px / overlap 32 px, disk reserve แบบคำนวณจาก raster จริง และรัน native process ทีละ engine. งานเกินขอบเขตหรือ disk ไม่พอจะ fail closed กลับไปคง V2.
+- Large RGBA: candidate alpha ถูกตรวจเทียบกับ accepted V2 alpha แบบ tile-by-tile; พิกเซลโปร่งใส/กึ่งโปร่งใสคงทั้ง RGB และ Alpha จาก V2; ICC/DPI ใช้จาก V2. PNG intermediates เป็นเส้นทางเข้า Native Tile Runner; CMYK/PDF/PSD ไม่อยู่ในขอบเขตนี้.
+- Native engine แต่ละตัวทำเพียง 2x หนึ่ง pass บน seed ครึ่งขนาดของ target. ภาพปลายทาง 4x/8x จาก source จึงไม่ใช่ native 4x/8x หรือ multi-pass inference.
+- หลักฐาน CI: มี synthetic 24 MP tile-runner test และ 24 MP streamed seed/QA-crop test; เพิ่ม bridge integration test ที่ลด threshold เฉพาะใน test เพื่อบังคับเส้นทาง streamed seed → tiled runner → streamed QA ด้วย fake processors และยืนยัน V2 bytes/ICC/DPI ไม่เปลี่ยน. Integration fixture นี้เป็นภาพเล็ก ไม่ใช่การทดสอบ real 24 MP inference ทั้งสี่ตัว.
+- GPU diagnostic ตรวจว่าเครื่องเห็น GTX 1660 Ti ผ่าน NVIDIA-SMI/Vulkan และ total VRAM อย่างน้อยประมาณ 5,500 MiB ก่อน bind device; นี่เป็น capacity gate ไม่ใช่การวัด peak VRAM. ยังไม่มี 6 GB VRAM stress test บนเครื่องร้าน.
+- `real_inference_verified=false` และ `quality_certified=false` ยังคงเป็นข้อบังคับจนกว่าจะรัน Native ทั้งสี่บน Windows 11 GTX 1660 Ti, เก็บ backend/device telemetry จริง และทำ A/B/Print QA ภาพจริง. Hosted Runner ที่ไม่มี Vulkan ไม่ใช่หลักฐานลบหรือบวกต่อเครื่องร้าน.
