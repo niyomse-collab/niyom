@@ -267,3 +267,16 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 
 
 - Disk-capacity preflight now reserves seven raw-raster equivalents at the start (four worst-case candidate PNGs, the active engine's raw staging raster, and the fusion raw raster plus atomic streamed-PNG workspace), with an additional 64 MiB safety margin. Free space is rechecked before each engine so a low-disk condition fails before launching the next native process. Regressions cover both initial under-capacity and disk space dropping after the first engine; the latter confirms no subsequent native processor starts.
+
+
+## 8 พฤศจิกายน 2569 — เชื่อม Application Bridge กับ Disk-backed Large-image Tile Runner
+
+- เพิ่ม signprint_ai/v211_large_image_bridge.py สำหรับอ่าน Header/ICC/DPI, เตรียม half-target native seed และ V2 reference ด้วย libvips แบบ random-access/streaming; ไม่ใช้ Pillow decode ภาพลูกค้าขนาดใหญ่เต็มภาพ.
+- Core Adapter เรียก Four-Engine Bridge ต่อหลัง V2 บันทึกผลสำเร็จ แม้ source หรือ V2 target เกิน 18 MP; V2 ยังคงเป็น Master และ Bridge ยังเป็น opt-in/Manifest-gated.
+- งานเป้าหมายเกิน 18 MP ใช้ padded V2 reference, seed ขนาดครึ่งหนึ่ง และ native 2x pass เดียว. RGBA alpha seed มาจาก V2 reference; candidate/fusion alpha ยังคงยึด V2.
+- QA crop ขนาดใหญ่ใช้ libvips Region.fetch แบบ bounded blocks และ streamed PNG writer; ตรวจพื้นที่ดิสก์ปลายทางก่อนเขียน sidecar, รองรับ cancel และสร้างไฟล์ QA แยกโดยไม่เขียนทับ V2.
+- PyInstaller spec และ Frozen Import Smoke เพิ่ม signprint_ai.v211_large_image_bridge แล้ว.
+- เพิ่ม Regression Test ให้ตรวจ 24 MP V2 target, odd-dimension padding, ICC/DPI, disk-backed seed/crop และปฏิเสธ Pillow full-raster decode; ปรับ Adapter test จาก large_image_tiling_pending เป็นการเรียก Bridge หลัง V2 save.
+- **สถานะ ณ เวลาบันทึก:** เป็นการเชื่อม Source/Tests ที่ยังต้องรอ GitHub Actions บน HEAD ใหม่. ยังไม่ยืนยัน Windows Candidate Installer/Frozen Smoke ของ Commit ใหม่, Native inference ทั้งสี่บน GTX 1660 Ti, Vulkan adapter จริง, VRAM 6 GB, 4x/8x multi-pass หรือ A/B คุณภาพภาพจริง.
+- ขอบเขตยังคง fail-closed: Runner รองรับ native 2x ต่อหนึ่ง pass และ target streaming ไม่เกิน 1,000 MP/row 64 MiB ตามข้อจำกัดเดิม. 4x/8x native multi-pass, CMYK/PDF/PSD Four-Engine, และการรับรองคุณภาพงานพิมพ์ยังไม่ผ่าน.
+- PR #20 และ PR #18 คง Open / Draft / Not Merged. V1/V2 Stable ไม่ถูกแก้; ไม่มี Binary, Model Weights หรือภาพลูกค้าใน Git; real_inference_verified=false และ quality_certified=false.
