@@ -1,6 +1,7 @@
 """The four-engine bridge must be opt-in and must never rewrite V2."""
 from pathlib import Path
 
+import numpy as np
 import pytest
 from PIL import Image, ImageCms, PngImagePlugin
 
@@ -216,6 +217,7 @@ def test_fusion_with_missing_engine_pixel_effect_is_not_reported_ready(tmp_path,
     source, baseline = _images(tmp_path)
     before = baseline.read_bytes()
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
     from tools import v211_four_engine_run
 
@@ -523,12 +525,12 @@ def test_large_bridge_routes_streamed_seed_to_tiled_runner_and_streamed_qa(
     source = tmp_path / "source.png"
     baseline = tmp_path / "accepted-v2.png"
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
-    Image.new("RGB", (128, 128), (40, 80, 120)).save(
-        source, dpi=(300, 300), icc_profile=profile
-    )
-    Image.new("RGB", (256, 256), (40, 80, 120)).save(
-        baseline, dpi=(300, 300), icc_profile=profile
-    )
+    source_image = Image.new("RGB", (128, 128), (40, 80, 120))
+    source_image.paste((140, 160, 180), (64, 0, 128, 128))
+    source_image.save(source, dpi=(300, 300), icc_profile=profile)
+    v2_image = Image.new("RGB", (256, 256), (40, 80, 120))
+    v2_image.paste((140, 160, 180), (128, 0, 256, 256))
+    v2_image.save(baseline, dpi=(300, 300), icc_profile=profile)
     original_v2 = baseline.read_bytes()
 
     manifest = tmp_path / "manifest.json"
@@ -563,7 +565,10 @@ def test_large_bridge_routes_streamed_seed_to_tiled_runner_and_streamed_qa(
         },
     )
 
-    def processor(_name):
+    def processor(name):
+        amounts = {"real_esrgan": 9, "waifu2x": 7, "real_cugan": 8, "anime4k": 5}
+        amount = amounts[name]
+
         def run_tile(input_path, output_path):
             with Image.open(input_path) as tile:
                 metadata = {
@@ -575,7 +580,12 @@ def test_large_bridge_routes_streamed_seed_to_tiled_runner_and_streamed_qa(
                     (tile.width * 2, tile.height * 2),
                     resample=Image.Resampling.NEAREST,
                 )
-                enlarged.save(output_path, format="PNG", **metadata)
+                pixels = np.asarray(enlarged, dtype=np.int16).copy()
+                pixels[:, 127, :] = np.clip(pixels[:, 127, :] - amount, 0, 255)
+                pixels[:, 128, :] = np.clip(pixels[:, 128, :] + amount, 0, 255)
+                Image.fromarray(pixels.astype(np.uint8), "RGB").save(
+                    output_path, format="PNG", **metadata
+                )
         return run_tile
 
     processors = {name: processor(name) for name in ENGINES}
