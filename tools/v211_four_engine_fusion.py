@@ -34,7 +34,7 @@ def _png_pixel_count_from_header(path: Path) -> int:
     """Read only the PNG signature/IHDR; never decode a large print master."""
     with Path(path).open("rb") as stream:
         header = stream.read(33)
-    if (len(header) != 33 or header[:8] != b"\\x89PNG\\r\\n\\x1a\\n"
+    if (len(header) != 33 or header[:8] != b"\x89PNG\r\n\x1a\n"
             or int.from_bytes(header[8:12], "big") != 13
             or header[12:16] != b"IHDR"):
         raise ValueError("V2 reference must be a valid RGB/RGBA PNG")
