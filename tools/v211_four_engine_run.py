@@ -9,6 +9,7 @@ import argparse
 import json
 import hashlib
 import warnings
+import zlib
 from pathlib import Path
 
 from PIL import Image
@@ -46,6 +47,21 @@ def _header_pixel_count(path: Path) -> int:
 
 def _header_image_size(path: Path) -> tuple[int, int]:
     """Read raster geometry without decoding pixels or trusting a caller size."""
+    path = Path(path)
+    if path.suffix.lower() == ".png":
+        with path.open("rb") as stream:
+            header = stream.read(33)
+        if (len(header) != 33 or header[:8] != b"\\x89PNG\\r\\n\\x1a\\n"
+                or int.from_bytes(header[8:12], "big") != 13
+                or header[12:16] != b"IHDR"):
+            raise ValueError("V2 reference PNG header is invalid")
+        if (zlib.crc32(header[12:29]) & 0xFFFFFFFF) != int.from_bytes(header[29:33], "big"):
+            raise ValueError("V2 reference PNG IHDR checksum is invalid")
+        width = int.from_bytes(header[16:20], "big")
+        height = int.from_bytes(header[20:24], "big")
+        if width < 1 or height < 1:
+            raise ValueError("V2 reference PNG dimensions are invalid")
+        return width, height
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", Image.DecompressionBombWarning)
