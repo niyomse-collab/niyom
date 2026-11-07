@@ -184,7 +184,7 @@ def prepare_native_2x_inputs_streamed(
     # V2-tagged output must not cause an untagged source to inherit that ICC.
     if source_icc != target_icc:
         raise ValueError(
-            "large four-engine source ICC presence/content differs from the accepted V2 profile; "
+            "large four-engine source ICC differs in presence or content from the accepted V2 profile; "
             "keep the approved V2 output without auxiliary fusion"
         )
     if resize_mode not in ("fit", "stretch"):
