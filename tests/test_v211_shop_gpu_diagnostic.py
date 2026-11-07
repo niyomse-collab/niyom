@@ -390,11 +390,32 @@ def test_cli_exit_code_requires_target_gpu_readiness(
         "all_four_native_cli_outputs_validated_on_both_synthetic_cases": True,
         "four_engine_cli_passed_on_gtx1660ti_vulkan_host": target_gpu_ready,
     }
-    monkeypatch.setattr(diagnostic, "run_diagnostic", lambda *args, **kwargs: report)
+    calls = []
+
+    def fake_run(manifest, output_dir, *, timeout_seconds):
+        calls.append((manifest, output_dir, timeout_seconds))
+        return report
+
+    monkeypatch.setattr(diagnostic, "run_diagnostic", fake_run)
     assert diagnostic.main([
         "--manifest", str(tmp_path / "manifest.json"),
         "--output-dir", str(tmp_path / "report"),
+        "--timeout-seconds", "123",
     ]) == expected_exit
+    assert calls == [(
+        tmp_path / "manifest.json",
+        tmp_path / "report",
+        123,
+    )]
+
+
+def test_cli_help_lists_all_supported_options(capsys):
+    with pytest.raises(SystemExit) as exc:
+        diagnostic.main(["--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    for option in ("--manifest", "--output-dir", "--timeout-seconds"):
+        assert option in help_text
 
 
 def test_one_engine_failure_is_not_reported_as_four_engine_success(tmp_path):
@@ -530,12 +551,14 @@ def test_frozen_exe_diagnostic_dispatch_is_before_editor_and_packaged():
 
 
 def test_windows_candidate_smokes_frozen_diagnostic_dispatch_without_running_gpu_qa():
-    """The packaged help path must dispatch before the editor and require no GPU."""
+    """The windowed frozen EXE is waited on through its Process exit code."""
     root = Path(__file__).resolve().parents[1]
     workflow = (
         root / ".github" / "workflows" / "v211-four-engine-bridge-windows.yml"
     ).read_text(encoding="utf-8")
     assert "Verify packaged GTX 1660 Ti diagnostic command dispatch (help only)" in workflow
-    assert "--diagnose-v211-four-ai --help" in workflow
+    assert "--diagnose-v211-four-ai', '--help" in workflow
+    assert "Start-Process -FilePath $exe" in workflow
+    assert "$process.ExitCode" in workflow
+    assert "$LASTEXITCODE" not in workflow
     assert "Packaged diagnostic help failed with exit code" in workflow
-    assert "Packaged diagnostic help is missing option" in workflow
