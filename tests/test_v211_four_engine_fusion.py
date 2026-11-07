@@ -277,8 +277,18 @@ def test_rgb_fusion_streams_over_18mp_without_full_canvas_allocation(tmp_path, m
             raise AssertionError("full-size Pillow output allocation is forbidden")
         return original_new(mode, size, *args, **kwargs)
 
-    monkeypatch.setattr(fusion.Image, "new", reject_full_canvas)
-    report = fusion.fuse_four_engine_details(source, baseline, candidates, output)
+    def reject_full_png_decode(image, *args, **kwargs):
+        if image.size == (width, height):
+            raise AssertionError("large PNG must be read through bounded libvips regions")
+        return original_load(image, *args, **kwargs)
+
+    original_load = fusion.PngImagePlugin.PngImageFile.load
+    with monkeypatch.context() as patcher:
+        patcher.setattr(fusion.Image, "new", reject_full_canvas)
+        patcher.setattr(
+            fusion.PngImagePlugin.PngImageFile, "load", reject_full_png_decode
+        )
+        report = fusion.fuse_four_engine_details(source, baseline, candidates, output)
 
     assert report["fusion_implemented"] is True
     assert report["quality_certified"] is False
