@@ -102,5 +102,6 @@ def test_frozen_spec_installs_basicsr_compat_before_static_package_discovery():
     # uses an isolated interpreter and is deliberately not used in this spec.
     assert spec.index(registration) < spec.index(discovery_import)
     assert "discover_package_modules(Path(package_spec.origin).parent, package)" in spec
+    assert '"tools.v211_four_engine_tiled_inference"' in spec
     assert "collect_submodules(" not in spec
     assert 'runtime_hooks=[str(ROOT / "pyi_rth_basicsr_compat.py")]' in spec
