@@ -140,6 +140,10 @@ def test_native_2x_engines_support_custom_and_4x_8x_target_sizes(
 ):
     source, baseline = _images(tmp_path)
     icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    tagged_source = tmp_path / "source-tagged.png"
+    with Image.open(source) as source_image:
+        source_image.save(tagged_source, dpi=(300, 300), icc_profile=icc)
+    source = tagged_source
     Image.new("RGBA", target_size, (30, 40, 50, 120)).save(
         baseline, dpi=(300, 300), icc_profile=icc
     )
@@ -181,8 +185,10 @@ def test_native_2x_engines_support_custom_and_4x_8x_target_sizes(
 def test_rgb_tiff_v2_output_gets_local_png_qa_without_modifying_tiff(tmp_path, monkeypatch):
     source = tmp_path / "source.png"
     baseline = tmp_path / "accepted-V2.tiff"
-    Image.new("RGB", (8, 8), (20, 30, 40)).save(source)
     icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    Image.new("RGB", (8, 8), (20, 30, 40)).save(
+        source, dpi=(300, 300), icc_profile=icc
+    )
     Image.new("RGB", (32, 24), (30, 40, 50)).save(
         baseline, dpi=(300, 300), icc_profile=icc
     )
