@@ -233,7 +233,7 @@ def test_runner_rejects_oversized_v2_reference_before_manifest_or_native_launch(
     config = tmp_path / "manifest-must-not-be-read.json"
     output_dir = tmp_path / "must-not-be-created"
 
-    with pytest.raises(RuntimeError, match="V2 reference above 18 MP"):
+    with pytest.raises(ValueError, match="V2 reference dimensions"):
         run(
             source, output_dir, config, (8, 8),
             real_engines=True, v2_reference=large_reference,
@@ -352,3 +352,54 @@ def test_runner_rejects_unsupported_fusion_scale_before_manifest_or_native_launc
 
     assert not output_dir.exists()
     assert not config.exists()
+
+
+def test_runner_uses_disk_backed_native_tiles_for_large_png_jobs(tmp_path, monkeypatch):
+    pytest.importorskip("pyvips")
+    from tools import v211_four_engine_run as runner
+
+    monkeypatch.setattr(runner, "MAX_FOUR_ENGINE_PIXELS", 1)
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source = tmp_path / "tile-source.png"
+    Image.new("RGB", (8, 8), (25, 70, 115)).save(
+        source, dpi=(300, 300), icc_profile=profile
+    )
+    with Image.open(source) as image:
+        reference_image = image.resize((16, 16), Image.Resampling.NEAREST)
+        reference = tmp_path / "accepted-v2.png"
+        reference_image.save(reference, dpi=(300, 300), icc_profile=profile)
+        reference_image.close()
+
+    script = (
+        "import sys; from PIL import Image; "
+        "im=Image.open(sys.argv[1]); "
+        "out=im.resize((im.width*2, im.height*2), Image.Resampling.NEAREST); "
+        "out.save(sys.argv[2], format='PNG', "
+        "icc_profile=im.info.get('icc_profile'), dpi=im.info.get('dpi'))"
+    )
+    config = tmp_path / "research-commands.json"
+    commands = {
+        name: [sys.executable, "-c", script, "{input}", "{output}"]
+        for name in ENGINES
+    }
+    config.write_text(json.dumps(commands), encoding="utf-8")
+    before = reference.read_bytes()
+
+    report = runner.run(
+        source, tmp_path / "tiled-run", config, (16, 16),
+        real_engines=False, v2_reference=reference,
+    )
+
+    assert report["native_tiled_inference"]["implemented"] is True
+    assert report["native_tiled_inference"]["all_four_engines_completed"] is True
+    assert report["completed_engine_count"] == 4
+    assert report["fusion_implemented"] is True
+    assert report["quality_certified"] is False
+    assert report["three_engine_priority_preview"]["status"] == "skipped_large_tiled_job"
+    assert reference.read_bytes() == before
+    assert (tmp_path / "tiled-run" / "four_engine_fused_preview.png").is_file()
+    persisted = json.loads(
+        (tmp_path / "tiled-run" / "four_engine_report.json").read_text(encoding="utf-8")
+    )
+    assert persisted["native_tiled_inference"]["gpu_adapter_verified"] is False
+    assert str(tmp_path) not in json.dumps(persisted)
