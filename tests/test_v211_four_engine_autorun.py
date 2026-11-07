@@ -311,7 +311,7 @@ def test_disk_tiled_v2_job_runs_four_engine_bridge_when_within_auxiliary_budget(
     assert destination.read_bytes() == b"durable V2 raster"
 
 
-def test_disk_tiled_v2_job_over_18mp_keeps_four_engine_route_pending(
+def test_disk_tiled_v2_job_over_18mp_routes_into_disk_backed_four_engine_bridge(
     tmp_path, monkeypatch
 ):
     source, destination = _source_and_v2(tmp_path)
@@ -331,11 +331,20 @@ def test_disk_tiled_v2_job_over_18mp_keeps_four_engine_route_pending(
         v211_blur_gate, "select_photo_restoration",
         lambda settings, source_path, **kwargs: (settings, None),
     )
+    observed = {}
 
-    def bridge_must_not_run(*args, **kwargs):
-        raise AssertionError("18MP+ auxiliary job must remain fail-closed until tile streaming exists")
+    def fake_bridge(src, v2_output, **kwargs):
+        assert Path(v2_output).read_bytes() == b"durable large V2 raster"
+        observed["source"] = Path(src)
+        observed["v2"] = Path(v2_output)
+        observed["kwargs"] = kwargs
+        return {
+            "status": "four_engine_fusion_preview_ready",
+            "v2_output_preserved": True,
+            "quality_certified": False,
+        }
 
-    monkeypatch.setattr(bridge, "maybe_run_four_engine_assist", bridge_must_not_run)
+    monkeypatch.setattr(bridge, "maybe_run_four_engine_assist", fake_bridge)
     settings = SimpleNamespace(
         print_width=None, print_height=None, ai_scale=2,
         v211_source_guided_ink=False, face_protection=False,
@@ -343,7 +352,9 @@ def test_disk_tiled_v2_job_over_18mp_keeps_four_engine_route_pending(
     )
     result = adapter.process(source, destination, settings, use_ai=True)
 
-    assert result["four_engine_research"]["status"] == "large_image_tiling_pending"
-    assert result["four_engine_research"]["source_pixels"] == 12_000_000
-    assert result["four_engine_research"]["target_pixels"] == 48_000_000
+    assert observed["source"] == source
+    assert observed["v2"] == destination
+    assert observed["kwargs"]["resize_mode"] == "stretch"
+    assert result["four_engine_research"]["status"] == "four_engine_fusion_preview_ready"
+    assert result["four_engine_research"]["quality_certified"] is False
     assert destination.read_bytes() == b"durable large V2 raster"
