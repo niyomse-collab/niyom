@@ -66,6 +66,22 @@ jobs:
         shell: powershell
         run: |
           .\tools\Test-V2-Package.ps1 -Exe '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe' -OutputDir package-smoke -Mode imports -TimeoutSeconds 180
+      - name: Verify packaged four-engine provisioning dispatch without downloads
+        shell: pwsh
+        run: |
+          $exe = '.\\dist\\NiyomsilAIEnhancer\\NiyomsilAIEnhancer.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw 'Packaged provisioning executable is missing.'
+          }
+          # This exercises the exact installer CLI route in the frozen EXE.
+          # --check-only imports and validates the pinned provisioner graph;
+          # it must not start network requests or modify LOCALAPPDATA.
+          $process = Start-Process -FilePath $exe -ArgumentList @('--provision-v211-four-ai', '--check-only') -Wait -PassThru
+          if ($null -eq $process -or $process.ExitCode -ne 0) {
+            throw 'Packaged four-engine provisioning preflight failed.'
+          }
+          Write-Output 'Packaged four-engine provisioning dispatch passed without downloads.'
+
       - name: Verify packaged GTX 1660 Ti diagnostic command dispatch (help only)
         shell: pwsh
         run: |
