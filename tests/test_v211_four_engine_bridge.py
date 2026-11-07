@@ -395,23 +395,25 @@ def test_oversized_target_is_rejected_before_full_image_copy(tmp_path, monkeypat
     assert not work_dir.exists()
 
 
-def test_oversized_source_is_rejected_from_header_before_exif_decode(tmp_path, monkeypatch):
-    source, baseline = _images(tmp_path)
-    Image.new("RGB", (9, 8), (30, 40, 50)).save(source)
-    Image.new("RGB", (8, 8), (30, 40, 50)).save(baseline)
-    before = baseline.read_bytes()
-    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 64)
-    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
-    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+def test_png_header_inspection_reads_exif_orientation_without_full_decode(tmp_path, monkeypatch):
+    from signprint_ai.v211_large_image_bridge import inspect_image
 
-    def no_exif_decode(_image):
-        pytest.fail("oversized source was EXIF-transposed before the pixel-budget check")
+    source = tmp_path / "oriented-header-only.png"
+    exif = Image.Exif()
+    exif[274] = 6
+    Image.new("RGB", (9, 8), (30, 40, 50)).save(source, exif=exif)
+    original_load = PngImagePlugin.PngImageFile.load
 
-    monkeypatch.setattr(bridge.ImageOps, "exif_transpose", no_exif_decode)
-    result = bridge.maybe_run_four_engine_assist(source, baseline)
-    assert result["status"] == "auxiliary_source_too_large"
-    assert result["v2_output_preserved"] is True
-    assert baseline.read_bytes() == before
+    def reject_full_raster_decode(image, *args, **kwargs):
+        if image.size == (9, 8):
+            pytest.fail("PNG EXIF header inspection must not decode customer pixels")
+        return original_load(image, *args, **kwargs)
+
+    monkeypatch.setattr(PngImagePlugin.PngImageFile, "load", reject_full_raster_decode)
+    size, mode, metadata = inspect_image(source, orient=True)
+    assert size == (8, 9)
+    assert mode == "RGB"
+    assert "icc_profile" not in metadata
 
 
 def test_large_four_engine_seed_and_qa_crop_use_disk_backed_vips_without_full_pillow_decode(
