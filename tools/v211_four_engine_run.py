@@ -261,6 +261,9 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             raise ValueError(
                 "V2 reference dimensions differ from the requested four-engine target"
             )
+        # Reject mismatched RGB/RGBA or ICC before manifest parsing and before
+        # any native executable can consume GPU/CPU time on unusable candidates.
+        _validate_reference_contract(source, Path(v2_reference))
     if real_engines:
         commands = load_real_engine_manifest(config)
     else:
