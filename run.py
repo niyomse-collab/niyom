@@ -49,8 +49,29 @@ if __name__ == "__main__":
             "tools.v211_shop_gpu_diagnostic",
         ):
             importlib.import_module(module_name)
+        import tempfile
+        from pathlib import Path
+        from PIL import Image as PILImage
         from signprint_ai.large_image import vips
-        image = vips().Image.black(8, 8, bands=3)
+
+        pyvips = vips()
+        image = pyvips.Image.black(8, 8, bands=3)
         assert image.width == 8 and len(image.write_to_memory()) == 8 * 8 * 3
+
+        # The tiled runner relies on libvips' PNG loader and random-access
+        # Region.fetch, not only on in-memory image construction. Exercise the
+        # exact frozen binary path used by >18 MP disk-backed tile reads.
+        with tempfile.TemporaryDirectory(prefix="niyomsil_vips_region_smoke_") as temporary:
+            sample = Path(temporary) / "region.png"
+            PILImage.new("RGB", (13, 11), (17, 31, 47)).save(sample, format="PNG")
+            disk_image = pyvips.Image.new_from_file(
+                str(sample), access="random", fail_on="error", unlimited=True
+            )
+            region = pyvips.Region.new(disk_image)
+            pixels = region.fetch(3, 4, 5, 6)
+            assert len(pixels) == 5 * 6 * 3
+            assert bytes(pixels[:3]) == bytes((17, 31, 47))
+            assert bytes(pixels[-3:]) == bytes((17, 31, 47))
+            del region, disk_image
         raise SystemExit(0)
     main()
