@@ -269,4 +269,14 @@ def test_four_official_release_versions_hash_pins_and_license_gates_are_explicit
     assert "verify" in packages["waifu2x"]["license"].lower()
     assert "verify" in packages["real_cugan"]["license"].lower()
     assert "GPL-3.0" in packages["anime4k"]["license"]
-    assert "no redistribution" in packages["anime4k"]["license"].lower()
+    assert "MIT" in packages["anime4k"]["license"]
+    assert packages["anime4k"]["license_url"] == (
+        "https://github.com/TianZerL/Anime4KCPP/blob/master/LICENSE-GPLv3"
+    )
+    assert packages["anime4k"]["additional_license_notices"] == [
+        {
+            "name": "Anime4KCPP core MIT license",
+            "url": "https://github.com/TianZerL/Anime4KCPP/blob/master/LICENSE-MIT",
+        }
+    ]
+    assert "no redistribution" not in packages["anime4k"]["license"].lower()
