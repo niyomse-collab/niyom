@@ -2,7 +2,7 @@
 import numpy as np
 import zlib
 import pytest
-from PIL import Image
+from PIL import Image, ImageCms
 
 from tools.v211_four_engine_fusion import fuse_four_engine_details
 from tools.v211_four_engine_coordinator import ENGINES
@@ -253,7 +253,7 @@ def test_rgb_fusion_streams_over_18mp_without_full_canvas_allocation(tmp_path, m
     width, height = 6_000, 3_002
     source = tmp_path / "large-source.png"
     baseline = tmp_path / "large-v2.png"
-    profile = b"synthetic-icc-profile-for-stream-test"
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
     Image.new("RGB", (width // 2, height // 2), (35, 90, 145)).save(
         source, dpi=(300, 300), icc_profile=profile
     )
