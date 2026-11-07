@@ -517,3 +517,50 @@ def test_png_fusion_reader_bypasses_global_bomb_threshold_without_mutating_it(tm
         assert image.size == (8, 8)
         assert image.mode == "RGB"
     assert Image.MAX_IMAGE_PIXELS == 1
+
+
+def _write_large_header_png(path, width, height, *, rgba=False, icc=b"synthetic-icc-profile", dpi=300):
+    def chunk(kind, payload):
+        checksum = zlib.crc32(kind)
+        checksum = zlib.crc32(payload, checksum) & 0xFFFFFFFF
+        return (
+            len(payload).to_bytes(4, "big") + kind + payload
+            + checksum.to_bytes(4, "big")
+        )
+
+    color_type = 6 if rgba else 2
+    ihdr = (
+        width.to_bytes(4, "big") + height.to_bytes(4, "big")
+        + bytes((8, color_type, 0, 0, 0))
+    )
+    ppm = round(float(dpi) / 0.0254)
+    payload = (
+        b"\\x89PNG\\r\\n\\x1a\\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"iCCP", b"NiyomSilp ICC\\x00\\x00" + zlib.compress(icc))
+        + chunk(b"pHYs", ppm.to_bytes(4, "big") + ppm.to_bytes(4, "big") + b"\\x01")
+        + (0).to_bytes(4, "big") + b"IDAT"
+    )
+    path.write_bytes(payload)
+    return path
+
+
+def test_png_over_pillow_bomb_limit_uses_header_shell_and_preserves_icc_dpi(tmp_path, monkeypatch):
+    from tools import v211_four_engine_fusion as fusion
+
+    path = _write_large_header_png(tmp_path / "large-header-only.png", 20_000, 10_000)
+    expected_icc = b"synthetic-icc-profile"
+
+    def reject_pillow(*args, **kwargs):
+        raise AssertionError("large PNG preflight must not construct a Pillow decoder")
+
+    monkeypatch.setattr(fusion.PngImagePlugin, "PngImageFile", reject_pillow)
+    monkeypatch.setattr(fusion.Image, "open", reject_pillow)
+
+    with fusion._open_fusion_image(path) as image:
+        assert image.size == (20_000, 10_000)
+        assert image.mode == "RGB"
+        assert image.format == "PNG"
+        assert image.info["icc_profile"] == expected_icc
+        assert image.info["dpi"][0] == pytest.approx(300, abs=0.1)
+        assert image.info["dpi"][1] == pytest.approx(300, abs=0.1)
