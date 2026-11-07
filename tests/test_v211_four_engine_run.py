@@ -8,7 +8,7 @@ import zlib
 
 import pytest
 
-from PIL import Image
+from PIL import Image, ImageCms
 
 from tools.v211_four_engine_run import (
     run, _privacy_safe_report, _safe_error_summary,
