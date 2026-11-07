@@ -24,7 +24,7 @@ def _minimal_png_ihdr(width, height, color_type=2):
     )
     chunk = b"IHDR" + payload
     return (
-        b"\\x89PNG\\r\\n\\x1a\\n" + (13).to_bytes(4, "big")
+        b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big")
         + chunk + (zlib.crc32(chunk) & 0xFFFFFFFF).to_bytes(4, "big")
     )
 
