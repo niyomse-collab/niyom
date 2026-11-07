@@ -143,7 +143,11 @@ def _copy_v2_metadata(image, v2_image):
     image = image.copy(xres=v2_image.xres, yres=v2_image.yres)
     profile = _vips_profile(v2_image)
     if profile:
-        image = image.copy(**{"icc-profile-data": profile})
+        # ICC profile data is a VipsBlob metadata item, not an optional
+        # argument to the libvips "copy" operation. Attach it with the exact
+        # metadata GType so pngsave preserves the accepted V2 profile bytes.
+        import pyvips
+        image.set_type(pyvips.GValue.blob_type, "icc-profile-data", bytes(profile))
     else:
         try:
             image.remove("icc-profile-data")
