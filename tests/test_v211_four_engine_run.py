@@ -17,6 +17,18 @@ from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES
 
 
+def _minimal_png_ihdr(width, height, color_type=2):
+    payload = (
+        width.to_bytes(4, "big") + height.to_bytes(4, "big")
+        + bytes((8, color_type, 0, 0, 0))
+    )
+    chunk = b"IHDR" + payload
+    return (
+        b"\\x89PNG\\r\\n\\x1a\\n" + (13).to_bytes(4, "big")
+        + chunk + (zlib.crc32(chunk) & 0xFFFFFFFF).to_bytes(4, "big")
+    )
+
+
 def test_four_engine_runner_produces_four_valid_candidates(tmp_path):
     source = tmp_path / "source.png"
     Image.new("RGB", (8, 8), (20, 80, 120)).save(source)
@@ -243,6 +255,75 @@ def test_runner_rejects_v2_reference_geometry_before_manifest_or_native_launch(t
     with pytest.raises(ValueError, match="V2 reference dimensions"):
         run(
             source, output_dir, config, (8, 8),
+            real_engines=True, v2_reference=reference,
+        )
+
+    assert not output_dir.exists()
+    assert not config.exists()
+
+
+
+def test_runner_rejects_corrupt_source_png_ihdr_before_manifest_or_native_launch(tmp_path):
+    source = tmp_path / "corrupt-source.png"
+    header = bytearray(_minimal_png_ihdr(8, 8))
+    header[-1] ^= 0x01
+    source.write_bytes(header)
+    config = tmp_path / "manifest-must-not-be-read.json"
+    output_dir = tmp_path / "must-not-be-created"
+
+    with pytest.raises(ValueError, match="IHDR checksum"):
+        run(source, output_dir, config, (16, 16), real_engines=True)
+
+    assert not output_dir.exists()
+    assert not config.exists()
+
+
+def test_runner_rejects_unsupported_source_mode_before_manifest_or_native_launch(tmp_path):
+    source = tmp_path / "palette-source.png"
+    Image.new("P", (8, 8)).save(source)
+    config = tmp_path / "manifest-must-not-be-read.json"
+    output_dir = tmp_path / "must-not-be-created"
+
+    with pytest.raises(ValueError, match="RGB or RGBA"):
+        run(source, output_dir, config, (16, 16), real_engines=True)
+
+    assert not output_dir.exists()
+    assert not config.exists()
+
+
+def test_runner_rejects_v2_reference_mode_mismatch_before_manifest_or_native_launch(tmp_path):
+    source = tmp_path / "source.png"
+    reference = tmp_path / "v2-reference.png"
+    Image.new("RGB", (8, 8), (20, 80, 120)).save(source)
+    Image.new("RGBA", (16, 16), (20, 80, 120, 255)).save(reference)
+    config = tmp_path / "manifest-must-not-be-read.json"
+    output_dir = tmp_path / "must-not-be-created"
+
+    with pytest.raises(ValueError, match="mode differs"):
+        run(
+            source, output_dir, config, (16, 16),
+            real_engines=True, v2_reference=reference,
+        )
+
+    assert not output_dir.exists()
+    assert not config.exists()
+
+
+def test_runner_rejects_v2_reference_icc_mismatch_before_manifest_or_native_launch(tmp_path):
+    source = tmp_path / "source.png"
+    reference = tmp_path / "v2-reference.png"
+    Image.new("RGB", (8, 8), (20, 80, 120)).save(
+        source, icc_profile=b"source-icc-profile"
+    )
+    Image.new("RGB", (16, 16), (20, 80, 120)).save(
+        reference, icc_profile=b"different-v2-icc-profile"
+    )
+    config = tmp_path / "manifest-must-not-be-read.json"
+    output_dir = tmp_path / "must-not-be-created"
+
+    with pytest.raises(ValueError, match="ICC differs"):
+        run(
+            source, output_dir, config, (16, 16),
             real_engines=True, v2_reference=reference,
         )
 
