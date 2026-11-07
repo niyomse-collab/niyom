@@ -247,7 +247,8 @@ def test_fusion_with_missing_engine_pixel_effect_is_not_reported_ready(tmp_path,
     assert result["status"] == "four_engine_fusion_contribution_incomplete"
     assert result["all_four_engine_pixels_contributed"] is False
     assert result["engine_pixel_effect_verified"]["anime4k"] is False
-    assert Path(result["four_engine_fusion_output"]).is_file()
+    assert result["four_engine_fusion_output"] is None
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
     assert baseline.read_bytes() == before
 
 
