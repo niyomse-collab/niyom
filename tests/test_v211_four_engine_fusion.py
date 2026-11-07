@@ -1,5 +1,6 @@
 """Pixel evidence for four-engine fusion; fake images are NOT model inference."""
 import numpy as np
+import zlib
 import pytest
 from PIL import Image
 
@@ -243,3 +244,26 @@ def test_cancel_between_fusion_tiles_leaves_no_partial_qa_file(tmp_path, monkeyp
         )
     assert checks["count"] == 2
     assert not output.exists()
+
+
+def test_over_18mp_fusion_fails_closed_from_png_header_without_decode(tmp_path):
+    """A large master must not reach Pillow's full-image crop/allocation path."""
+    src, _baseline, candidates = _fixture(tmp_path)
+    large = tmp_path / "large-v2.png"
+    ihdr = (
+        (6_000).to_bytes(4, "big") + (4_000).to_bytes(4, "big")
+        + bytes((8, 2, 0, 0, 0))
+    )
+    chunk = b"IHDR" + ihdr
+    header = (
+        b"\\x89PNG\\r\\n\\x1a\\n" + (13).to_bytes(4, "big")
+        + chunk + (zlib.crc32(chunk) & 0xFFFFFFFF).to_bytes(4, "big")
+    )
+    large.write_bytes(header)
+    output = tmp_path / "large-fusion.png"
+
+    with pytest.raises(RuntimeError, match="disk-backed streaming"):
+        fuse_four_engine_details(src, large, candidates, output)
+
+    assert not output.exists()
+    assert large.read_bytes() == header
