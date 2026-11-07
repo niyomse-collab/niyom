@@ -265,8 +265,15 @@ def run_tiled_candidates(
     if row_bytes > MAX_STREAMED_ROW_BYTES:
         raise RuntimeError("native tile target row exceeds the safe streaming buffer limit")
     raw_bytes = row_bytes * height
-    if shutil.disk_usage(output_dir.parent if output_dir.parent.exists() else Path.cwd()).free < raw_bytes * 2 + DISK_RESERVE_BYTES:
-        raise RuntimeError("insufficient free disk space for native tile candidate stitching")
+    disk_root = output_dir.parent if output_dir.parent.exists() else Path.cwd()
+    # Reserve worst-case uncompressed space for all four candidate PNGs plus
+    # the disk-backed fusion raster and its atomic streamed-PNG temporary.
+    # PNG compression is not a safe capacity estimate for customer artwork.
+    required_disk_bytes = raw_bytes * (len(ENGINES) + 2) + DISK_RESERVE_BYTES
+    if shutil.disk_usage(disk_root).free < required_disk_bytes:
+        raise RuntimeError(
+            "insufficient free disk space for four native candidates and fusion workspace"
+        )
 
     try:
         import pyvips
@@ -300,6 +307,12 @@ def run_tiled_candidates(
             tile_process_count = 0
             tile_process_elapsed_ms_total = 0.0
             try:
+                remaining_candidates = len(ENGINES) - engine_index
+                required_disk_bytes = raw_bytes * (remaining_candidates + 2) + DISK_RESERVE_BYTES
+                if shutil.disk_usage(disk_root).free < required_disk_bytes:
+                    raise RuntimeError(
+                        "free disk space fell below the remaining candidate and fusion reserve"
+                    )
                 with TemporaryDirectory(prefix=".v211_" + name + "_tiles_", dir=output_dir) as temp_name:
                     temp_dir = Path(temp_name)
                     with TemporaryFile(mode="w+b", dir=output_dir) as raw:
