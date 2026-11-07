@@ -409,3 +409,77 @@ def test_runner_uses_disk_backed_native_tiles_for_large_png_jobs(tmp_path, monke
     )
     assert persisted["native_tiled_inference"]["gpu_adapter_verified"] is False
     assert str(tmp_path) not in json.dumps(persisted)
+
+
+def _write_large_header_png(path, width, height, *, rgba=False, icc=b"large-synthetic-icc"):
+    def chunk(kind, payload):
+        checksum = zlib.crc32(kind)
+        checksum = zlib.crc32(payload, checksum) & 0xFFFFFFFF
+        return (
+            len(payload).to_bytes(4, "big") + kind + payload
+            + checksum.to_bytes(4, "big")
+        )
+
+    color_type = 6 if rgba else 2
+    ihdr = (
+        width.to_bytes(4, "big") + height.to_bytes(4, "big")
+        + bytes((8, color_type, 0, 0, 0))
+    )
+    path.write_bytes(
+        b"\\x89PNG\\r\\n\\x1a\\n"
+        + chunk(b"IHDR", ihdr)
+        + chunk(b"iCCP", b"NiyomSilp ICC\\x00\\x00" + zlib.compress(icc))
+        + (0).to_bytes(4, "big") + b"IDAT"
+    )
+    return path
+
+
+def test_runner_routes_200mp_seed_and_800mp_v2_header_to_disk_tiles_without_pillow(
+    tmp_path, monkeypatch
+):
+    """Header preflight must not hit Pillow's ~178 MP hard decompression ceiling."""
+    from tools import v211_four_engine_run as runner
+    from tools.v211_four_engine_subprocess import EngineCommand
+
+    source = _write_large_header_png(tmp_path / "200mp-seed.png", 20_000, 10_000)
+    reference = _write_large_header_png(tmp_path / "800mp-v2.png", 40_000, 20_000)
+    commands = {
+        name: EngineCommand(
+            ("fake-engine.exe", "-g", "0")
+            if name != "anime4k"
+            else ("fake-anime4k.exe", "-p", "cuda", "-d", "0")
+        )
+        for name in ENGINES
+    }
+    monkeypatch.setattr(runner, "load_real_engine_manifest", lambda _path: commands)
+    monkeypatch.setattr(
+        runner, "make_processors",
+        lambda *_args, **_kwargs: {name: (lambda *_a, **_k: None) for name in ENGINES},
+    )
+    calls = []
+
+    def fake_tiled(source_path, reference_path, output_dir, size, processors, **kwargs):
+        calls.append((source_path, reference_path, tuple(size), set(processors)))
+        return {
+            "candidates": [],
+            "failures": {},
+            "ready_for_fusion_research": False,
+            "native_tiled_inference": {"implemented": True},
+        }
+
+    monkeypatch.setattr(runner, "run_tiled_candidates", fake_tiled)
+
+    def reject_pillow(*_args, **_kwargs):
+        raise AssertionError("large PNG metadata preflight must not call Pillow Image.open")
+
+    monkeypatch.setattr(runner.Image, "open", reject_pillow)
+    result = runner.run(
+        source, tmp_path / "large-run", tmp_path / "verified-manifest.json",
+        (40_000, 20_000), real_engines=True, v2_reference=reference,
+    )
+
+    assert calls == [(source, reference, (40_000, 20_000), set(ENGINES))]
+    assert result["native_tiled_inference"]["implemented"] is True
+    assert result["completed_engine_count"] == 0
+    assert result["quality_certified"] is False
+    assert (tmp_path / "large-run" / "four_engine_report.json").is_file()
