@@ -104,7 +104,8 @@ def test_tiled_runner_rechecks_disk_before_each_remaining_engine(tmp_path, monke
     )
 
     assert calls == [ENGINES[0]]
-    assert checks["count"] == 3
+    # Initial preflight, engine 0, then one recheck for each rejected engine.
+    assert checks["count"] == 5
     assert result["ready_for_fusion_research"] is False
     assert [item.engine for item in result["candidates"]] == [ENGINES[0]]
     assert set(result["failures"]) == set(ENGINES[1:])
