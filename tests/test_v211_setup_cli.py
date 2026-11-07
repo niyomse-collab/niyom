@@ -80,6 +80,9 @@ def test_provision_preflight_validates_exact_upstream_versions_and_digest_source
         "real_cugan": "observed_sha256",
         "anime4k": "release_sha256",
     }
+    assert result["license_sources"]["anime4k"] == (
+        "https://github.com/TianZerL/Anime4KCPP/blob/master/LICENSE-GPLv3"
+    )
     assert result["network_started"] is False
     assert result["filesystem_modified"] is False
 
