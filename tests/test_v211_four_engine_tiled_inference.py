@@ -93,7 +93,17 @@ def test_tiled_runner_rechecks_disk_before_each_remaining_engine(tmp_path, monke
     def wrap(name):
         def process(src, dst):
             calls.append(name)
-            base[name](src, dst)
+            if name == ENGINES[0]:
+                # Make the retained first candidate nearly incompressible so
+                # its real on-disk bytes must be included in the next reserve.
+                with Image.open(src) as image:
+                    shape = (image.height * 2, image.width * 2, 3)
+                noise = np.random.default_rng(7).integers(
+                    0, 256, size=shape, dtype=np.uint8
+                )
+                Image.fromarray(noise).save(dst, format="PNG")
+            else:
+                base[name](src, dst)
         return process
 
     processors = {name: wrap(name) for name in ENGINES}
@@ -109,7 +119,9 @@ def test_tiled_runner_rechecks_disk_before_each_remaining_engine(tmp_path, monke
     assert result["ready_for_fusion_research"] is False
     assert [item.engine for item in result["candidates"]] == [ENGINES[0]]
     assert set(result["failures"]) == set(ENGINES[1:])
-    assert (output / (ENGINES[0] + ".png")).is_file()
+    first_candidate = output / (ENGINES[0] + ".png")
+    assert first_candidate.is_file()
+    assert first_candidate.stat().st_size > raw_bytes // 2
     assert not any((output / (name + ".png")).exists() for name in ENGINES[1:])
 
 
