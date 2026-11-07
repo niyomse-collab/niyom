@@ -121,3 +121,18 @@ def test_frozen_import_smoke_exercises_disk_backed_libvips_region_reader():
     assert "region.fetch(3, 4, 5, 6)" in smoke
     assert "bytes(pixels[:3]) == bytes((17, 31, 47))" in smoke
     assert "del region, disk_image" in smoke
+
+
+def test_frozen_candidate_checks_the_actual_provisioning_dispatch_without_network():
+    workflow = (ROOT / ".github" / "workflows" /
+                "v211-four-engine-bridge-windows.yml").read_text(encoding="utf-8")
+    run = (ROOT / "run.py").read_text(encoding="utf-8")
+    cli = (ROOT / "signprint_ai" / "v211_setup_cli.py").read_text(encoding="utf-8")
+
+    assert "Verify packaged four-engine provisioning dispatch without downloads" in workflow
+    assert "'--provision-v211-four-ai', '--check-only'" in workflow
+    assert '["--provision-v211-four-ai", "--check-only"]' in run
+    assert "preflight_only=\"--check-only\" in sys.argv[1:]" in run
+    assert "def preflight_v211_provisioning()" in cli
+    assert "preflight_v211_provisioning()" in cli
+
