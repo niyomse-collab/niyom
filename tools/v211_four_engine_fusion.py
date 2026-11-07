@@ -14,6 +14,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Callable
 import os
+import warnings
 import zlib
 
 import numpy as np
@@ -46,6 +47,20 @@ def _png_pixel_count_from_header(path: Path) -> int:
     if width < 1 or height < 1:
         raise ValueError("V2 PNG dimensions are invalid")
     return width * height
+
+
+def _image_pixel_count_from_header(path: Path) -> int:
+    """Inspect image dimensions without decoding pixel data."""
+    path = Path(path)
+    if path.suffix.lower() == ".png":
+        return _png_pixel_count_from_header(path)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with Image.open(path) as image:
+                return image.width * image.height
+    except Image.DecompressionBombError:
+        return MAX_IN_MEMORY_PIXELS + 1
 
 
 def _gray_highpass(region: Image.Image) -> np.ndarray:
@@ -100,12 +115,21 @@ def fuse_four_engine_details(
         raise ValueError("fusion may not overwrite source, V2 or AI candidates")
     if not isinstance(protected_regions, (tuple, list)):
         raise ValueError("face protection regions must be normalized rectangles")
-    if _png_pixel_count_from_header(v2_reference) > MAX_IN_MEMORY_PIXELS:
-        raise RuntimeError(
-            "Four-engine fusion above 18 MP is fail-closed until disk-backed "
-            "streaming is implemented; use the approved V2 large-image pipeline. "
-            "The accepted V2 image has not been modified."
-        )
+    # Preflight every raster from its container header before Pillow crop/load.
+    # A small V2 target must not accidentally admit a huge source or stale
+    # candidate into the full-image validation path.
+    input_labels = [
+        ("source", source),
+        ("V2 reference", v2_reference),
+        *((name + " candidate", Path(candidates[name])) for name in ENGINES),
+    ]
+    for label, path in input_labels:
+        if _image_pixel_count_from_header(path) > MAX_IN_MEMORY_PIXELS:
+            raise RuntimeError(
+                "Four-engine fusion " + label + " above 18 MP is fail-closed "
+                "until disk-backed streaming is implemented; use the approved "
+                "V2 large-image pipeline. The accepted V2 image has not been modified."
+            )
     protected_regions = tuple(protected_regions)
 
     with ExitStack() as stack:
