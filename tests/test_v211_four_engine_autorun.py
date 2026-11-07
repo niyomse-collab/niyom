@@ -103,23 +103,29 @@ def test_no_installed_four_ai_leaves_v2_untouched(tmp_path, monkeypatch):
     assert v2.read_bytes() == before
 
 
-def test_auto_face_preserved_when_no_bounding_boxes(tmp_path, monkeypatch):
+def test_auto_face_preserved_when_no_bounding_boxes_skips_noop_native_runs(tmp_path, monkeypatch):
     src, v2 = _source_and_v2(tmp_path)
-    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "stub.json"))
+    before = v2.read_bytes()
+    # A deliberately missing manifest proves the face-safety short-circuit
+    # happens before manifest parsing, GPU binding, or native process launch.
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "missing-manifest.json"))
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
-    observed = []
 
-    def capture(_src, _out, _config, _size, **kwargs):
-        observed.append(kwargs)
-        return {"ready_for_fusion_research": False, "completed_engine_count": 0}
+    def native_run_must_not_start(*args, **kwargs):
+        raise AssertionError("native engines cannot affect a V2-only face-preservation result")
 
-    monkeypatch.setattr(v211_four_engine_run, "run", capture)
+    monkeypatch.setattr(v211_four_engine_run, "run", native_run_must_not_start)
     report = bridge.maybe_run_four_engine_assist(
         src, v2, preserve_all_v2_faces=True,
     )
-    assert report["status"] == "incomplete_four_engine_candidates"
-    assert observed[0]["preserve_all_v2_faces"] is True
-    assert observed[0]["real_engines"] is True
+    assert report == {
+        "status": "face_protection_v2_only",
+        "reason": "unmapped_face_regions",
+        "v2_output_preserved": True,
+        "quality_certified": False,
+    }
+    assert v2.read_bytes() == before
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
 
 
 def test_custom_four_x_target_runs_native_two_x_on_half_target_seed(tmp_path, monkeypatch):
