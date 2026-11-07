@@ -227,3 +227,10 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - ตรวจ Blob SHA ของ `signprint_ai/face_module/face_protection.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py` และ `signprint_ai/face_module/__init__.py` ระหว่าง PR #18 head branch `feature/v2.1.1-super-ai` กับ PR #20 branch: ทั้งสี่ไฟล์ตรงกันทุกตัวอักษร.
 - ขอบเขต GPU ยังไม่เปลี่ยน: Vulkan inventory เป็นเพียงรายการ Device; NCNN `-g` และ Anime4KCPP `-p/-d` ยังไม่ถูกผูกเข้ากับคำสั่ง inference. `per_engine_backend_selection_verified=false`, `anime4k_backend_selection_verified=false`; ไม่มีการอ้างว่า Native inference ทั้งสี่ผ่านบนเครื่องร้าน.
 - ไม่มีการแก้ Production Code ในรอบบันทึกนี้; ไม่มี Binary/Weights/ภาพลูกค้าเพิ่มใน Git; ไม่แก้ V1/V2 Stable, ไม่ Rebase/Force Push, ไม่ Merge/Release.
+
+## 7 November 2026 — disk-backed RGBA fusion validation (not end-to-end large-image inference)
+
+- The fusion stage now validates each RGBA engine candidate's alpha against the **accepted V2 target alpha**, tile by tile. V2 remains the alpha master; candidate RGB detail cannot introduce, erase or shift transparent pixels.
+- Above the Pillow raster threshold, the V2 and candidate alpha regions are read through pyvips.Region.fetch; no full-size Pillow decode is needed for candidate alpha validation. Cancellation is checked between alpha-validation tiles as well as during fusion.
+- The PNG writer already streams RGBA rows from the disk-backed raster, preserving V2 alpha, ICC and DPI. The new regression forces the libvips path, forbids full Pillow PNG decoding, and verifies that a mismatched candidate alpha fails closed without publishing a QA file.
+- **This does not yet enable large four-engine jobs in the app.** tools/v211_four_engine_run.py and the bridge still reject targets above 18 MP before reading the model manifest or launching native engines. Native per-engine tile orchestration, overlap/seam validation, disk-backed candidate stitching, and end-to-end VRAM/cancel stress remain open. Until those are complete, images above 18 MP continue through accepted V2 only.
