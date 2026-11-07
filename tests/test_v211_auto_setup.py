@@ -55,6 +55,7 @@ def test_one_time_provision_checks_four_without_shipping_models(tmp_path, monkey
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
     saved = []
+    setup.record_consent_declined()
     packages = {name: {"url": "https://example.org/test-only"}
                 for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")}
     monkeypatch.setattr(official, "PACKAGES", packages)
@@ -84,6 +85,7 @@ def test_one_time_provision_checks_four_without_shipping_models(tmp_path, monkey
     assert report["real_inference_verified_on_this_pc"] is False
     assert report["quality_certified"] is False
     assert setup.default_manifest().exists()
+    assert not setup.declined_marker_path().exists()
 
 
 def test_explicit_manifest_override_is_the_path_provisioned_and_later_checked(
@@ -135,8 +137,31 @@ def test_setup_fails_closed_if_any_native_engine_missing(tmp_path, monkeypatch):
         setup.provision_after_consent()
 
 
-def test_editor_source_never_prompts_or_downloads_on_startup():
+def test_declined_first_run_offer_is_not_repeated_until_user_reconsents(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI", raising=False)
+
+    assert setup.needs_initial_setup() is True
+    marker = setup.record_consent_declined()
+    assert marker.is_file()
+    assert setup.needs_initial_setup() is False
+
+    # An explicit later installer/app consent attempt clears the decline.
+    setup.clear_consent_declined()
+    assert setup.needs_initial_setup() is True
+
+
+def test_editor_offers_one_consent_for_all_four_without_direct_download_code():
     app_source = (Path(__file__).resolve().parents[1] /
                   "signprint_ai" / "app_v2.py").read_text(encoding="utf-8")
-    assert "_offer_v211_four_ai_setup" not in app_source
+    assert "self.after(500, self._offer_v211_four_ai_setup)" in app_source
+    assert "messagebox.askyesno(" in app_source
+    assert "record_consent_declined()" in app_source
+    assert "install_for_offline_use()" in app_source
+    assert "four_ai_setup_done" in app_source
+    assert "four_ai_setup_failed" in app_source
+    # Downloads remain behind the consented setup service, not app startup code.
     assert "provision_after_consent" not in app_source
