@@ -236,3 +236,37 @@ def test_real_esrgan_cli_and_model_license_scopes_are_separate():
         and item["url"] == "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE"
         for item in notices
     )
+
+
+def test_four_official_release_versions_hash_pins_and_license_gates_are_explicit():
+    packages = assets.PACKAGES
+
+    assert packages["real_esrgan"]["release"] == "v0.2.5.0"
+    assert packages["waifu2x"]["release"] == "20250915"
+    assert packages["real_cugan"]["release"] == "20220728"
+    assert packages["anime4k"]["release"] == "v3.2.0"
+
+    for name, package in packages.items():
+        assert package["url"].startswith("https://github.com/")
+        assert package["license_url"].startswith("https://github.com/")
+        published = package.get("release_sha256")
+        observed = package.get("observed_sha256")
+        assert (published is not None) or (observed is not None)
+        for digest in (published, observed):
+            if digest is not None:
+                assert len(digest) == 64
+                assert all(ch in "0123456789abcdef" for ch in digest)
+
+    # The two older upstream releases do not publish a digest; their recorded
+    # Windows-CI SHA256 is a reproducibility pin, not a publisher signature.
+    assert packages["real_esrgan"]["release_sha256"] is None
+    assert packages["real_cugan"]["release_sha256"] is None
+    assert packages["real_esrgan"]["observed_sha256"]
+    assert packages["real_cugan"]["observed_sha256"]
+
+    # Model-weight rights are still separate review gates from executable
+    # source licenses. Anime4KCPP is not approved for installer redistribution.
+    assert "verify" in packages["waifu2x"]["license"].lower()
+    assert "verify" in packages["real_cugan"]["license"].lower()
+    assert "GPL-3.0" in packages["anime4k"]["license"]
+    assert "no redistribution" in packages["anime4k"]["license"].lower()
