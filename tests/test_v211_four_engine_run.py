@@ -426,9 +426,9 @@ def _write_large_header_png(path, width, height, *, rgba=False, icc=b"large-synt
         + bytes((8, color_type, 0, 0, 0))
     )
     path.write_bytes(
-        b"\\x89PNG\\r\\n\\x1a\\n"
+        b"\x89PNG\r\n\x1a\n"
         + chunk(b"IHDR", ihdr)
-        + chunk(b"iCCP", b"NiyomSilp ICC\\x00\\x00" + zlib.compress(icc))
+        + chunk(b"iCCP", b"NiyomSilp ICC\x00\x00" + zlib.compress(icc))
         + (0).to_bytes(4, "big") + b"IDAT"
     )
     return path
