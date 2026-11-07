@@ -170,10 +170,15 @@ def prepare_native_2x_inputs_streamed(
     from tools.v211_four_engine_tiled_inference import _required_disk_bytes
 
     source, baseline, work_dir = map(Path, (source, baseline, work_dir))
-    source_size, source_mode, _ = inspect_image(source, orient=True)
+    source_size, source_mode, source_metadata = inspect_image(source, orient=True)
     target_size, target_mode, metadata = inspect_image(baseline)
     if source_mode not in ("RGB", "RGBA") or target_mode not in ("RGB", "RGBA"):
         raise ValueError("large four-engine source and V2 must be RGB/RGBA")
+    if source_metadata.get("icc_profile") != metadata.get("icc_profile"):
+        raise ValueError(
+            "large four-engine source and accepted V2 ICC profiles differ; "
+            "keep the approved V2 output without auxiliary fusion"
+        )
     if resize_mode not in ("fit", "stretch"):
         raise ValueError("resize_mode must be 'fit' or 'stretch'")
 
@@ -246,7 +251,16 @@ def prepare_native_2x_inputs_streamed(
                 vscale=contained_height / source_height,
                 kernel="lanczos3",
             )
-            background = list(v2_padded.crop(0, 0, 1, 1).write_to_memory())[:3]
+            background_bytes = v2_padded.crop(0, 0, 1, 1).write_to_memory()
+            # pyvips versions differ in whether a one-pixel memory view
+            # iterates as integers or one-byte objects. Normalize explicitly
+            # to the numeric array expected by vips_embed(background=...).
+            background = [
+                int(value[0]) if isinstance(value, (bytes, bytearray)) else int(value)
+                for value in list(background_bytes)[:3]
+            ]
+            if len(background) != 3:
+                raise ValueError("could not read the accepted V2 fit background colour")
             seed_rgb = contained.embed(
                 (seed_width - contained_width) // 2,
                 (seed_height - contained_height) // 2,
