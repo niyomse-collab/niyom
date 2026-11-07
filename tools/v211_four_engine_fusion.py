@@ -71,16 +71,137 @@ def _image_pixel_count_from_header(path: Path) -> int:
         return MAX_STREAMED_PIXELS + 1
 
 
-def _open_fusion_image(path: Path):
-    """Open PNG rasters without Pillow's global decompression-bomb ceiling.
+MAX_PNG_HEADER_SCAN_BYTES = 32 * 1024 * 1024
+MAX_PNG_HEADER_CHUNK_BYTES = 16 * 1024 * 1024
+MAX_PNG_ICC_BYTES = 16 * 1024 * 1024
 
-    The caller has already validated the PNG signature, IHDR CRC, dimensions,
-    row-buffer and disk-space bounds. Direct PngImageFile construction avoids
-    mutating Image.MAX_IMAGE_PIXELS process-wide; non-PNG inputs keep Pillow's
-    normal safety checks and therefore remain subject to its decompression cap.
+
+def _read_png_header(path: Path) -> tuple[int, int, str, dict]:
+    """Read bounded PNG header metadata without invoking Pillow's pixel decoder.
+
+    Pillow enforces its process-wide decompression-bomb ceiling even when only
+    PngImageFile metadata is requested. Large customer masters therefore use
+    this small header reader and libvips regions; no global Pillow setting is
+    changed and no customer raster is decoded here.
+    """
+    path = Path(path)
+    with path.open("rb") as stream:
+        if stream.read(8) != b"\\x89PNG\\r\\n\\x1a\\n":
+            raise ValueError("PNG signature is invalid")
+        scanned = 8
+        width = height = None
+        mode = None
+        info: dict = {}
+        saw_ihdr = saw_iccp = saw_phys = False
+        while True:
+            chunk_header = stream.read(8)
+            if len(chunk_header) != 8:
+                raise ValueError("PNG ended before its first IDAT chunk")
+            length = int.from_bytes(chunk_header[:4], "big")
+            kind = chunk_header[4:8]
+            if kind == b"IDAT":
+                if not saw_ihdr:
+                    raise ValueError("PNG IDAT precedes IHDR")
+                return int(width), int(height), str(mode), info
+            if length > MAX_PNG_HEADER_CHUNK_BYTES:
+                raise ValueError("PNG pre-IDAT metadata chunk exceeds the safe header limit")
+            scanned += 12 + length
+            if scanned > MAX_PNG_HEADER_SCAN_BYTES:
+                raise ValueError("PNG metadata before IDAT exceeds the safe header scan limit")
+            payload = stream.read(length)
+            crc_bytes = stream.read(4)
+            if len(payload) != length or len(crc_bytes) != 4:
+                raise ValueError("PNG metadata chunk is truncated")
+            checksum = zlib.crc32(kind)
+            checksum = zlib.crc32(payload, checksum) & 0xFFFFFFFF
+            if checksum != int.from_bytes(crc_bytes, "big"):
+                raise ValueError("PNG metadata chunk CRC is invalid")
+
+            if not saw_ihdr:
+                if kind != b"IHDR" or length != 13:
+                    raise ValueError("PNG must begin with a 13-byte IHDR chunk")
+                width = int.from_bytes(payload[0:4], "big")
+                height = int.from_bytes(payload[4:8], "big")
+                bit_depth, color_type, compression, filtering, interlace = payload[8:13]
+                if width < 1 or height < 1:
+                    raise ValueError("PNG dimensions are invalid")
+                if (bit_depth != 8 or color_type not in (2, 6)
+                        or compression != 0 or filtering != 0 or interlace not in (0, 1)):
+                    raise ValueError("large four-engine PNG must be 8-bit RGB/RGBA")
+                mode = "RGBA" if color_type == 6 else "RGB"
+                saw_ihdr = True
+                continue
+
+            if kind == b"IHDR":
+                raise ValueError("PNG contains duplicate IHDR metadata")
+            if kind == b"iCCP":
+                if saw_iccp:
+                    raise ValueError("PNG contains duplicate ICC profiles")
+                separator = payload.find(b"\\x00")
+                if separator < 1 or separator > 79 or separator + 2 > len(payload):
+                    raise ValueError("PNG ICC profile header is invalid")
+                if payload[separator + 1] != 0:
+                    raise ValueError("PNG ICC compression method is unsupported")
+                decompressor = zlib.decompressobj()
+                compressed = payload[separator + 2:]
+                profile = decompressor.decompress(compressed, MAX_PNG_ICC_BYTES + 1)
+                if len(profile) > MAX_PNG_ICC_BYTES or decompressor.unconsumed_tail:
+                    raise ValueError("PNG ICC profile exceeds the safe metadata limit")
+                tail = decompressor.flush()
+                if (len(profile) + len(tail) > MAX_PNG_ICC_BYTES
+                        or not decompressor.eof or decompressor.unused_data):
+                    raise ValueError("PNG ICC profile stream is invalid or oversized")
+                info["icc_profile"] = profile + tail
+                saw_iccp = True
+            elif kind == b"pHYs":
+                if saw_phys or length != 9:
+                    raise ValueError("PNG pHYs metadata is invalid or duplicated")
+                x_ppm = int.from_bytes(payload[0:4], "big")
+                y_ppm = int.from_bytes(payload[4:8], "big")
+                unit = payload[8]
+                if unit == 1:
+                    if x_ppm < 1 or y_ppm < 1:
+                        raise ValueError("PNG print resolution metadata is invalid")
+                    info["dpi"] = (x_ppm * 0.0254, y_ppm * 0.0254)
+                elif unit != 0:
+                    raise ValueError("PNG pHYs unit is invalid")
+                saw_phys = True
+            elif kind == b"IEND":
+                raise ValueError("PNG ended before image data")
+            
+
+class _PngHeaderImage:
+    """Pillow-compatible metadata shell for a large PNG; pixels stay in libvips."""
+
+    def __init__(self, path: Path, header: tuple[int, int, str, dict]):
+        self.path = Path(path)
+        self.width, self.height, self.mode, info = header
+        self.size = (self.width, self.height)
+        self.info = dict(info)
+        self.format = "PNG"
+
+    def close(self) -> None:
+        return None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+        return False
+
+
+def _open_fusion_image(path: Path):
+    """Open small rasters with Pillow and large PNGs through header + libvips.
+
+    The metadata shell deliberately has no pixel decoder. Every pixel read for
+    large images must go through _FusionRaster's bounded pyvips Region.fetch.
     """
     path = Path(path)
     if path.suffix.lower() == ".png":
+        header = _read_png_header(path)
+        if header[0] * header[1] > MAX_RGBA_VALIDATION_PIXELS:
+            return _PngHeaderImage(path, header)
         return PngImagePlugin.PngImageFile(path)
     return Image.open(path)
 
