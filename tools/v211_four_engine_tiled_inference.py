@@ -339,13 +339,13 @@ def run_tiled_candidates(
                                                 tile_process_elapsed_ms_total += float(elapsed)
                                             if process_record.get("process_started") is True:
                                                 tile_process_count += 1
-                                tile_count += 1
                                 _validate_tile_output(
                                     tile_output,
                                     ((tx1 - tx0) * 2, (ty1 - ty0) * 2),
                                     mode,
                                     source_metadata,
                                 )
+                                tile_count += 1
 
                                 if column_index > 0:
                                     left_path, left_rect = current_row[column_index - 1]
