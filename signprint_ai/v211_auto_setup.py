@@ -41,7 +41,7 @@ def record_consent_declined() -> Path:
     """Remember that the user declined the one-time all-four setup offer."""
     marker = declined_marker_path()
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text("declined\\n", encoding="ascii")
+    marker.write_text("declined", encoding="ascii")
     return marker
 
 
