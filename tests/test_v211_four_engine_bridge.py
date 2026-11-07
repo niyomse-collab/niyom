@@ -440,6 +440,29 @@ def test_small_and_large_seed_paths_reject_mismatched_icc_before_writing(tmp_pat
     assert not small_work.exists()
 
 
+@pytest.mark.parametrize("source_has_icc,v2_has_icc", [(False, True), (True, False)])
+def test_small_and_large_seed_paths_reject_one_sided_icc(tmp_path, source_has_icc, v2_has_icc):
+    from signprint_ai import v211_four_engine_bridge as bridge
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
+
+    srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source = tmp_path / "source.png"
+    baseline = tmp_path / "accepted-v2.png"
+    source_options = {"icc_profile": srgb} if source_has_icc else {}
+    v2_options = {"icc_profile": srgb} if v2_has_icc else {}
+    Image.new("RGB", (128, 96), (35, 80, 125)).save(source, **source_options)
+    Image.new("RGB", (256, 192), (35, 80, 125)).save(baseline, **v2_options)
+
+    large_work = tmp_path / "large-one-sided-icc"
+    with pytest.raises(ValueError, match="ICC presence/content differs"):
+        prepare_native_2x_inputs_streamed(source, baseline, large_work)
+    assert not large_work.exists()
+
+    small_work = tmp_path / "small-one-sided-icc"
+    with pytest.raises(ValueError, match="ICC presence/content differs"):
+        bridge._prepare_native_2x_inputs(source, baseline, small_work)
+    assert not small_work.exists()
+
 def test_large_four_engine_seed_and_qa_crop_use_disk_backed_vips_without_full_pillow_decode(
     tmp_path, monkeypatch
 ):
