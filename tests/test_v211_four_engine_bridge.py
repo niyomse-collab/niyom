@@ -427,12 +427,12 @@ def test_small_and_large_seed_paths_reject_mismatched_icc_before_writing(tmp_pat
     Image.new("RGB", (256, 192), (40, 80, 120)).save(baseline, icc_profile=lab)
 
     large_work = tmp_path / "large-must-not-be-created"
-    with pytest.raises(ValueError, match="ICC profiles differ"):
+    with pytest.raises(ValueError, match="ICC differs"):
         prepare_native_2x_inputs_streamed(source, baseline, large_work)
     assert not large_work.exists()
 
     small_work = tmp_path / "small-must-not-be-created"
-    with pytest.raises(ValueError, match="ICC profiles differ"):
+    with pytest.raises(ValueError, match="ICC differs"):
         bridge._prepare_native_2x_inputs(source, baseline, small_work)
     assert not small_work.exists()
 
