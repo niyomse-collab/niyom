@@ -527,3 +527,15 @@ def test_frozen_exe_diagnostic_dispatch_is_before_editor_and_packaged():
     assert "diagnostic_main(sys.argv[2:])" in run_source
     assert '"tools.v211_shop_gpu_diagnostic"' in run_source
     assert '"tools.v211_shop_gpu_diagnostic"' in spec_source
+
+
+def test_windows_candidate_smokes_frozen_diagnostic_dispatch_without_running_gpu_qa():
+    """The packaged help path must dispatch before the editor and require no GPU."""
+    root = Path(__file__).resolve().parents[1]
+    workflow = (
+        root / ".github" / "workflows" / "v211-four-engine-bridge-windows.yml"
+    ).read_text(encoding="utf-8")
+    assert "Verify packaged GTX 1660 Ti diagnostic command dispatch (help only)" in workflow
+    assert "--diagnose-v211-four-ai --help" in workflow
+    assert "Packaged diagnostic help failed with exit code" in workflow
+    assert "Packaged diagnostic help is missing option" in workflow

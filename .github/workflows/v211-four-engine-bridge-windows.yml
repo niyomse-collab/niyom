@@ -66,6 +66,23 @@ jobs:
         shell: powershell
         run: |
           .\tools\Test-V2-Package.ps1 -Exe '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe' -OutputDir package-smoke -Mode imports -TimeoutSeconds 180
+      - name: Verify packaged GTX 1660 Ti diagnostic command dispatch (help only)
+        shell: pwsh
+        run: |
+          $exe = '.\\dist\\NiyomsilAIEnhancer\\NiyomsilAIEnhancer.exe'
+          $help = & $exe --diagnose-v211-four-ai --help 2>&1
+          $exitCode = $LASTEXITCODE
+          if ($exitCode -ne 0) {
+            throw "Packaged diagnostic help failed with exit code $exitCode"
+          }
+          $text = $help -join "`n"
+          foreach ($required in @('--manifest', '--output-dir', '--timeout-seconds')) {
+            if ($text -notmatch [regex]::Escape($required)) {
+              throw "Packaged diagnostic help is missing option: $required"
+            }
+          }
+          Write-Output $text
+
       - name: Verify candidate provenance and every installer slice SHA256
         shell: pwsh
         run: |
