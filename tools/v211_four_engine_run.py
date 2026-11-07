@@ -22,6 +22,7 @@ from tools.v211_three_engine_priority_preview import PRIMARY_ENGINES, select_thr
 from tools.v211_four_engine_fusion import (
     MAX_STREAMED_PIXELS,
     MAX_STREAMED_ROW_BYTES,
+    _open_fusion_image,
     fuse_four_engine_details,
 )
 from tools.v211_four_engine_tiled_inference import run_tiled_candidates
@@ -47,14 +48,13 @@ def _header_pixel_count(path: Path) -> int:
     """Preflight dimensions and raster mode without decoding customer pixels."""
     path = Path(path)
     if path.suffix.lower() == ".png":
-        # The bridge creates PNG seeds. Validate the fixed-size header and its
-        # CRC before any manifest is opened or native process can be launched.
+        # Large PNGs use a header-only metadata shell. Pillow raises its
+        # process-wide DecompressionBombError before libvips can open a
+        # legitimate >178 MP raster, even when only mode is requested.
         width, height = _header_image_size(path)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
-            with Image.open(path) as image:
-                if image.mode not in ("RGB", "RGBA"):
-                    raise ValueError("four-engine source must be RGB or RGBA")
+        with _open_fusion_image(path) as image:
+            if image.mode not in ("RGB", "RGBA"):
+                raise ValueError("four-engine source must be RGB or RGBA")
         return width * height
     try:
         with warnings.catch_warnings():
@@ -69,8 +69,8 @@ def _header_pixel_count(path: Path) -> int:
 
 
 def _validate_reference_contract(source: Path, reference: Path) -> None:
-    """Reject source/V2 mode or ICC mismatches before launching native engines."""
-    with Image.open(source) as source_image, Image.open(reference) as v2_image:
+    """Reject source/V2 mode or ICC mismatches without decoding large PNGs."""
+    with _open_fusion_image(source) as source_image, _open_fusion_image(reference) as v2_image:
         if source_image.mode not in ("RGB", "RGBA"):
             raise ValueError("four-engine source must be RGB or RGBA")
         if v2_image.mode not in ("RGB", "RGBA"):
@@ -270,7 +270,7 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             raise RuntimeError("large four-engine tiled inference currently requires a PNG source")
         if Path(v2_reference).suffix.lower() != ".png":
             raise RuntimeError("large four-engine tiled inference currently requires a PNG V2 reference")
-        with Image.open(source) as source_header:
+        with _open_fusion_image(source) as source_header:
             channels = 4 if source_header.mode == "RGBA" else 3
         if size[0] * channels > MAX_STREAMED_ROW_BYTES:
             raise RuntimeError("four-engine target row exceeds the safe streaming buffer limit")
