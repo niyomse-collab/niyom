@@ -284,6 +284,9 @@ def save_cropped_png_streamed(
     if row_bytes > MAX_STREAMED_ROW_BYTES:
         raise ValueError("large four-engine QA crop row exceeds the safe streaming buffer limit")
     destination.parent.mkdir(parents=True, exist_ok=True)
+    required_disk = row_bytes * height * 3 + 64 * 1024 * 1024
+    if shutil.disk_usage(destination.parent).free < required_disk:
+        raise OSError("insufficient disk space for streamed four-engine QA crop")
     _check_cancel(cancel_check)
 
     image = _open_vips(candidate)
