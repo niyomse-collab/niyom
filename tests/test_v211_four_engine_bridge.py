@@ -503,3 +503,118 @@ def test_large_four_engine_seed_and_qa_crop_use_disk_backed_vips_without_full_pi
             assert qa_header.info["icc_profile"] == profile
             assert qa_header.info["dpi"][0] == pytest.approx(300, abs=0.1)
         assert baseline.read_bytes() == before
+
+def test_large_bridge_routes_streamed_seed_to_tiled_runner_and_streamed_qa(
+    tmp_path, monkeypatch
+):
+    """Exercise the complete large-job bridge route with small synthetic files.
+
+    Pixel thresholds are lowered only in this test so it covers orchestration
+    cheaply. Separate 24 MP regressions cover the actual disk-backed seed,
+    native tile runner, and streamed QA crop implementations.
+    """
+    pytest.importorskip("pyvips")
+    import tools.v211_four_engine_run as runner
+    import tools.v211_four_engine_fusion as fusion
+    from tools.v211_four_engine_coordinator import ENGINES
+
+    source = tmp_path / "source.png"
+    baseline = tmp_path / "accepted-v2.png"
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    Image.new("RGB", (128, 128), (40, 80, 120)).save(
+        source, dpi=(300, 300), icc_profile=profile
+    )
+    Image.new("RGB", (256, 256), (40, 80, 120)).save(
+        baseline, dpi=(300, 300), icc_profile=profile
+    )
+    original_v2 = baseline.read_bytes()
+
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(manifest))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
+
+    # Force the exact same streamed code branches used above 18 MP without
+    # allocating a 24 MP fixture in this orchestration test.
+    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 1024)
+    monkeypatch.setattr(runner, "MAX_FOUR_ENGINE_PIXELS", 1024)
+    monkeypatch.setattr(fusion, "MAX_RGBA_VALIDATION_PIXELS", 1024)
+
+    def bind_manifest(_manifest, work_dir):
+        bound = Path(work_dir) / "manifest.runtime-bound.json"
+        bound.write_text("{}", encoding="utf-8")
+        return bound, {
+            "binding_configured": True,
+            "runtime_device_use_verified": False,
+        }
+
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", bind_manifest)
+    monkeypatch.setattr(
+        runner,
+        "load_real_engine_manifest",
+        lambda _path: {name: object() for name in ENGINES},
+    )
+
+    def processor(_name):
+        def run_tile(input_path, output_path):
+            with Image.open(input_path) as tile:
+                metadata = {
+                    key: tile.info[key]
+                    for key in ("icc_profile", "dpi")
+                    if key in tile.info
+                }
+                enlarged = tile.resize(
+                    (tile.width * 2, tile.height * 2),
+                    resample=Image.Resampling.NEAREST,
+                )
+                enlarged.save(output_path, format="PNG", **metadata)
+        return run_tile
+
+    processors = {name: processor(name) for name in ENGINES}
+    monkeypatch.setattr(
+        runner,
+        "make_processors",
+        lambda _commands, cancel_check=None, execution_records=None: processors,
+    )
+
+    streamed_prepare_calls = []
+    original_prepare = bridge.prepare_native_2x_inputs_streamed
+
+    def track_streamed_prepare(*args, **kwargs):
+        streamed_prepare_calls.append(Path(args[0]))
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(
+        bridge, "prepare_native_2x_inputs_streamed", track_streamed_prepare
+    )
+
+    tiled_runner_calls = []
+    original_tiled_runner = runner.run_tiled_candidates
+
+    def track_tiled_runner(*args, **kwargs):
+        tiled_runner_calls.append(Path(args[0]))
+        return original_tiled_runner(*args, **kwargs)
+
+    monkeypatch.setattr(runner, "run_tiled_candidates", track_tiled_runner)
+
+    result = bridge.maybe_run_four_engine_assist(
+        source, baseline, resize_mode="stretch"
+    )
+
+    assert streamed_prepare_calls == [source]
+    assert tiled_runner_calls, "large bridge must route through disk-backed native tiles"
+    assert result["completed_engine_count"] == 4
+    assert result["fusion_implemented"] is True
+    assert result["v2_output_preserved"] is True
+    assert result["quality_certified"] is False
+
+    qa = Path(result["four_engine_fusion_output"])
+    assert qa.is_file()
+    assert ".V211-4AI-QA-" in qa.name
+    with Image.open(qa) as preview:
+        assert preview.size == (256, 256)
+        assert preview.mode == "RGB"
+        assert preview.info.get("icc_profile") == profile
+        assert preview.info.get("dpi")[0] == pytest.approx(300, abs=0.1)
+    assert baseline.read_bytes() == original_v2
