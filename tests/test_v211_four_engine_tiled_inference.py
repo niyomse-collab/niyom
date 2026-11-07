@@ -32,6 +32,36 @@ def _processors(*, drop_alpha=False, corrupt_right_seam=False):
     return {name: process for name in ENGINES}
 
 
+def test_tiled_runner_reserves_all_candidate_and_fusion_disk_before_native_launch(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import tools.v211_four_engine_tiled_inference as tiled
+
+    source = tmp_path / "source.png"
+    Image.new("RGB", (64, 64), (20, 40, 60)).save(source)
+    v2 = tmp_path / "v2.png"
+    Image.new("RGB", (128, 128), (20, 40, 60)).save(v2)
+    raw_bytes = 128 * 128 * 3
+    # Enough for the old two-raster check, but not for four candidate
+    # rasters plus the raw fusion and atomic PNG workspace.
+    monkeypatch.setattr(
+        tiled.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=64 * 1024 * 1024 + raw_bytes * 5),
+    )
+    calls = []
+    processors = {name: lambda _src, _dst: calls.append(name) for name in ENGINES}
+    output = tmp_path / "low-disk-output"
+
+    with pytest.raises(RuntimeError, match="four native candidates and fusion workspace"):
+        run_tiled_candidates(
+            source, v2, output, (128, 128), processors,
+            tile_size=64, overlap=8,
+        )
+
+    assert calls == []
+    assert not output.exists()
+
+
 def test_tiled_native_candidates_stitch_exact_2x_pixels_and_metadata(tmp_path):
     pytest.importorskip("pyvips")
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
