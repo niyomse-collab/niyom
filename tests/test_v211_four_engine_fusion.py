@@ -427,20 +427,67 @@ def test_fusion_rejects_pixels_above_streaming_safety_limit_from_header(tmp_path
     assert oversized.stat().st_size == 33
 
 
-def test_large_rgba_fusion_remains_fail_closed_until_alpha_validation_streams(tmp_path):
-    src, _v2, candidates = _fixture(tmp_path, rgba=True)
-    large = tmp_path / "large-rgba-v2.png"
+def test_large_rgba_fusion_streams_alpha_and_rejects_mismatch_without_full_decode(
+    tmp_path, monkeypatch
+):
+    """A real >18 MP RGBA raster uses bounded libvips reads for validation/fusion."""
+    pyvips = pytest.importorskip("pyvips")
+    from tools import v211_four_engine_fusion as fusion
+
     width, height = 6_000, 4_000
-    Image.new("RGBA", (width, height), (10, 20, 30, 0)).save(large)
+    source = tmp_path / "large-rgba-source.png"
+    v2 = tmp_path / "large-rgba-v2.png"
+
+    def save_solid(path, size, pixel):
+        image = Image.new("RGBA", size, pixel)
+        image.save(path)
+        image.close()
+
+    save_solid(source, (width // 2, height // 2), (10, 20, 30, 0))
+    save_solid(v2, (width, height), (10, 20, 30, 0))
+    candidates = {}
+    for name in ENGINES:
+        path = tmp_path / (name + "-large-rgba.png")
+        save_solid(path, (width, height), (10, 20, 30, 0))
+        candidates[name] = path
+
+    original_load = fusion.PngImagePlugin.PngImageFile.load
+
+    def reject_full_decode(image, *args, **kwargs):
+        if image.size == (width, height):
+            raise AssertionError("large RGBA PNG must be read through libvips regions")
+        return original_load(image, *args, **kwargs)
+
     output = tmp_path / "large-rgba-fusion.png"
+    with monkeypatch.context() as patcher:
+        patcher.setattr(
+            fusion.PngImagePlugin.PngImageFile, "load", reject_full_decode
+        )
+        report = fuse_four_engine_details(source, v2, candidates, output)
 
-    with pytest.raises(RuntimeError, match="RGBA four-engine fusion above 18 MP"):
-        fuse_four_engine_details(src, large, candidates, output)
+    assert report["fusion_implemented"] is True
+    assert report["quality_certified"] is False
+    assert fusion._png_pixel_count_from_header(output) == width * height
+    result = pyvips.Image.new_from_file(str(output), access="random", unlimited=True)
+    region = pyvips.Region.new(result)
+    sample = np.frombuffer(region.fetch(0, 0, 8, 8), dtype=np.uint8).reshape(8, 8, 4)
+    assert np.all(sample[..., 3] == 0)
 
-    assert not output.exists()
-    with Image.open(large) as image:
-        assert image.size == (width, height)
-        assert image.mode == "RGBA"
+    # Even at >18 MP, one changed candidate alpha blocks the QA output.
+    bad = tmp_path / "anime4k-bad-alpha.png"
+    image = Image.new("RGBA", (width, height), (10, 20, 30, 0))
+    image.putpixel((0, 0), (10, 20, 30, 255))
+    image.save(bad)
+    image.close()
+    candidates["anime4k"] = bad
+    rejected = tmp_path / "large-rgba-rejected.png"
+    with monkeypatch.context() as patcher:
+        patcher.setattr(
+            fusion.PngImagePlugin.PngImageFile, "load", reject_full_decode
+        )
+        with pytest.raises(ValueError, match="candidate alpha differs from accepted V2"):
+            fuse_four_engine_details(source, v2, candidates, rejected)
+    assert not rejected.exists()
 
 
 def test_png_fusion_reader_bypasses_global_bomb_threshold_without_mutating_it(tmp_path, monkeypatch):
