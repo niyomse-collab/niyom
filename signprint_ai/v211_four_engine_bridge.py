@@ -340,7 +340,9 @@ def maybe_run_four_engine_assist(
             result, target_size, padded_size, source_size, metadata = execute(output_dir)
             fusion = result.get("four_engine_fusion") or {}
             private_output = None
-            if fusion.get("fusion_implemented") and fusion.get("output"):
+            if (fusion.get("fusion_implemented")
+                    and fusion.get("all_four_engine_pixels_contributed")
+                    and fusion.get("output")):
                 cropped = output_dir / "four_engine_fused_preview_cropped.png"
                 _save_cropped_png(
                     Path(fusion["output"]), cropped,
@@ -359,7 +361,9 @@ def maybe_run_four_engine_assist(
                 if cancel and cancel():
                     raise InterruptedError("Processing stopped by user")
                 fusion = result.get("four_engine_fusion") or {}
-                if fusion.get("fusion_implemented") and fusion.get("output"):
+                if (fusion.get("fusion_implemented")
+                    and fusion.get("all_four_engine_pixels_contributed")
+                    and fusion.get("output")):
                     name = baseline.stem + ".V211-4AI-QA-" + uuid4().hex[:8] + ".png"
                     sidecar = baseline.with_name(name)
                     _save_cropped_png(
