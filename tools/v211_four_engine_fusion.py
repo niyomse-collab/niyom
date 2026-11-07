@@ -127,7 +127,7 @@ def _read_png_header(path: Path) -> tuple[int, int, str, dict]:
                     raise ValueError("PNG dimensions are invalid")
                 if (bit_depth != 8 or color_type not in (2, 6)
                         or compression != 0 or filtering != 0 or interlace not in (0, 1)):
-                    raise ValueError("large four-engine PNG must be 8-bit RGB/RGBA")
+                    raise ValueError("four-engine PNG must be RGB or RGBA 8-bit")
                 mode = "RGBA" if color_type == 6 else "RGB"
                 saw_ihdr = True
                 continue
