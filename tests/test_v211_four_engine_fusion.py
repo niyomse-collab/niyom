@@ -357,20 +357,13 @@ def test_large_rgba_fusion_remains_fail_closed_until_alpha_validation_streams(tm
     src, _v2, candidates = _fixture(tmp_path, rgba=True)
     large = tmp_path / "large-rgba-v2.png"
     width, height = 6_000, 4_000
-    ihdr = (
-        width.to_bytes(4, "big") + height.to_bytes(4, "big")
-        + bytes((8, 6, 0, 0, 0))
-    )
-    chunk = b"IHDR" + ihdr
-    header = (
-        b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big")
-        + chunk + (zlib.crc32(chunk) & 0xFFFFFFFF).to_bytes(4, "big")
-    )
-    large.write_bytes(header)
+    Image.new("RGBA", (width, height), (10, 20, 30, 0)).save(large)
     output = tmp_path / "large-rgba-fusion.png"
 
     with pytest.raises(RuntimeError, match="RGBA four-engine fusion above 18 MP"):
         fuse_four_engine_details(src, large, candidates, output)
 
     assert not output.exists()
-    assert large.read_bytes() == header
+    with Image.open(large) as image:
+        assert image.size == (width, height)
+        assert image.mode == "RGBA"
