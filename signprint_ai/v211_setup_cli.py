@@ -45,6 +45,13 @@ _EXPECTED_DIGEST_FIELDS = {
     "anime4k": "release_sha256",
 }
 
+_EXPECTED_LICENSE_URLS = {
+    "real_esrgan": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/blob/master/LICENSE",
+    "waifu2x": "https://github.com/nihui/waifu2x-ncnn-vulkan/blob/master/LICENSE",
+    "real_cugan": "https://github.com/nihui/realcugan-ncnn-vulkan/blob/master/LICENSE",
+    "anime4k": "https://github.com/TianZerL/Anime4KCPP/blob/master/LICENSE-GPLv3",
+}
+
 
 def preflight_v211_provisioning() -> dict:
     """Validate the frozen installer/provisioner graph without network or writes."""
@@ -74,8 +81,17 @@ def preflight_v211_provisioning() -> dict:
             raise RuntimeError(engine + ": unexpected upstream release pin")
         if not str(package.get("url", "")).startswith("https://github.com/"):
             raise RuntimeError(engine + ": upstream source URL is not official GitHub")
-        if not package.get("license") or not str(package.get("license_url", "")).startswith("https://github.com/"):
-            raise RuntimeError(engine + ": license provenance is incomplete")
+        if (not package.get("license")
+                or package.get("license_url") != _EXPECTED_LICENSE_URLS[engine]):
+            raise RuntimeError(engine + ": upstream license provenance is missing or incorrect")
+        notices = package.get("additional_license_notices", [])
+        if not isinstance(notices, list) or any(
+            not isinstance(item, dict)
+            or not str(item.get("url", "")).startswith("https://github.com/")
+            or not item.get("name")
+            for item in notices
+        ):
+            raise RuntimeError(engine + ": additional license notices are malformed")
         digest_field = _EXPECTED_DIGEST_FIELDS[engine]
         digest = package.get(digest_field)
         if (not isinstance(digest, str) or len(digest) != 64
@@ -87,6 +103,7 @@ def preflight_v211_provisioning() -> dict:
         "engines": sorted(_REQUIRED_ENGINES),
         "release_pins": dict(_EXPECTED_RELEASES),
         "digest_sources": digest_sources,
+        "license_sources": dict(_EXPECTED_LICENSE_URLS),
         "network_started": False,
         "filesystem_modified": False,
     }
