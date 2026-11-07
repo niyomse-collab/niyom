@@ -1,6 +1,6 @@
 """Regression tests for disk-backed four-engine native tile orchestration."""
 import pytest
-from PIL import Image, ImageCms
+from PIL import Image, ImageCms, PngImagePlugin
 import numpy as np
 
 from tools.v211_four_engine_coordinator import ENGINES
@@ -49,10 +49,19 @@ def test_tiled_native_candidates_stitch_exact_2x_pixels_and_metadata(tmp_path):
         expected.save(v2, dpi=(300, 300), icc_profile=profile)
         expected.close()
 
-    result = run_tiled_candidates(
-        source, v2, tmp_path / "candidates", (260, 256), _processors(),
-        tile_size=64, overlap=8,
-    )
+    original_load = PngImagePlugin.PngImageFile.load
+
+    def reject_full_raster_decode(image, *args, **kwargs):
+        if image.size in ((130, 128), (260, 256)):
+            raise AssertionError("native tile path must not decode a full source/V2 raster")
+        return original_load(image, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setattr(PngImagePlugin.PngImageFile, "load", reject_full_raster_decode)
+        result = run_tiled_candidates(
+            source, v2, tmp_path / "candidates", (260, 256), _processors(),
+            tile_size=64, overlap=8,
+        )
 
     assert result["ready_for_fusion_research"] is True
     assert result["native_tiled_inference"]["all_four_engines_completed"] is True
