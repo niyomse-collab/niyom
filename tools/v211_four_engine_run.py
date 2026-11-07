@@ -124,8 +124,8 @@ def _safe_execution_record(record: dict | None) -> dict | None:
     allowed = (
         "status", "process_started", "pid", "exit_code",
         "process_elapsed_ms", "elapsed_ms_total", "failure_type",
-        "tile_count", "tile_seam_count", "tile_seam_max_channel_delta",
-        "tile_process_scope",
+        "tile_count", "tile_process_count", "tile_process_elapsed_ms_total",
+        "tile_seam_count", "tile_seam_max_channel_delta", "tile_process_scope",
     )
     return {key: record[key] for key in allowed if key in record}
 
