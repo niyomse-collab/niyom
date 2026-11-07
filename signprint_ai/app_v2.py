@@ -108,7 +108,7 @@ class App(tk.Tk):
 
     def _offer_v211_four_ai_setup(self):
         """Offer one consented, all-four offline setup; never download on decline."""
-        if self._four_ai_setup_running:
+        if getattr(self, "_four_ai_setup_running", False):
             return
         try:
             from .v211_auto_setup import (
@@ -1435,7 +1435,7 @@ class App(tk.Tk):
             self._events.put(("all_done", stopped, generation))
 
     def start_processing(self):
-        if self._four_ai_setup_running:
+        if getattr(self, "_four_ai_setup_running", False):
             messagebox.showinfo(
                 APP_NAME,
                 "กำลังติดตั้งและตรวจสอบ AI ทั้ง 4 ตัว กรุณารอให้เสร็จก่อนเริ่มงานใหม่",
