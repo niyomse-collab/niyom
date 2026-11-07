@@ -267,3 +267,47 @@ def test_over_18mp_fusion_fails_closed_from_png_header_without_decode(tmp_path):
 
     assert not output.exists()
     assert large.read_bytes() == header
+
+
+
+def test_oversized_source_fails_closed_before_candidate_decode(tmp_path):
+    src, v2, candidates = _fixture(tmp_path)
+    large = tmp_path / "large-source.png"
+    ihdr = (
+        (6_000).to_bytes(4, "big") + (4_000).to_bytes(4, "big")
+        + bytes((8, 2, 0, 0, 0))
+    )
+    chunk = b"IHDR" + ihdr
+    large.write_bytes(
+        b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big")
+        + chunk + (zlib.crc32(chunk) & 0xFFFFFFFF).to_bytes(4, "big")
+    )
+    output = tmp_path / "oversized-source-fusion.png"
+
+    with pytest.raises(RuntimeError, match="source above 18 MP"):
+        fuse_four_engine_details(large, v2, candidates, output)
+
+    assert not output.exists()
+    assert large.stat().st_size == 33
+
+
+def test_oversized_candidate_fails_closed_before_pillow_validation(tmp_path):
+    src, v2, candidates = _fixture(tmp_path)
+    large = tmp_path / "large-anime-candidate.png"
+    ihdr = (
+        (6_000).to_bytes(4, "big") + (4_000).to_bytes(4, "big")
+        + bytes((8, 2, 0, 0, 0))
+    )
+    chunk = b"IHDR" + ihdr
+    large.write_bytes(
+        b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big")
+        + chunk + (zlib.crc32(chunk) & 0xFFFFFFFF).to_bytes(4, "big")
+    )
+    candidates["anime4k"] = large
+    output = tmp_path / "oversized-candidate-fusion.png"
+
+    with pytest.raises(RuntimeError, match="anime4k candidate above 18 MP"):
+        fuse_four_engine_details(src, v2, candidates, output)
+
+    assert not output.exists()
+    assert large.stat().st_size == 33
