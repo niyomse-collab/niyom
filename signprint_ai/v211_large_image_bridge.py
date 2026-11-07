@@ -214,7 +214,7 @@ def prepare_native_2x_inputs_streamed(
                 vscale=contained_height / source_height,
                 kernel="lanczos3",
             )
-            background = list(v2_padded.crop(0, 0, 1, 1).write_to_memory())
+            background = list(v2_padded.crop(0, 0, 1, 1).write_to_memory())[:3]
             seed_rgb = contained.embed(
                 (seed_width - contained_width) // 2,
                 (seed_height - contained_height) // 2,
@@ -300,14 +300,15 @@ def save_cropped_png_streamed(
         region = vips().Region.new(image)
         with tempfile.TemporaryFile(mode="w+b", dir=destination.parent) as raw:
             raw.truncate(row_bytes * height)
-            for y in range(height):
-                if y % 16 == 0:
-                    _check_cancel(cancel_check)
-                row = region.fetch(0, y, width, 1)
-                if len(row) != row_bytes:
-                    raise ValueError("libvips returned an incomplete QA crop row")
+            rows_per_fetch = max(1, min(16, (8 * 1024 * 1024) // row_bytes))
+            for y in range(0, height, rows_per_fetch):
+                _check_cancel(cancel_check)
+                rows = min(rows_per_fetch, height - y)
+                block = region.fetch(0, y, width, rows)
+                if len(block) != row_bytes * rows:
+                    raise ValueError("libvips returned an incomplete QA crop block")
                 raw.seek(y * row_bytes)
-                raw.write(row)
+                raw.write(block)
             _write_streamed_png(
                 raw, temporary, target_size, mode, metadata, cancel_check
             )
