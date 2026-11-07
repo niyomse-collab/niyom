@@ -393,6 +393,12 @@ def test_runner_uses_disk_backed_native_tiles_for_large_png_jobs(tmp_path, monke
     assert report["native_tiled_inference"]["implemented"] is True
     assert report["native_tiled_inference"]["all_four_engines_completed"] is True
     assert report["completed_engine_count"] == 4
+    for name in ENGINES:
+        process = report["engine_execution"][name]["process"]
+        assert process["tile_count"] == 1
+        assert process["tile_process_count"] == 1
+        assert process["tile_process_scope"] == "all_tiles_aggregated"
+        assert process["tile_process_elapsed_ms_total"] >= 0
     assert report["fusion_implemented"] is True
     assert report["quality_certified"] is False
     assert report["three_engine_priority_preview"]["status"] == "skipped_large_tiled_job"
