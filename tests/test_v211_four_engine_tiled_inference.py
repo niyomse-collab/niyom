@@ -151,7 +151,7 @@ def test_tiled_native_cancellation_removes_all_candidate_and_temp_files(tmp_path
 
 @pytest.mark.parametrize(
     "source_size,target_size",
-    [((64, 64), (256, 256)), ((64, 64), (128, 64)), ((64, 64), (128, 128))],
+    [((64, 64), (256, 256)), ((64, 64), (128, 64))],
 )
 def test_tiled_native_rejects_non_single_2x_geometry_before_processor(
     tmp_path, source_size, target_size
@@ -164,10 +164,6 @@ def test_tiled_native_rejects_non_single_2x_geometry_before_processor(
     processors = {
         name: lambda src, dst: calls.append(name) for name in ENGINES
     }
-    if target_size == (128, 128):
-        # Exact 2x is valid; the other two parameter cases are not.
-        pytest.importorskip("pyvips")
-        return
     with pytest.raises(ValueError, match="exact 2x"):
         run_tiled_candidates(
             source, v2, tmp_path / "rejected", target_size, processors,
