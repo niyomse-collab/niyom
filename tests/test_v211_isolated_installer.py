@@ -1,0 +1,107 @@
+"""Prevent a V2.1.1 experiment from overwriting the accepted V2 installer."""
+from pathlib import Path
+import re
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _setting(text: str, name: str) -> str:
+    match = re.search(r"(?m)^" + re.escape(name) + r"=(.+)$", text)
+    assert match, name + " missing"
+    return match.group(1).strip()
+
+
+def test_experimental_app_id_and_install_folder_differ_from_stable_v2():
+    v2 = (ROOT / "installer_v2.iss").read_text(encoding="utf-8")
+    qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
+    assert _setting(qa, "AppId") != _setting(v2, "AppId")
+    assert _setting(qa, "DefaultDirName") != _setting(v2, "DefaultDirName")
+    assert _setting(qa, "OutputBaseFilename") != _setting(v2, "OutputBaseFilename")
+    assert _setting(qa, "AppName") == "{#MyAppName}"
+    assert "EXPERIMENTAL" in qa
+    assert "DisableDirPage=yes" in qa
+    assert "UsePreviousAppDir=no" in qa
+    assert "NiyomSilpDesignV2" in qa
+    assert "InstalledV2" in qa
+    assert "V2 Stable" in qa
+
+
+def test_v211_build_dispatch_and_workflow_only_publish_unique_installer():
+    ps = (ROOT / "build_windows.ps1").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" /
+                "v211-four-engine-bridge-windows.yml").read_text(encoding="utf-8")
+    assert '$Version -like "2.1.1*"' in ps
+    assert 'installer_v211_experimental.iss' in ps
+    assert 'NiyomSilp-Design-v211-EXPERIMENTAL-Setup' in ps
+    assert 'release/NiyomSilp-Design-v211-EXPERIMENTAL-Setup*' in workflow
+    assert 'release/NiyomSilp-Design-v2-Setup*' not in workflow
+
+
+def test_four_engine_download_requires_affirmative_installer_opt_in():
+    qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
+    app = (ROOT / "signprint_ai" / "app_v2.py").read_text(encoding="utf-8")
+    tasks = qa.split("[Tasks]", 1)[1].split("[Run]", 1)[0]
+    run_section = qa.split("[Run]", 1)[1].split("[Code]", 1)[0]
+    provision_line = next(line for line in run_section.splitlines()
+                          if "GetProvisionParameters" in line)
+    task_line = next(line for line in tasks.splitlines()
+                     if 'Name: "installfourai"' in line)
+    assert "I agree:" in task_line
+    assert "Flags: unchecked" in task_line
+    assert "checkedonce" not in task_line
+    assert "GetProvisionParameters" in provision_line
+    assert "waituntilterminated" in provision_line
+    assert "skipifsilent" not in provision_line
+    assert "Check: ShouldLaunchEditor" in run_section
+    assert "GetCustomSetupExitCode" in qa
+    assert "CurStepChanged" in qa
+    assert "setup-complete.flag" in qa
+    assert "setup-pending.flag" in qa
+    marker_block = qa.split("procedure CurStepChanged", 1)[1].split(
+        "function GetCustomSetupExitCode", 1
+    )[0]
+    assert "CurStep = ssInstall" in marker_block
+    assert "CurStep = ssDone" in marker_block
+    assert "CurStep = ssPostInstall" not in marker_block
+    assert marker_block.index("CurStep = ssInstall") < marker_block.index(
+        "CurStep = ssDone"
+    )
+    assert "ssDone is reached after the [Run] entries have completed" in qa
+    assert "ForceDirectories(ExtractFileDir(FourAIPendingMarker()))" in marker_block
+    assert marker_block.index("ForceDirectories(") < marker_block.index(
+        "SaveStringToFile(FourAIPendingMarker()"
+    )
+    assert "FourAISetupArmed" in qa
+    assert "provision_after_consent" not in app
+    assert "_offer_v211_four_ai_setup" not in app
+
+
+def test_installer_silent_mode_is_noninteractive_but_still_provisions():
+    qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
+    cli = (ROOT / "signprint_ai" / "v211_setup_cli.py").read_text(encoding="utf-8")
+    assert "if WizardSilent then" in qa
+    assert " --silent" in qa
+    assert "def main(*, silent: bool = False)" in cli
+    assert "if silent:" in cli
+    assert "installer-setup.log" in cli
+
+
+def test_frozen_spec_installs_basicsr_compat_before_static_package_discovery():
+    spec = (ROOT / "NiyomsilV2ArmCore.spec").read_text(encoding="utf-8")
+    alias = '"torchvision.transforms.functional_tensor"'
+    registration = "sys.modules[_compat_name] = _compat_module"
+    discovery_import = (
+        "from tools.v211_frozen_imports import discover_package_modules"
+    )
+
+    assert "from torchvision.transforms.functional import rgb_to_grayscale" in spec
+    assert alias in spec
+    assert registration in spec
+    # The analysis-process alias must exist before our static filesystem scan
+    # imports the package-discovery helper. PyInstaller's collect_submodules()
+    # uses an isolated interpreter and is deliberately not used in this spec.
+    assert spec.index(registration) < spec.index(discovery_import)
+    assert "discover_package_modules(Path(package_spec.origin).parent, package)" in spec
+    assert '"tools.v211_four_engine_tiled_inference"' in spec
+    assert "collect_submodules(" not in spec
+    assert 'runtime_hooks=[str(ROOT / "pyi_rth_basicsr_compat.py")]' in spec

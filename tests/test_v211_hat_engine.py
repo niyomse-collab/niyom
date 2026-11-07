@@ -31,27 +31,18 @@ def test_hat_4x_output_contract_and_2x_resample():
         _downsample_4x(pixels, 4, 9, 10)
 
 
-def test_hat_branch_does_not_instantiate_default_esrgan(monkeypatch):
-    from signprint_ai import v211_hat_engine
+def test_retired_hat_model_rejected_before_loading_models():
     from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
-    selected = SimpleNamespace(name="CPU", device_id="cpu", backend="CPU")
-    class Placeholder:
-        def __init__(self, device):
-            self.selected = device
-    monkeypatch.setattr(v211_hat_engine, "HATModelEngine", Placeholder)
-    def forbidden_engine(_):
-        raise AssertionError("V2 ESRGAN initialized despite selecting HAT")
     adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
     adapter.engine_manager = SimpleNamespace(
-        device_manager=SimpleNamespace(get_default_device=lambda: selected),
-        create_engine=forbidden_engine, engine=None,
+        create_engine=lambda _: pytest.fail("retired HAT triggered V2 engine"),
+        engine=None,
     )
     settings = SimpleNamespace(device="AUTO", v211_photo_model="hat",
                                graphic_ai=False, text_graphic_boost=0,
                                face_protection=False)
-    result = adapter.create_job_engine(settings)
-    assert isinstance(result, Placeholder)
-    assert adapter.engine_manager.engine is result
+    with pytest.raises(ValueError, match="unknown photo model"):
+        adapter.create_job_engine(settings)
 
 
 def test_unknown_super_model_does_not_silently_use_old_core():

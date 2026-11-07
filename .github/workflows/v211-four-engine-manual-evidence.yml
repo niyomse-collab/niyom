@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: feature/v2.1.1-super-ai
+          ref: work/v211-four-engine-v2-bridge-20261103
           persist-credentials: false
       - uses: actions/setup-python@v5
         with:

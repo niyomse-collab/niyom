@@ -41,10 +41,29 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
             for key in ("source_url", "license_name", "license_url")
         ):
             raise ValueError(engine + ": source_url, license_name and license_url provenance required")
+        additional_notices = provenance.get("additional_license_notices", [])
+        if not isinstance(additional_notices, list) or any(
+            not isinstance(notice, dict)
+            or not isinstance(notice.get("name"), str) or not notice["name"].strip()
+            or not isinstance(notice.get("url"), str) or not notice["url"].strip()
+            for notice in additional_notices
+        ):
+            raise ValueError(engine + ": additional license notices must include name and URL")
         _verify_hash(executable, item.get("executable_sha256"), engine)
+        # Anime4KCPP v3.2.0 implements its algorithms in the shipped CLI.
+        # Its official Windows archive has no separate .bin/.param model
+        # weights; verification is anchored to the executable SHA-256 instead.
+        # Never silently grant this exemption to a different engine.
+        embedded_algorithm = item.get("embedded_algorithm") is True
+        if embedded_algorithm and engine != "anime4k":
+            raise ValueError(engine + ": embedded algorithm exemption forbidden")
         assets = item.get("model_assets", [])
-        if not isinstance(assets, list) or not assets or not all(isinstance(a, str) or (isinstance(a, dict) and isinstance(a.get('path'), str)) for a in assets):
-            raise ValueError(engine + ": real model assets must be declared")
+        if not isinstance(assets, list) or not all(
+            isinstance(a, dict) and isinstance(a.get("path"), str) for a in assets
+        ):
+            raise ValueError(engine + ": model assets must be individual files with SHA256")
+        if (not assets and not embedded_algorithm) or (assets and embedded_algorithm):
+            raise ValueError(engine + ": verified model assets required unless Anime4KCPP is embedded")
         for asset in assets:
             model = Path(asset['path'] if isinstance(asset, dict) else asset)
             if not model.is_absolute() or not model.exists():

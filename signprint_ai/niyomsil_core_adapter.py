@@ -51,9 +51,8 @@ class NiyomSilpCoreAdapter:
     def selected_model_available(self, model_name: str = "real_esrgan") -> bool:
         """Check the chosen model, not an unrelated mandatory ESRGAN weight.
 
-        This is a lightweight presence preflight for the desktop UI. HAT still
-        verifies SHA-256, architecture and runtime dependencies when loaded;
-        a file on disk does not imply a working or licensed model.
+        This lightweight preflight checks availability for the selected V2 engine;
+        a checkpoint on disk does not by itself prove licensed inference.
         """
         if model_name == "real_esrgan":
             return self.available
@@ -64,17 +63,18 @@ class NiyomSilpCoreAdapter:
             except (OSError, RuntimeError):
                 return False
         if model_name in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
+            # An arbitrary file called NAFNet-GoPro-width64.pth is NOT a
+            # valid model. Verify the expected full SHA256 before enabling
+            # optional photo deblur in the UI; do not allow a late crash.
             try:
-                from .v211_nafnet_deblur import nafnet_checkpoint_path
-                return self.available and nafnet_checkpoint_path().is_file()
-            except (OSError, RuntimeError):
-                return False
-        if model_name in ("hat", "v2_hat_assist"):
-            try:
-                from .v211_hat_engine import checkpoint_path
-                hat_ready = checkpoint_path().is_file()
-                return hat_ready and (self.available if model_name == "v2_hat_assist" else True)
-            except (OSError, RuntimeError):
+                if not self.available:
+                    return False
+                from .v211_nafnet_deblur import (
+                    nafnet_checkpoint_path, verify_nafnet_checkpoint
+                )
+                verify_nafnet_checkpoint(nafnet_checkpoint_path())
+                return True
+            except (OSError, RuntimeError, ValueError):
                 return False
         raise ValueError("V2.1.1: unknown photo model: " + str(model_name))
 
@@ -83,35 +83,7 @@ class NiyomSilpCoreAdapter:
 
     def create_job_engine(self, settings):
         selected_model = getattr(settings, "v211_photo_model", "real_esrgan")
-        if selected_model == "hat":
-            from .v211_hat_engine import HATModelEngine
-            device_manager = self.engine_manager.device_manager
-            selected = (device_manager.get_default_device() if settings.device == "AUTO"
-                        else device_manager.get_device(settings.device))
-            engine = HATModelEngine(selected)
-            self.engine_manager.engine = engine
-        elif selected_model == "v2_hat_assist":
-            # V2 remains the *primary* neural processor. HAT sees the same
-            # input, and its bounded detail augments the V2 output; it never
-            # replaces V2 image geometry, colour, or the GFPGAN face pass.
-            from .v211_hat_engine import HATModelEngine
-            from .v211_hat_assist import HATAssistEngine
-            v2_engine = self.engine_manager.create_engine(settings.device)
-            base = v2_engine
-            if getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0:
-                from .v21_graphics_ai import GraphicDetailEngine
-                base = GraphicDetailEngine(
-                    base, settings.text_graphic_boost / 100.,
-                    settings.face_regions if settings.face_protection else ()
-                )
-            assist = HATModelEngine(v2_engine.selected)
-            engine = HATAssistEngine(
-                base, assist,
-                strength=float(getattr(settings, "v211_hat_assist_strength", 0.85)),
-                protected_regions=(settings.face_regions if settings.face_protection else ())
-            )
-            return engine
-        elif selected_model in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
+        if selected_model in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
             # Motion deblurring occurs on the original source, BEFORE the
             # approved V2 Real-ESRGAN upscaler and untouched GFPGAN face pass.
             # This is opt-in and never runs a second time on an 8x intermediate.
@@ -276,10 +248,54 @@ class NiyomSilpCoreAdapter:
                 )
             large_result = process_large(
                 self, src, dst, settings, source_size, target_size,
-                model_scale, progress, cancel, use_ai
+                model_scale, progress, cancel, use_ai, complete_progress=False
             )
             if photo_preflight is not None:
                 large_result["photo_preflight"] = photo_preflight
+
+            # V2's disk-tile path is selected for memory safety, not because
+            # the already-saved raster is too large for every auxiliary job.
+            # Reuse the same isolated bridge after V2 completes when both the
+            # source and final raster fit its explicit 18MP Pillow budget.
+            if use_ai and model_scale > 1:
+                from .v211_four_engine_bridge import (
+                    AUXILIARY_MAX_PIXELS, maybe_run_four_engine_assist
+                )
+                source_pixels = math.prod(source_size)
+                target_pixels = math.prod(target_size)
+                if max(source_pixels, target_pixels) > AUXILIARY_MAX_PIXELS:
+                    large_result["four_engine_research"] = {
+                        "status": "large_image_tiling_pending",
+                        "four_engines_applied": False,
+                        "source_pixels": source_pixels,
+                        "target_pixels": target_pixels,
+                        "v2_output_preserved": True,
+                        "quality_certified": False,
+                    }
+                else:
+                    face_info = large_result.get("face_protection") or {}
+                    mapped_faces = ()
+                    selected_faces = getattr(settings, "face_regions", ()) or ()
+                    if face_info.get("applied") and selected_faces:
+                        from .face_module.detection import map_regions
+                        mapped_faces = tuple(map_regions(
+                            tuple(selected_faces), source_size, target_size,
+                            settings.resize_mode,
+                        ))
+                    large_result["four_engine_research"] = maybe_run_four_engine_assist(
+                        src, dst, use_ai=use_ai, cancel=cancel,
+                        protected_regions=mapped_faces,
+                        preserve_all_v2_faces=bool(
+                            face_info.get("applied") and not mapped_faces
+                        ),
+                        progress=progress,
+                        resize_mode=settings.resize_mode,
+                    )
+            else:
+                large_result["four_engine_research"] = None
+
+            if progress:
+                progress(100, "เสร็จแล้ว")
             return large_result
 
         # Only small images reach Pillow. Large masters must use libvips for
@@ -287,6 +303,11 @@ class NiyomSilpCoreAdapter:
         # Pillow's decompression-bomb guard on legitimate print files.
         with Image.open(src) as source_image:
             oriented = ImageOps.exif_transpose(source_image)
+            # Pixel operations and native upscalers do not perform a colour
+            # space transform. Keep the source ICC bytes attached to the V2
+            # raster so the durable PNG and the later four-engine QA path do
+            # not silently become untagged RGB.
+            source_icc_profile = oriented.info.get("icc_profile")
             has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
             source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
 
@@ -466,6 +487,10 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
+        # The accepted V2 raster is saved first. The optional four-engine
+        # bridge runs only against that durable PNG and can create a separate
+        # QA sidecar; it never changes the in-memory or on-disk V2 deliverable.
+        four_engine_evidence = None
         if progress:
             progress(96, "Save Output")
 
@@ -474,12 +499,13 @@ class NiyomSilpCoreAdapter:
         # RGB PNG stays pixel-identical to the final core result. CMYK/ICC and
         # alternate file formats are export-only operations after AI processing.
         if settings.color_mode.upper() == "RGB" and dst.suffix.lower() == ".png":
-            output.save(
-                dst,
-                format="PNG",
-                dpi=(settings.dpi, settings.dpi),
-                compress_level=3,
-            )
+            png_options = {
+                "dpi": (settings.dpi, settings.dpi),
+                "compress_level": 3,
+            }
+            if source_icc_profile:
+                png_options["icc_profile"] = source_icc_profile
+            output.save(dst, format="PNG", **png_options)
         else:
             # Pass transparency as an explicit channel. Treating an RGBA
             # ndarray as RGB silently dropped or misread alpha in TIFF export.
@@ -498,6 +524,34 @@ class NiyomSilpCoreAdapter:
                 dpi=settings.dpi,
                 color_mode=settings.color_mode,
                 icc_profile_path=settings.icc_profile_path,
+            )
+
+        # Four native engines are now launched only AFTER the accepted V2 file
+        # is safely written. Their result is a distinct local QA sidecar, never
+        # a replacement for V2. Unsupported scale/format and cancellation are
+        # reported without undoing the completed V2 export.
+        if use_ai and model_scale > 1:
+            from .v211_four_engine_bridge import maybe_run_four_engine_assist
+            mapped_faces = ()
+            if face_info.get("applied") and getattr(settings, "face_regions", None):
+                # Fusion runs on the final V2 target raster, after fit/stretch
+                # has been applied. Map source-space ROIs to that exact canvas
+                # so letterboxing cannot move the face-protection mask.
+                from .face_module.detection import map_regions
+                mapped_faces = tuple(
+                    map_regions(
+                        tuple(settings.face_regions),
+                        source_size,
+                        target_size,
+                        settings.resize_mode,
+                    )
+                )
+            four_engine_evidence = maybe_run_four_engine_assist(
+                src, dst, use_ai=use_ai, cancel=cancel,
+                protected_regions=mapped_faces,
+                preserve_all_v2_faces=bool(face_info.get("applied") and not mapped_faces),
+                progress=progress,
+                resize_mode=settings.resize_mode,
             )
 
         if progress:
@@ -524,10 +578,19 @@ class NiyomSilpCoreAdapter:
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",
-            "model": ("V2 RealESRGAN_x4plus + NAFNet photo-only deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_photo_only" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + NAFNet GoPro deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + SwinIR pre-denoise" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1 else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus"))))),
+            "model": (
+                "V2 RealESRGAN_x4plus + NAFNet photo-only deblur"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_photo_only" and use_ai and model_scale > 1
+                else "V2 RealESRGAN_x4plus + NAFNet GoPro deblur"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" and use_ai and model_scale > 1
+                else "V2 RealESRGAN_x4plus + SwinIR pre-denoise"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1
+                else "RealESRGAN_x4plus"
+            ),
             "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
             "photo_preflight": photo_preflight,
+            "four_engine_research": four_engine_evidence,
             "verified_exact_text": None,  # image-only: no raster text rewriting
         }

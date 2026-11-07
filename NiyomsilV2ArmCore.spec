@@ -2,9 +2,30 @@
 import importlib.util
 import importlib.metadata
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_submodules
+import sys
+import types
+
+# PyInstaller runs this spec in its analysis process; packaged runtime hooks
+# execute later and cannot repair imports needed during analysis. BasicSR 1.4.2
+# still imports TorchVision's removed functional_tensor path, so install the
+# narrow rgb_to_grayscale compatibility alias before static package discovery.
+try:
+    from torchvision.transforms.functional import rgb_to_grayscale
+except Exception as exc:
+    raise RuntimeError(
+        "TorchVision compatibility import required for BasicSR packaging"
+    ) from exc
+
+_compat_name = "torchvision.transforms.functional_tensor"
+if _compat_name not in sys.modules:
+    _compat_module = types.ModuleType(_compat_name)
+    _compat_module.rgb_to_grayscale = rgb_to_grayscale
+    sys.modules[_compat_name] = _compat_module
 
 ROOT = Path(SPECPATH).resolve()
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from tools.v211_frozen_imports import discover_package_modules
 
 hiddenimports = [
     "_tkinter",
@@ -18,15 +39,35 @@ hiddenimports = [
     "realesrgan.archs.srvgg_arch",
     "pyvips",
     "_libvips",
+    # Included for the explicit V2.1.1 research opt-in; not activated by default.
+    "signprint_ai.v211_four_engine_bridge",
+    "signprint_ai.v211_background_fusion",
+    "tools.v211_four_engine_run",
+    "tools.v211_four_engine_coordinator",
+    "tools.v211_four_engine_subprocess",
+    "tools.v211_real_engine_manifest",
+    "tools.v211_four_engine_safe_selection",
+    "tools.v211_three_engine_priority_preview",
+    "tools.v211_four_engine_fusion",
+    "tools.v211_four_engine_tiled_inference",
+    "signprint_ai.v211_auto_setup",
+    "signprint_ai.v211_setup_cli",
+    "tools.v211_official_assets_audit",
+    "tools.v211_provision_four_engines",
+    "tools.v211_shop_gpu_diagnostic",
+    "tools.v211_gpu_device_binding",
 ]
 # BasicSR discovers several modules dynamically (including basicsr.ops).
-# Freeze the complete Python module graph so the packaged EXE does not fail
-# at runtime with missing fused_act/upfirdn2d or another dynamically imported
-# BasicSR module.
-hiddenimports += collect_submodules("basicsr")
-hiddenimports += collect_submodules("realesrgan")
-hiddenimports += collect_submodules("gfpgan")
-hiddenimports += collect_submodules("facexlib")
+# Do not use collect_submodules here: PyInstaller executes that helper in an
+# isolated interpreter, which does not inherit the analysis-process alias above.
+# Static filesystem discovery preserves the full module graph without importing
+# BasicSR during collection; the runtime hook supplies the legacy import alias.
+for package in ("basicsr", "realesrgan", "gfpgan", "facexlib"):
+    package_spec = importlib.util.find_spec(package)
+    if package_spec is None or not package_spec.origin:
+        raise RuntimeError("Required package not found: " + package)
+    hiddenimports += discover_package_modules(Path(package_spec.origin).parent, package)
+hiddenimports = sorted(set(hiddenimports))
 
 dynamic_files = []
 for package, folders in {

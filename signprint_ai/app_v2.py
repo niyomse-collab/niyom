@@ -101,6 +101,8 @@ class App(tk.Tk):
         self.after(80, self._drain_events)
         self.after(1000, self._tick_elapsed)
         self._set_status("พร้อมใช้งาน")
+        # Four-engine provisioning is completed by the experimental installer.
+        # Opening the image editor never triggers downloads or consent prompts.
 
     def _pick_ui_font(self) -> str:
         """Choose a Thai-friendly Windows UI font and avoid italic fallback."""
@@ -1392,18 +1394,51 @@ class App(tk.Tk):
                   else "real_esrgan")
         )
         if requested_scale > 1 and not self.pipeline.selected_model_available(chosen_model):
-            guidance = (
-                "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\n\n"
-                "โปรดติดตั้งโมเดลเสริมเฉพาะที่ต้องใช้ ไม่ดาวน์โหลดอัตโนมัติ"
-                if chosen_model == "v2_swinir_pre" else
-                "V2 + NAFNet Deblur ต้องมี Real-ESRGAN ของ V2 และ NAFNet GoPro ที่ตรวจสอบ SHA-256 แล้ว\n\n"
-                "ตัวนี้ใช้กับภาพถ่ายเบลอเท่านั้น; ไม่ติดตั้งน้ำหนักโมเดลโดยอัตโนมัติ"
-                if chosen_model == "v2_nafnet_deblur" else
-                "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\n\n"
-                "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน"
-            )
-            messagebox.showerror(APP_NAME, guidance)
-            return
+            if chosen_model == "v2_nafnet_deblur":
+                # NAFNet is an unrelated optional photo-deblur checkpoint,
+                # NOT one of the four native AI engines. Do not silently
+                # download its weights, or strand the user at a hard error.
+                from .v211_nafnet_deblur import (
+                    nafnet_checkpoint_path, verify_nafnet_checkpoint
+                )
+                checkpoint = nafnet_checkpoint_path()
+                if not self.pipeline.selected_model_available("real_esrgan"):
+                    messagebox.showerror(
+                        APP_NAME,
+                        "ไม่พบโมเดล Real-ESRGAN หลักของ V2\n\n"
+                        "ต้องซ่อมชุดโมเดล V2 ก่อนเริ่มประมวลผล",
+                    )
+                    return
+                try:
+                    verify_nafnet_checkpoint(checkpoint)
+                    reason = "ไม่สามารถเปิดใช้โหมด NAFNet ได้"
+                except (OSError, RuntimeError, ValueError) as exc:
+                    reason = str(exc)
+                approved = messagebox.askyesno(
+                    APP_NAME,
+                    "โหมด V2 + NAFNet Deblur ยังไม่พร้อมใช้งาน\n"
+                    + reason
+                    + "\n\nตำแหน่งไฟล์ NAFNet ที่ต้องใช้:\n"
+                    + str(checkpoint)
+                    + "\n\nต้องการเปลี่ยนกลับไปใช้ V2 Real-ESRGAN (เดิม) "
+                    "แล้วดำเนินการประมวลผลต่อหรือไม่?\n\n"
+                    "ระบบ AI 4 ตัวแยกจาก NAFNet และจะทำงานเองเมื่อมีโมเดลครบ "
+                    "และไฟล์ตรงเงื่อนไข 2×",
+                )
+                if not approved:
+                    return
+                self.v211_photo_model_var.set("V2 Real-ESRGAN (เดิม)")
+                chosen_model = "real_esrgan"
+            else:
+                guidance = (
+                    "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\n\n"
+                    "โปรดติดตั้งโมเดลเสริมเฉพาะที่ต้องใช้ ไม่ดาวน์โหลดอัตโนมัติ"
+                    if chosen_model == "v2_swinir_pre" else
+                    "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\n\n"
+                    "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน"
+                )
+                messagebox.showerror(APP_NAME, guidance)
+                return
         if self.color_mode_var.get() == "CMYK":
             if self.format_var.get() == "PNG":
                 messagebox.showerror(
@@ -1553,6 +1588,15 @@ class App(tk.Tk):
                     _, generation, preview_index, error = ev
                     if generation == self._preview_generation and preview_index == self.current_index:
                         self.right_caption.configure(text="Preview ผิดพลาด: " + error)
+                elif kind == "four_ai_setup_done":
+                    self._set_status("AI 4 ตัวติดตั้งและตรวจ SHA-256 ครบ • ใช้งานออฟไลน์ได้ • ยังต้องทดสอบคุณภาพภาพจริง")
+                elif kind == "four_ai_setup_failed":
+                    self._set_status("ติดตั้ง AI 4 ตัวไม่สำเร็จ • V2 เดิมยังใช้งานได้")
+                    messagebox.showwarning(
+                        "V2.1.1 · AI 4 ตัว",
+                        "ยังไม่สามารถติดตั้ง AI ทั้ง 4 ตัวได้\n" + str(ev[1])[:320]
+                        + "\n\nงาน V2 เดิมไม่ถูกเปลี่ยน",
+                    )
                 elif kind == "result_done":
                     _, idx, path, result = ev
                     face = result.get("face_protection") or {}
@@ -1579,8 +1623,41 @@ class App(tk.Tk):
                         self.tree.item(str(idx), values=vals)
 
                     if idx == self.current_index:
-                        self._last_result = Path(path)
+                        four_ai = result.get("four_engine_research") or {}
+                        qa_file = four_ai.get("four_engine_fusion_output")
+                        show_ai_preview = bool(qa_file and Path(qa_file).is_file())
+                        # Display the real combined four-AI pixels on the right
+                        # only after all candidate processes and fusion succeed.
+                        # The saved V2 print export remains at the chosen path.
+                        self._last_result = Path(qa_file) if show_ai_preview else Path(path)
                         caption = f"ผลลัพธ์จริง: {result['output_size'][0]:,} × {result['output_size'][1]:,} px"
+                        if show_ai_preview:
+                            if four_ai.get("status") == "four_engine_fusion_contribution_incomplete":
+                                caption += " • QA ยังไม่ครบ 4 ตัว: มี Engine ที่ไม่เปลี่ยนพิกเซลผลลัพธ์ • ไฟล์ V2 เดิมยังอยู่"
+                            else:
+                                caption += " • ตัวอย่าง AI 4 ตัวมีผลต่อพิกเซลแล้ว (QA) • ไฟล์ V2 เดิมยังอยู่ ไม่ใช่ผลรับรองคุณภาพ"
+                        elif four_ai.get("status") == "four_engine_applied_to_v2_raster":
+                            caption += " • AI 4 ตัวเสริมผลลัพธ์แล้ว (ยังไม่รับรองคุณภาพ)"
+                        elif four_ai.get("status") == "models_not_installed":
+                            caption += " • AI 4 ตัว: ยังไม่มีโมเดลที่ติดตั้งสำหรับ V2.1.1"
+                        elif four_ai.get("status") == "face_protection_v2_only":
+                            caption += " • AI 4 ตัว: ข้ามเพื่อปกป้องใบหน้าเมื่อไม่มีขอบเขตใบหน้าที่ยืนยัน • ใช้ภาพ V2 เดิม"
+                        elif four_ai.get("status") == "large_image_tiling_pending":
+                            caption += " • AI 4 ตัว: งานใหญ่ยังไม่รองรับ • ใช้ภาพ V2 เดิม"
+                        elif four_ai.get("status") == "cancelled":
+                            caption += " • AI 4 ตัว: ยกเลิกแล้ว • ไฟล์ V2 เดิมยังอยู่"
+                        elif four_ai.get("status") in (
+                            "auxiliary_image_too_large", "auxiliary_engine_scale_mismatch",
+                            "unsupported_output_format", "unsupported_source_format",
+                            "unsupported_source_mode", "unsupported_colour_mode",
+                        ):
+                            caption += " • AI 4 ตัว: สเกล/รูปแบบนี้ยังไม่รองรับ • ใช้ภาพ V2 เดิม"
+                        elif four_ai.get("status") in (
+                            "error", "incomplete_four_engine_candidates",
+                            "candidate_research_complete", "four_engine_error",
+                            "four_engine_incomplete", "four_engine_no_pixel_effect",
+                        ):
+                            caption += " • AI 4 ตัว: ยังไม่สร้าง QA ครบ • ใช้ภาพ V2 เดิม"
                         if result["output_size"][0] < result["original_size"][0] or result["output_size"][1] < result["original_size"][1]:
                             caption += " • ลดพิกเซลตามขนาด/DPI ที่ตั้ง"
                         if face.get("enabled"):
