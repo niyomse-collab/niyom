@@ -130,7 +130,7 @@ def _prepare_native_2x_inputs(
             # silently reinterpret customer RGB values during auxiliary fusion.
             if source_icc != metadata.get("icc_profile"):
                 raise ValueError(
-                    "source ICC presence/content differs from the accepted V2 profile; "
+                    "source ICC differs in presence or content from the accepted V2 profile; "
                     "keep the approved V2 output without auxiliary fusion"
                 )
 
