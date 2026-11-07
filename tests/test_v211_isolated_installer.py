@@ -105,3 +105,14 @@ def test_frozen_spec_installs_basicsr_compat_before_static_package_discovery():
     assert '"tools.v211_four_engine_tiled_inference"' in spec
     assert "collect_submodules(" not in spec
     assert 'runtime_hooks=[str(ROOT / "pyi_rth_basicsr_compat.py")]' in spec
+
+
+def test_frozen_import_smoke_exercises_disk_backed_libvips_region_reader():
+    run = (ROOT / "run.py").read_text(encoding="utf-8")
+    smoke = run.split('if os.environ.get("NIYOMSIL_IMPORT_SMOKE") == "1":', 1)[1]
+    assert "pyvips.Image.new_from_file(" in smoke
+    assert 'access="random"' in smoke
+    assert "pyvips.Region.new(disk_image)" in smoke
+    assert "region.fetch(3, 4, 5, 6)" in smoke
+    assert "bytes(pixels[:3]) == bytes((17, 31, 47))" in smoke
+    assert "del region, disk_image" in smoke
