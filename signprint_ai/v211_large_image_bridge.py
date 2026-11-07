@@ -180,9 +180,11 @@ def prepare_native_2x_inputs_streamed(
         raise ValueError("large four-engine source and V2 must be RGB/RGBA")
     source_icc = source_metadata.get("icc_profile")
     target_icc = metadata.get("icc_profile")
-    if source_icc and source_icc != target_icc:
+    # Missing and embedded profiles are different colour contracts. A
+    # V2-tagged output must not cause an untagged source to inherit that ICC.
+    if source_icc != target_icc:
         raise ValueError(
-            "large four-engine source ICC differs from the accepted V2 profile; "
+            "large four-engine source ICC presence/content differs from the accepted V2 profile; "
             "keep the approved V2 output without auxiliary fusion"
         )
     if resize_mode not in ("fit", "stretch"):
