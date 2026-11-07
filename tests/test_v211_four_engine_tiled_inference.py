@@ -36,21 +36,21 @@ def test_tiled_native_candidates_stitch_exact_2x_pixels_and_metadata(tmp_path):
     pytest.importorskip("pyvips")
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
     source = tmp_path / "source.png"
-    pixels = np.zeros((128, 128, 3), dtype=np.uint8)
-    pixels[..., 0] = np.arange(128, dtype=np.uint8)[None, :]
+    pixels = np.zeros((128, 130, 3), dtype=np.uint8)
+    pixels[..., 0] = np.arange(130, dtype=np.uint8)[None, :]
     pixels[..., 1] = np.arange(128, dtype=np.uint8)[:, None]
     pixels[..., 2] = 73
     Image.fromarray(pixels, "RGB").save(
         source, dpi=(300, 300), icc_profile=profile
     )
     with Image.open(source) as image:
-        expected = image.resize((256, 256), Image.Resampling.NEAREST)
+        expected = image.resize((260, 256), Image.Resampling.NEAREST)
         v2 = tmp_path / "accepted-v2.png"
         expected.save(v2, dpi=(300, 300), icc_profile=profile)
         expected.close()
 
     result = run_tiled_candidates(
-        source, v2, tmp_path / "candidates", (256, 256), _processors(),
+        source, v2, tmp_path / "candidates", (260, 256), _processors(),
         tile_size=64, overlap=8,
     )
 
@@ -65,8 +65,8 @@ def test_tiled_native_candidates_stitch_exact_2x_pixels_and_metadata(tmp_path):
             assert actual.info["dpi"][0] == pytest.approx(300, abs=0.1)
         engine = result["native_tiled_inference"]["engine_results"][name]
         assert engine["status"] == "stitched"
-        assert engine["tile_count"] == 4
-        assert engine["seam_count"] == 4
+        assert engine["tile_count"] == 6
+        assert engine["seam_count"] == 7
         assert engine["seam_validation"] == "passed"
 
 
