@@ -63,6 +63,7 @@ class App(tk.Tk):
         self._syncing_size = False
         self._stop = threading.Event()
         self._events: queue.Queue = queue.Queue()
+        self._four_ai_setup_running = False
 
         # One scheduler owns all full-resolution ARM/Core jobs.  The UI may add
         # files at any time, but we never start a second competing CUDA worker.
@@ -101,8 +102,62 @@ class App(tk.Tk):
         self.after(80, self._drain_events)
         self.after(1000, self._tick_elapsed)
         self._set_status("พร้อมใช้งาน")
-        # Four-engine provisioning is completed by the experimental installer.
-        # Opening the image editor never triggers downloads or consent prompts.
+        # Ask once on first launch only when no verified four-engine manifest
+        # exists. The consent dialog covers all four engines together.
+        self.after(500, self._offer_v211_four_ai_setup)
+
+    def _offer_v211_four_ai_setup(self):
+        """Offer one consented, all-four offline setup; never download on decline."""
+        if self._four_ai_setup_running:
+            return
+        try:
+            from .v211_auto_setup import (
+                needs_initial_setup, record_consent_declined,
+            )
+            if not needs_initial_setup():
+                return
+        except Exception:
+            # Setup discovery must never prevent the accepted V2 editor opening.
+            return
+
+        approved = messagebox.askyesno(
+            APP_NAME,
+            "ติดตั้ง AI เสริมทั้ง 4 ตัวสำหรับ NiyomSilp V2.1.1 หรือไม่?\n\n"
+            "ระบบจะดาวน์โหลดแพ็กเกจจากต้นทางทางการ ตรวจ SHA256 และเก็บไว้ใน "
+            "LOCALAPPDATA เพื่อใช้งานออฟไลน์ครั้งต่อไป\n\n"
+            "ไม่มีการส่งภาพลูกค้าขึ้นอินเทอร์เน็ต และผล AI ทั้ง 4 เป็นภาพ QA "
+            "แยกต่างหาก ไม่เขียนทับไฟล์ V2 ที่ยอมรับแล้ว\n\n"
+            "หากเลือกไม่ติดตั้ง โปรแกรมจะใช้ V2 เดิม และจะไม่ถามซ้ำทุกครั้ง",
+        )
+        if not approved:
+            try:
+                record_consent_declined()
+            except OSError:
+                pass
+            self._set_status("ใช้ V2 เดิม • ยังไม่ได้ติดตั้ง AI เสริม")
+            return
+
+        self._four_ai_setup_running = True
+        self._set_status("กำลังดาวน์โหลดและตรวจสอบ AI ทั้ง 4 • V2 เดิมยังใช้งานได้")
+
+        def worker():
+            try:
+                from .v211_setup_cli import install_for_offline_use
+                install_for_offline_use()
+                self._events.put(("four_ai_setup_done",))
+            except Exception as exc:
+                try:
+                    from .v211_setup_cli import safe_failure_code
+                    code = safe_failure_code(exc)
+                except Exception:
+                    code = "setup_failed"
+                self._events.put(("four_ai_setup_failed", code))
+
+        threading.Thread(
+            target=worker,
+            daemon=True,
+            name="NiyomSilpFourAIProvision",
+        ).start()
 
     def _pick_ui_font(self) -> str:
         """Choose a Thai-friendly Windows UI font and avoid italic fallback."""
@@ -1380,6 +1435,12 @@ class App(tk.Tk):
             self._events.put(("all_done", stopped, generation))
 
     def start_processing(self):
+        if self._four_ai_setup_running:
+            messagebox.showinfo(
+                APP_NAME,
+                "กำลังติดตั้งและตรวจสอบ AI ทั้ง 4 ตัว กรุณารอให้เสร็จก่อนเริ่มงานใหม่",
+            )
+            return
         if not self.files:
             messagebox.showinfo(APP_NAME, "กรุณาเพิ่มภาพก่อน")
             return
@@ -1589,12 +1650,20 @@ class App(tk.Tk):
                     if generation == self._preview_generation and preview_index == self.current_index:
                         self.right_caption.configure(text="Preview ผิดพลาด: " + error)
                 elif kind == "four_ai_setup_done":
+                    self._four_ai_setup_running = False
                     self._set_status("AI 4 ตัวติดตั้งและตรวจ SHA-256 ครบ • ใช้งานออฟไลน์ได้ • ยังต้องทดสอบคุณภาพภาพจริง")
+                    messagebox.showinfo(
+                        "V2.1.1 · AI 4 ตัว",
+                        "ติดตั้งและตรวจสอบ AI ทั้ง 4 ตัวครบแล้ว\n"
+                        "งานประมวลผลครั้งต่อไปจะเรียกใช้ทั้ง 4 ตัวอัตโนมัติเมื่อเข้าเงื่อนไข\n"
+                        "ภาพ QA ยังคงแยกจากไฟล์ V2 และยังไม่ใช่การรับรองคุณภาพ",
+                    )
                 elif kind == "four_ai_setup_failed":
+                    self._four_ai_setup_running = False
                     self._set_status("ติดตั้ง AI 4 ตัวไม่สำเร็จ • V2 เดิมยังใช้งานได้")
                     messagebox.showwarning(
                         "V2.1.1 · AI 4 ตัว",
-                        "ยังไม่สามารถติดตั้ง AI ทั้ง 4 ตัวได้\n" + str(ev[1])[:320]
+                        "ยังไม่สามารถติดตั้ง AI ทั้ง 4 ตัวได้\n" + str(ev[1])[:80]
                         + "\n\nงาน V2 เดิมไม่ถูกเปลี่ยน",
                     )
                 elif kind == "result_done":
