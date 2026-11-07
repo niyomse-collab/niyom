@@ -253,44 +253,30 @@ class NiyomSilpCoreAdapter:
             if photo_preflight is not None:
                 large_result["photo_preflight"] = photo_preflight
 
-            # V2's disk-tile path is selected for memory safety, not because
-            # the already-saved raster is too large for every auxiliary job.
-            # Reuse the same isolated bridge after V2 completes when both the
-            # source and final raster fit its explicit 18MP Pillow budget.
+            # V2's disk-tile path completes and saves the accepted raster first.
+            # The optional four-engine bridge now prepares its own seed/reference
+            # and QA crop with libvips when either raster exceeds 18 MP; V2 remains
+            # the master and the bridge still fails closed on unsupported limits.
             if use_ai and model_scale > 1:
-                from .v211_four_engine_bridge import (
-                    AUXILIARY_MAX_PIXELS, maybe_run_four_engine_assist
+                from .v211_four_engine_bridge import maybe_run_four_engine_assist
+                face_info = large_result.get("face_protection") or {}
+                mapped_faces = ()
+                selected_faces = getattr(settings, "face_regions", ()) or ()
+                if face_info.get("applied") and selected_faces:
+                    from .face_module.detection import map_regions
+                    mapped_faces = tuple(map_regions(
+                        tuple(selected_faces), source_size, target_size,
+                        settings.resize_mode,
+                    ))
+                large_result["four_engine_research"] = maybe_run_four_engine_assist(
+                    src, dst, use_ai=use_ai, cancel=cancel,
+                    protected_regions=mapped_faces,
+                    preserve_all_v2_faces=bool(
+                        face_info.get("applied") and not mapped_faces
+                    ),
+                    progress=progress,
+                    resize_mode=settings.resize_mode,
                 )
-                source_pixels = math.prod(source_size)
-                target_pixels = math.prod(target_size)
-                if max(source_pixels, target_pixels) > AUXILIARY_MAX_PIXELS:
-                    large_result["four_engine_research"] = {
-                        "status": "large_image_tiling_pending",
-                        "four_engines_applied": False,
-                        "source_pixels": source_pixels,
-                        "target_pixels": target_pixels,
-                        "v2_output_preserved": True,
-                        "quality_certified": False,
-                    }
-                else:
-                    face_info = large_result.get("face_protection") or {}
-                    mapped_faces = ()
-                    selected_faces = getattr(settings, "face_regions", ()) or ()
-                    if face_info.get("applied") and selected_faces:
-                        from .face_module.detection import map_regions
-                        mapped_faces = tuple(map_regions(
-                            tuple(selected_faces), source_size, target_size,
-                            settings.resize_mode,
-                        ))
-                    large_result["four_engine_research"] = maybe_run_four_engine_assist(
-                        src, dst, use_ai=use_ai, cancel=cancel,
-                        protected_regions=mapped_faces,
-                        preserve_all_v2_faces=bool(
-                            face_info.get("applied") and not mapped_faces
-                        ),
-                        progress=progress,
-                        resize_mode=settings.resize_mode,
-                    )
             else:
                 large_result["four_engine_research"] = None
 
