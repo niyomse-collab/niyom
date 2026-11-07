@@ -361,11 +361,11 @@ def test_runner_uses_disk_backed_native_tiles_for_large_png_jobs(tmp_path, monke
     monkeypatch.setattr(runner, "MAX_FOUR_ENGINE_PIXELS", 1)
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
     source = tmp_path / "tile-source.png"
-    Image.new("RGB", (8, 8), (25, 70, 115)).save(
+    Image.new("RGB", (64, 64), (25, 70, 115)).save(
         source, dpi=(300, 300), icc_profile=profile
     )
     with Image.open(source) as image:
-        reference_image = image.resize((16, 16), Image.Resampling.NEAREST)
+        reference_image = image.resize((128, 128), Image.Resampling.NEAREST)
         reference = tmp_path / "accepted-v2.png"
         reference_image.save(reference, dpi=(300, 300), icc_profile=profile)
         reference_image.close()
@@ -386,7 +386,7 @@ def test_runner_uses_disk_backed_native_tiles_for_large_png_jobs(tmp_path, monke
     before = reference.read_bytes()
 
     report = runner.run(
-        source, tmp_path / "tiled-run", config, (16, 16),
+        source, tmp_path / "tiled-run", config, (128, 128),
         real_engines=False, v2_reference=reference,
     )
 
