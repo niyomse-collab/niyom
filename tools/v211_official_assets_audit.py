@@ -50,8 +50,14 @@ PACKAGES = {
         "release": "v3.2.0",
         "url": "https://github.com/TianZerL/Anime4KCPP/releases/download/v3.2.0/Anime4KCPP-CLI-v3.2.0-x64-MSVC.zip",
         "release_sha256": "82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19",
-        "license": "GPL-3.0 (no redistribution or installer bundling approved)",
-        "license_url": "https://github.com/TianZerL/Anime4KCPP/blob/master/LICENSE",
+        "license": "GPL-3.0 (CLI/video component; conservatively gated) + MIT (core)",
+        "license_url": "https://github.com/TianZerL/Anime4KCPP/blob/master/LICENSE-GPLv3",
+        "additional_license_notices": [
+            {
+                "name": "Anime4KCPP core MIT license",
+                "url": "https://github.com/TianZerL/Anime4KCPP/blob/master/LICENSE-MIT",
+            },
+        ],
     },
 }
 MAX_ARCHIVE_BYTES = 300 * 1024 * 1024
