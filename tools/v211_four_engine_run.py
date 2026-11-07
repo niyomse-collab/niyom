@@ -258,16 +258,18 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
     source_pixels = _header_pixel_count(source)
     target_pixels = size[0] * size[1]
     large_job = max(source_pixels, target_pixels) > MAX_FOUR_ENGINE_PIXELS
-    if target_pixels > MAX_STREAMED_PIXELS:
-        raise RuntimeError("four-engine target exceeds the safe disk-streaming pixel limit")
+    if source_pixels > MAX_STREAMED_PIXELS or target_pixels > MAX_STREAMED_PIXELS:
+        raise RuntimeError("four-engine source or target exceeds the safe disk-streaming pixel limit")
     if large_job and v2_reference is None:
         raise RuntimeError(
-            "large four-engine inference requires an accepted V2 reference; "
+            "large four-engine inference above 18 MP requires an accepted V2 reference; "
             "continue with the approved V2 large-image pipeline"
         )
     if large_job:
         if source.suffix.lower() != ".png":
             raise RuntimeError("large four-engine tiled inference currently requires a PNG source")
+        if Path(v2_reference).suffix.lower() != ".png":
+            raise RuntimeError("large four-engine tiled inference currently requires a PNG V2 reference")
         with Image.open(source) as source_header:
             channels = 4 if source_header.mode == "RGBA" else 3
         if size[0] * channels > MAX_STREAMED_ROW_BYTES:
