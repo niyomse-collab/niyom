@@ -33,12 +33,12 @@ MAX_DETAIL_CHANGE = 6.0
 def _png_pixel_count_from_header(path: Path) -> int:
     """Read only the PNG signature/IHDR; never decode a large print master."""
     with Path(path).open("rb") as stream:
-        header = stream.read(29)
-    if (len(header) != 29 or header[:8] != b"\\x89PNG\\r\\n\\x1a\\n"
+        header = stream.read(33)
+    if (len(header) != 33 or header[:8] != b"\\x89PNG\\r\\n\\x1a\\n"
             or int.from_bytes(header[8:12], "big") != 13
             or header[12:16] != b"IHDR"):
         raise ValueError("V2 reference must be a valid RGB/RGBA PNG")
-    expected_crc = int.from_bytes(header[25:29], "big")
+    expected_crc = int.from_bytes(header[29:33], "big")
     if (zlib.crc32(header[12:25]) & 0xFFFFFFFF) != expected_crc:
         raise ValueError("V2 PNG IHDR checksum is invalid")
     width = int.from_bytes(header[16:20], "big")
