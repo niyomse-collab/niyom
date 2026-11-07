@@ -125,9 +125,12 @@ def _prepare_native_2x_inputs(
             if source_image.mode not in ("RGB", "RGBA"):
                 raise ValueError("source must be RGB or RGBA for four-engine research")
             source_icc = source_image.info.get("icc_profile")
-            if source_icc and source_icc != metadata.get("icc_profile"):
+            # Missing and embedded profiles are different colour contracts.
+            # Do not attach the V2 ICC to an untagged source seed: that would
+            # silently reinterpret customer RGB values during auxiliary fusion.
+            if source_icc != metadata.get("icc_profile"):
                 raise ValueError(
-                    "source ICC differs from the accepted V2 profile; "
+                    "source ICC presence/content differs from the accepted V2 profile; "
                     "keep the approved V2 output without auxiliary fusion"
                 )
 
