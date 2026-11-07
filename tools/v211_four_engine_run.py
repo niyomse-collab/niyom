@@ -19,7 +19,12 @@ from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand, make_processors
 from tools.v211_real_engine_manifest import load_real_engine_manifest
 from tools.v211_three_engine_priority_preview import PRIMARY_ENGINES, select_three_engine_preview
-from tools.v211_four_engine_fusion import fuse_four_engine_details
+from tools.v211_four_engine_fusion import (
+    MAX_STREAMED_PIXELS,
+    MAX_STREAMED_ROW_BYTES,
+    fuse_four_engine_details,
+)
+from tools.v211_four_engine_tiled_inference import run_tiled_candidates
 
 
 def _sha256(path: Path) -> str:
@@ -119,6 +124,8 @@ def _safe_execution_record(record: dict | None) -> dict | None:
     allowed = (
         "status", "process_started", "pid", "exit_code",
         "process_elapsed_ms", "elapsed_ms_total", "failure_type",
+        "tile_count", "tile_seam_count", "tile_seam_max_channel_delta",
+        "tile_process_scope",
     )
     return {key: record[key] for key in allowed if key in record}
 
@@ -248,19 +255,29 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
     if (not isinstance(size, (tuple, list)) or len(size) != 2
             or any(not isinstance(value, int) or value < 1 for value in size)):
         raise ValueError("four-engine target dimensions must be positive integers")
-    if max(_header_pixel_count(source), size[0] * size[1]) > MAX_FOUR_ENGINE_PIXELS:
+    source_pixels = _header_pixel_count(source)
+    target_pixels = size[0] * size[1]
+    large_job = max(source_pixels, target_pixels) > MAX_FOUR_ENGINE_PIXELS
+    if target_pixels > MAX_STREAMED_PIXELS:
+        raise RuntimeError("four-engine target exceeds the safe disk-streaming pixel limit")
+    if large_job and v2_reference is None:
         raise RuntimeError(
-            "Four-engine native inference above 18 MP is disabled until the "
-            "runner and fusion use disk-backed tile streaming. Continue with "
-            "the approved V2 large-image pipeline; no V2 output was changed."
+            "large four-engine inference requires an accepted V2 reference; "
+            "continue with the approved V2 large-image pipeline"
         )
+    if large_job:
+        if source.suffix.lower() != ".png":
+            raise RuntimeError("large four-engine tiled inference currently requires a PNG source")
+        with Image.open(source) as source_header:
+            channels = 4 if source_header.mode == "RGBA" else 3
+        if size[0] * channels > MAX_STREAMED_ROW_BYTES:
+            raise RuntimeError("four-engine target row exceeds the safe streaming buffer limit")
     if v2_reference is not None:
         reference_size = _header_image_size(Path(v2_reference))
-        if reference_size[0] * reference_size[1] > MAX_FOUR_ENGINE_PIXELS:
+        if reference_size[0] * reference_size[1] > MAX_STREAMED_PIXELS:
             raise RuntimeError(
-                "Four-engine V2 reference above 18 MP is disabled until "
-                "disk-backed tile streaming is implemented; the approved V2 "
-                "large-image output remains untouched."
+                "Four-engine V2 reference exceeds the safe disk-streaming pixel limit; "
+                "the approved V2 large-image output remains untouched."
             )
         if tuple(reference_size) != tuple(size):
             raise ValueError(
@@ -274,6 +291,11 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             raise ValueError(
                 "four-engine fusion requires exact 2x or 4x source geometry; "
                 "native 8x multi-pass is not implemented"
+            )
+        if large_job and tuple(size) != (source_size[0] * 2, source_size[1] * 2):
+            raise ValueError(
+                "large disk-backed native inference currently supports one exact 2x pass; "
+                "4x and 8x multi-pass remain disabled"
             )
         # Reject mismatched RGB/RGBA or ICC before manifest parsing and before
         # any native executable can consume GPU/CPU time on unusable candidates.
@@ -294,10 +316,18 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
     processors = make_processors(
         commands, cancel_check=cancel, execution_records=execution_records
     )
-    result = run_candidates(
-        source, output_dir, size, processors,
-        cancel_check=cancel, progress_callback=progress_callback,
-    )
+    if large_job:
+        result = run_tiled_candidates(
+            source, Path(v2_reference), output_dir, size, processors,
+            cancel_check=cancel,
+            progress_callback=progress_callback,
+            execution_records=execution_records,
+        )
+    else:
+        result = run_candidates(
+            source, output_dir, size, processors,
+            cancel_check=cancel, progress_callback=progress_callback,
+        )
     report = {
         "research_only": True,
         "real_engine_manifest_preflight_passed": real_engines,
@@ -319,6 +349,7 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         "completed_engine_names": [item.engine for item in result["candidates"]],
         "fusion_implemented": False,
         "ready_for_fusion_research": result["ready_for_fusion_research"],
+        "native_tiled_inference": result.get("native_tiled_inference"),
         "quality_certified": False,
         "source_sha256": _sha256(source),
         "candidate_sha256": {item.engine: _sha256(item.path) for item in result["candidates"]},
@@ -332,7 +363,14 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         raise InterruptedError("Processing stopped by user")
     if v2_reference is not None:
         available = {item.engine: item.path for item in result["candidates"]}
-        if set(PRIMARY_ENGINES).issubset(available):
+        if large_job:
+            # This legacy comparison helper decodes full images through Pillow.
+            # The tiled path must not reintroduce an unbounded allocation.
+            report["three_engine_priority_preview"] = {
+                "status": "skipped_large_tiled_job",
+                "reason": "full-image priority preview is not disk-backed",
+            }
+        elif set(PRIMARY_ENGINES).issubset(available):
             try:
                 if cancel and cancel():
                     raise InterruptedError("Processing stopped by user")
