@@ -21,7 +21,7 @@ import warnings
 import zlib
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, PngImagePlugin
 
 from tools.v211_four_engine_coordinator import ENGINES, validate_candidate
 
@@ -69,6 +69,39 @@ def _image_pixel_count_from_header(path: Path) -> int:
                 return image.width * image.height
     except Image.DecompressionBombError:
         return MAX_STREAMED_PIXELS + 1
+
+
+def _open_fusion_image(path: Path):
+    """Open PNG rasters without Pillow's global decompression-bomb ceiling.
+
+    The caller has already validated the PNG signature, IHDR CRC, dimensions,
+    row-buffer and disk-space bounds. Direct PngImageFile construction avoids
+    mutating Image.MAX_IMAGE_PIXELS process-wide; non-PNG inputs keep Pillow's
+    normal safety checks and therefore remain subject to its decompression cap.
+    """
+    path = Path(path)
+    if path.suffix.lower() == ".png":
+        return PngImagePlugin.PngImageFile(path)
+    return Image.open(path)
+
+
+def _validate_fusion_candidate(
+    source: Path, candidate: Path, target_size: tuple[int, int]
+) -> None:
+    """Validate RGB candidates by headers/metadata; RGBA also checks exact alpha."""
+    with _open_fusion_image(source) as original, _open_fusion_image(candidate) as output:
+        if output.size != target_size:
+            raise ValueError("candidate dimensions differ from target")
+        if original.mode not in ("RGB", "RGBA") or output.mode != original.mode:
+            raise ValueError("candidate changed image mode or transparency")
+        if original.info.get("icc_profile") != output.info.get("icc_profile"):
+            raise ValueError("candidate lost or altered ICC profile")
+        if original.mode == "RGBA":
+            if original.width * original.height > MAX_RGBA_VALIDATION_PIXELS:
+                raise RuntimeError(
+                    "large RGBA candidate alpha validation is not disk-backed yet"
+                )
+            validate_candidate(source, candidate, target_size)
 
 
 def _write_png_chunk(stream, kind: bytes, payload: bytes) -> None:
@@ -284,7 +317,7 @@ def fuse_four_engine_details(
     protected_regions = tuple(protected_regions)
 
     with ExitStack() as stack:
-        base = stack.enter_context(Image.open(v2_reference))
+        base = stack.enter_context(_open_fusion_image(v2_reference))
         if base.format != "PNG" or base.mode not in ("RGB", "RGBA"):
             raise ValueError("V2 reference must be RGB/RGBA PNG")
         W, H = base.size
@@ -314,15 +347,15 @@ def fuse_four_engine_details(
             tempfile.TemporaryFile(mode="w+b", dir=output.parent)
         )
         raw.truncate(raw_bytes)
-        with Image.open(source) as original:
+        with _open_fusion_image(source) as original:
             if not any((W, H) == (original.width * scale, original.height * scale) for scale in (2, 4)):
                 raise ValueError("four-engine fusion requires exact 2x or 4x dimensions")
         metadata = {key: base.info[key] for key in ("icc_profile", "dpi") if key in base.info}
         for engine in ENGINES:
-            validate_candidate(source, Path(candidates[engine]), (W, H))
+            _validate_fusion_candidate(source, Path(candidates[engine]), (W, H))
         images = {}
         for engine in ENGINES:
-            image = stack.enter_context(Image.open(candidates[engine]))
+            image = stack.enter_context(_open_fusion_image(candidates[engine]))
             if image.mode != base.mode or image.info.get("icc_profile") != metadata.get("icc_profile"):
                 raise ValueError(engine + ": mode or ICC differs from accepted V2")
             # Normalized ICC is a necessity; DPI will be taken from V2.
