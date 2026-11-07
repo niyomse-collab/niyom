@@ -201,12 +201,15 @@ def test_rgba_disk_backed_fusion_streams_alpha_validation_and_fails_closed(tmp_p
             np.asarray(result.getchannel("A")), v2_pixels[..., 3]
         )
 
-    # A single candidate alpha mismatch blocks the entire QA output.
-    bad = candidates["anime4k"]
-    with Image.open(bad) as candidate:
+    # Use a fresh immutable candidate path: libvips may cache a loader for
+    # an already-open filename, while real engine outputs are unique per run.
+    # Force a value that is guaranteed to differ from the accepted V2 alpha.
+    bad = tmp_path / "anime4k-bad-alpha.png"
+    with Image.open(candidates["anime4k"]) as candidate:
         bad_pixels = np.asarray(candidate).copy()
-    bad_pixels[0, 0, 3] = 0
+    bad_pixels[0, 0, 3] = 255 - int(v2_pixels[0, 0, 3])
     Image.fromarray(bad_pixels, "RGBA").save(bad, dpi=(300, 300))
+    candidates["anime4k"] = bad
     rejected = tmp_path / "rgba-streamed-rejected.png"
     with monkeypatch.context() as patcher:
         patcher.setattr(
