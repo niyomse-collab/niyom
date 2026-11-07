@@ -76,10 +76,13 @@ def test_tiled_runner_rechecks_disk_before_each_remaining_engine(tmp_path, monke
 
     def disk_usage(_path):
         checks["count"] += 1
+        # After engine 0 is saved, 6.5 raster equivalents remain. The old
+        # shrinking formula incorrectly reduced the reserve to 6 and launched
+        # engine 1 even though engine 0's candidate still occupied disk space.
         free = (
             64 * 1024 * 1024 + raw_bytes * 8
             if checks["count"] <= 2
-            else 64 * 1024 * 1024 + raw_bytes * 3
+            else 64 * 1024 * 1024 + raw_bytes * 6 + raw_bytes // 2
         )
         return SimpleNamespace(free=free)
 
@@ -101,6 +104,7 @@ def test_tiled_runner_rechecks_disk_before_each_remaining_engine(tmp_path, monke
     )
 
     assert calls == [ENGINES[0]]
+    assert checks["count"] == 3
     assert result["ready_for_fusion_research"] is False
     assert [item.engine for item in result["candidates"]] == [ENGINES[0]]
     assert set(result["failures"]) == set(ENGINES[1:])
