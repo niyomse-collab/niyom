@@ -178,9 +178,11 @@ def prepare_native_2x_inputs_streamed(
     target_size, target_mode, metadata = inspect_image(baseline)
     if source_mode not in ("RGB", "RGBA") or target_mode not in ("RGB", "RGBA"):
         raise ValueError("large four-engine source and V2 must be RGB/RGBA")
-    if source_metadata.get("icc_profile") != metadata.get("icc_profile"):
+    source_icc = source_metadata.get("icc_profile")
+    target_icc = metadata.get("icc_profile")
+    if source_icc and source_icc != target_icc:
         raise ValueError(
-            "large four-engine source and accepted V2 ICC profiles differ; "
+            "large four-engine source ICC differs from the accepted V2 profile; "
             "keep the approved V2 output without auxiliary fusion"
         )
     if resize_mode not in ("fit", "stretch"):
