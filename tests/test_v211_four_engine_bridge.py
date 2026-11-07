@@ -454,7 +454,7 @@ def test_small_and_large_seed_paths_reject_one_sided_icc(tmp_path, source_has_ic
     Image.new("RGB", (256, 192), (35, 80, 125)).save(baseline, **v2_options)
 
     large_work = tmp_path / "large-one-sided-icc"
-    with pytest.raises(ValueError, match="ICC presence/content differs"):
+    with pytest.raises(ValueError, match="ICC differs"):
         prepare_native_2x_inputs_streamed(source, baseline, large_work)
     assert not large_work.exists()
 
