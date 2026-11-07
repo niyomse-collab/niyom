@@ -437,18 +437,22 @@ def test_large_rgba_fusion_streams_alpha_and_rejects_mismatch_without_full_decod
     width, height = 6_000, 4_000
     source = tmp_path / "large-rgba-source.png"
     v2 = tmp_path / "large-rgba-v2.png"
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
 
-    def save_solid(path, size, pixel):
+    def save_solid(path, size, pixel, *, alpha_pattern=False):
         image = Image.new("RGBA", size, pixel)
-        image.save(path)
+        if alpha_pattern:
+            image.putpixel((0, 0), (10, 20, 30, 128))
+            image.putpixel((1, 0), (10, 20, 30, 0))
+        image.save(path, dpi=(300, 300), icc_profile=profile)
         image.close()
 
-    save_solid(source, (width // 2, height // 2), (10, 20, 30, 0))
-    save_solid(v2, (width, height), (10, 20, 30, 0))
+    save_solid(source, (width // 2, height // 2), (10, 20, 30, 255))
+    save_solid(v2, (width, height), (10, 20, 30, 255), alpha_pattern=True)
     candidates = {}
     for name in ENGINES:
         path = tmp_path / (name + "-large-rgba.png")
-        save_solid(path, (width, height), (10, 20, 30, 0))
+        save_solid(path, (width, height), (10, 20, 30, 255), alpha_pattern=True)
         candidates[name] = path
 
     original_load = fusion.PngImagePlugin.PngImageFile.load
@@ -471,13 +475,19 @@ def test_large_rgba_fusion_streams_alpha_and_rejects_mismatch_without_full_decod
     result = pyvips.Image.new_from_file(str(output), access="random", unlimited=True)
     region = pyvips.Region.new(result)
     sample = np.frombuffer(region.fetch(0, 0, 8, 8), dtype=np.uint8).reshape(8, 8, 4)
-    assert np.all(sample[..., 3] == 0)
+    assert sample[0, 0, 3] == 128
+    assert sample[0, 1, 3] == 0
+    assert sample[1, 0, 3] == 255
+    with Image.open(output) as result:
+        assert result.info["icc_profile"] == profile
+        assert result.info["dpi"][0] == pytest.approx(300, abs=0.1)
 
     # Even at >18 MP, one changed candidate alpha blocks the QA output.
     bad = tmp_path / "anime4k-bad-alpha.png"
-    image = Image.new("RGBA", (width, height), (10, 20, 30, 0))
+    image = Image.new("RGBA", (width, height), (10, 20, 30, 255))
     image.putpixel((0, 0), (10, 20, 30, 255))
-    image.save(bad)
+    image.putpixel((1, 0), (10, 20, 30, 0))
+    image.save(bad, dpi=(300, 300), icc_profile=profile)
     image.close()
     candidates["anime4k"] = bad
     rejected = tmp_path / "large-rgba-rejected.png"
