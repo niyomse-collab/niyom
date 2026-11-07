@@ -30,6 +30,67 @@ def install_for_offline_use() -> dict:
     return result
 
 
+
+_EXPECTED_RELEASES = {
+    "real_esrgan": "v0.2.5.0",
+    "waifu2x": "20250915",
+    "real_cugan": "20220728",
+    "anime4k": "v3.2.0",
+}
+
+_EXPECTED_DIGEST_FIELDS = {
+    "real_esrgan": "observed_sha256",
+    "waifu2x": "release_sha256",
+    "real_cugan": "observed_sha256",
+    "anime4k": "release_sha256",
+}
+
+
+def preflight_v211_provisioning() -> dict:
+    """Validate the frozen installer/provisioner graph without network or writes."""
+    from .v211_auto_setup import selected_manifest
+    from tools.v211_official_assets_audit import PACKAGES as AUDIT_PACKAGES
+    from tools.v211_provision_four_engines import (
+        PACKAGES as PROVISION_PACKAGES,
+        ensure_verified_archive,
+        provision_from_archives,
+    )
+    from tools.v211_real_engine_manifest import load_real_engine_manifest
+
+    if set(AUDIT_PACKAGES) != _REQUIRED_ENGINES or set(PROVISION_PACKAGES) != _REQUIRED_ENGINES:
+        raise RuntimeError("provisioner must expose exactly the four approved engines")
+    if PROVISION_PACKAGES != AUDIT_PACKAGES:
+        raise RuntimeError("provisioner package pins differ from the official audit")
+    if not all(callable(item) for item in (
+        ensure_verified_archive, provision_from_archives, load_real_engine_manifest,
+        selected_manifest,
+    )):
+        raise RuntimeError("four-engine provisioning dependency graph is incomplete")
+
+    digest_sources = {}
+    for engine, expected_release in _EXPECTED_RELEASES.items():
+        package = AUDIT_PACKAGES[engine]
+        if package.get("release") != expected_release:
+            raise RuntimeError(engine + ": unexpected upstream release pin")
+        if not str(package.get("url", "")).startswith("https://github.com/"):
+            raise RuntimeError(engine + ": upstream source URL is not official GitHub")
+        if not package.get("license") or not str(package.get("license_url", "")).startswith("https://github.com/"):
+            raise RuntimeError(engine + ": license provenance is incomplete")
+        digest_field = _EXPECTED_DIGEST_FIELDS[engine]
+        digest = package.get(digest_field)
+        if (not isinstance(digest, str) or len(digest) != 64
+                or any(ch not in "0123456789abcdef" for ch in digest)):
+            raise RuntimeError(engine + ": required SHA256 pin is missing or malformed")
+        digest_sources[engine] = digest_field
+
+    return {
+        "engines": sorted(_REQUIRED_ENGINES),
+        "release_pins": dict(_EXPECTED_RELEASES),
+        "digest_sources": digest_sources,
+        "network_started": False,
+        "filesystem_modified": False,
+    }
+
 def completion_marker_path() -> Path:
     """Return the local-only success marker consumed by Inno Setup."""
     from .v211_auto_setup import qa_root
@@ -131,12 +192,22 @@ def _run_and_publish_success() -> dict:
         raise
 
 
-def main(*, silent: bool = False) -> int:
+def main(*, silent: bool = False, preflight_only: bool = False) -> int:
     """Run installer-time provisioning and return a process exit code.
 
     Silent installations do not create a hidden Tk window: they write a
     local setup log and return a nonzero code on any failed verification.
     """
+    if preflight_only:
+        # Used by the frozen Windows candidate smoke test. This path imports
+        # the real setup/provisioning modules and validates exact upstream
+        # version + digest pins, but never downloads or writes user files.
+        try:
+            preflight_v211_provisioning()
+            return 0
+        except Exception:
+            return 1
+
     try:
         _clear_completion_marker()
     except Exception as exc:
