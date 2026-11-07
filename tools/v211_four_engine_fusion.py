@@ -34,6 +34,7 @@ TILE = 384
 MAX_STREAMED_PIXELS = 1_000_000_000
 MAX_STREAMED_ROW_BYTES = 64 * 1024 * 1024
 MAX_RGBA_VALIDATION_PIXELS = 18_000_000
+MAX_TILE_WORK_PIXELS = 1_500_000
 PNG_IDAT_CHUNK_BYTES = 1024 * 1024
 HALO = 8
 MAX_DETAIL_CHANGE = 6.0
@@ -83,6 +84,63 @@ def _open_fusion_image(path: Path):
     if path.suffix.lower() == ".png":
         return PngImagePlugin.PngImageFile(path)
     return Image.open(path)
+
+
+class _FusionRaster:
+    """Metadata-first raster with sequential libvips crops for large PNGs."""
+
+    def __init__(self, path: Path, *, use_vips: bool, image=None):
+        self.path = Path(path)
+        self.image = image if image is not None else _open_fusion_image(self.path)
+        self._vips = None
+        if use_vips:
+            if self.path.suffix.lower() != ".png":
+                self.image.close()
+                raise RuntimeError(
+                    "large disk-backed fusion currently requires PNG source, V2 and candidates"
+                )
+            try:
+                import pyvips
+                self._vips = pyvips.Image.new_from_file(
+                    str(self.path), access="sequential", fail_on="error",
+                    unlimited=True,
+                )
+                expected_bands = 4 if self.image.mode == "RGBA" else 3
+                if (self._vips.width, self._vips.height) != self.image.size:
+                    raise ValueError("libvips and PNG header dimensions differ")
+                if self._vips.format != "uchar" or self._vips.bands != expected_bands:
+                    raise ValueError("large fusion PNG must decode as 8-bit RGB/RGBA")
+            except Exception as exc:
+                self.image.close()
+                self._vips = None
+                if isinstance(exc, (ValueError, RuntimeError)):
+                    raise
+                raise RuntimeError(
+                    "pyvips sequential PNG decoding is required for RGB fusion above 18 MP"
+                ) from exc
+
+    def crop(self, box: tuple[int, int, int, int]) -> Image.Image:
+        if self._vips is None:
+            return self.image.crop(box)
+        left, top, right, bottom = box
+        width, height = right - left, bottom - top
+        region = self._vips.crop(left, top, width, height)
+        pixels = region.write_to_memory()
+        expected = width * height * (4 if self.image.mode == "RGBA" else 3)
+        if len(pixels) != expected:
+            raise ValueError("libvips returned an incomplete fusion tile")
+        return Image.frombytes(self.image.mode, (width, height), pixels)
+
+    def close(self) -> None:
+        self._vips = None
+        self.image.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+        return False
 
 
 def _validate_fusion_candidate(
@@ -317,7 +375,11 @@ def fuse_four_engine_details(
     protected_regions = tuple(protected_regions)
 
     with ExitStack() as stack:
-        base = stack.enter_context(_open_fusion_image(v2_reference))
+        base_image = _open_fusion_image(v2_reference)
+        if base_image.format != "PNG" or base_image.mode not in ("RGB", "RGBA"):
+            base_image.close()
+            raise ValueError("V2 reference must be RGB/RGBA PNG")
+        base = base_image
         if base.format != "PNG" or base.mode not in ("RGB", "RGBA"):
             raise ValueError("V2 reference must be RGB/RGBA PNG")
         W, H = base.size
@@ -343,23 +405,30 @@ def fuse_four_engine_details(
             raise RuntimeError(
                 "Insufficient free disk space for atomic disk-backed four-engine fusion."
             )
-        raw = stack.enter_context(
-            tempfile.TemporaryFile(mode="w+b", dir=output.parent)
-        )
-        raw.truncate(raw_bytes)
         with _open_fusion_image(source) as original:
             if not any((W, H) == (original.width * scale, original.height * scale) for scale in (2, 4)):
                 raise ValueError("four-engine fusion requires exact 2x or 4x dimensions")
         metadata = {key: base.info[key] for key in ("icc_profile", "dpi") if key in base.info}
         for engine in ENGINES:
             _validate_fusion_candidate(source, Path(candidates[engine]), (W, H))
+        use_vips = W * H > MAX_RGBA_VALIDATION_PIXELS
+        base_reader = stack.enter_context(
+            _FusionRaster(v2_reference, use_vips=use_vips, image=base)
+        )
+        raw = stack.enter_context(
+            tempfile.TemporaryFile(mode="w+b", dir=output.parent)
+        )
+        raw.truncate(raw_bytes)
         images = {}
         for engine in ENGINES:
-            image = stack.enter_context(_open_fusion_image(candidates[engine]))
-            if image.mode != base.mode or image.info.get("icc_profile") != metadata.get("icc_profile"):
+            reader = stack.enter_context(
+                _FusionRaster(Path(candidates[engine]), use_vips=use_vips)
+            )
+            if (reader.image.mode != base.mode
+                    or reader.image.info.get("icc_profile") != metadata.get("icc_profile")):
                 raise ValueError(engine + ": mode or ICC differs from accepted V2")
             # Normalized ICC is a necessity; DPI will be taken from V2.
-            images[engine] = image
+            images[engine] = reader
         # Validate all rectangles, including when face preservation is bypassed.
         _protected_mask(0, 0, 1, 1, (W, H), protected_regions)
         mean_delta_sum = 0.0
@@ -367,26 +436,29 @@ def fuse_four_engine_details(
         effective_contributions = {name: 0.0 for name in ENGINES}
         effective_pixel_counts = {name: 0 for name in ENGINES}
         total_pixels = W * H
-        # Working memory bounded by one region from each model.
-        for y in range(0, H, TILE):
-            for x in range(0, W, TILE):
-                if cancel_check and cancel_check():
-                    raise InterruptedError("Processing stopped by user")
-                w, h = min(TILE, W - x), min(TILE, H - y)
-                xx, yy = max(0, x - HALO), max(0, y - HALO)
-                xx2, yy2 = min(W, x + w + HALO), min(H, y + h + HALO)
-                box = (xx, yy, xx2, yy2)
-                base_rgb = np.asarray(base.crop(box).convert("RGB"), dtype=np.float32)
-                center = (slice(y - yy, y - yy + h), slice(x - xx, x - xx + w))
-                base_c = base_rgb[center]
-                base_hp = _gray_highpass(base.crop(box))[center]
+        # Full-width horizontal strips preserve sequential decoder order.
+        # Strip height shrinks for very wide sign layouts to bound working RAM.
+        tile_height = max(1, min(TILE, MAX_TILE_WORK_PIXELS // max(1, W)))
+        for y in range(0, H, tile_height):
+            if cancel_check and cancel_check():
+                raise InterruptedError("Processing stopped by user")
+            x = 0
+            w, h = W, min(tile_height, H - y)
+            yy = max(0, y - HALO)
+            yy2 = min(H, y + h + HALO)
+            box = (0, yy, W, yy2)
+            base_region = base_reader.crop(box)
+            base_rgb = np.asarray(base_region.convert("RGB"), dtype=np.float32)
+            center = (slice(y - yy, y - yy + h), slice(0, W))
+            base_c = base_rgb[center]
+            base_hp = _gray_highpass(base_region)[center]
                 # Preserve V2 RGB beneath transparent and antialiased cutout
                 # boundaries. Exact alpha alone is not enough: changing hidden
                 # RGB at partially transparent pixels can create fringes when
                 # downstream print/layout software resamples the PNG.
                 alpha_tile = (
                     np.asarray(
-                        base.crop((x, y, x + w, y + h)).getchannel("A"),
+                        base_region.crop((0, y - yy, W, y - yy + h)).getchannel("A"),
                         dtype=np.uint8,
                     )
                     if base.mode == "RGBA" else None
@@ -466,7 +538,7 @@ def fuse_four_engine_details(
                 else:
                     output_array = rgb
                 for row_index in range(h):
-                    raw.seek(((y + row_index) * W + x) * channels)
+                    raw.seek((y + row_index) * W * channels)
                     raw.write(output_array[row_index].tobytes())
                 edge_pixels += int(edge_gate.sum())
                 mean_delta_sum += float(np.abs(safe_delta).sum())
