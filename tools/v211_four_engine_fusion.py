@@ -86,7 +86,7 @@ def _read_png_header(path: Path) -> tuple[int, int, str, dict]:
     """
     path = Path(path)
     with path.open("rb") as stream:
-        if stream.read(8) != b"\\x89PNG\\r\\n\\x1a\\n":
+        if stream.read(8) != b"\x89PNG\r\n\x1a\n":
             raise ValueError("PNG signature is invalid")
         scanned = 8
         width = height = None
@@ -137,7 +137,7 @@ def _read_png_header(path: Path) -> tuple[int, int, str, dict]:
             if kind == b"iCCP":
                 if saw_iccp:
                     raise ValueError("PNG contains duplicate ICC profiles")
-                separator = payload.find(b"\\x00")
+                separator = payload.find(b"\x00")
                 if separator < 1 or separator > 79 or separator + 2 > len(payload):
                     raise ValueError("PNG ICC profile header is invalid")
                 if payload[separator + 1] != 0:
