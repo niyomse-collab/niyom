@@ -58,7 +58,43 @@ def test_command_is_dispatched_before_editor_import():
         "from signprint_ai.app_v2 import main"
     )
     assert "signprint_ai.v211_setup_cli" in source
-    assert '"--silent"' in source
+    assert '"--check-only"' in source
+
+
+def test_provision_preflight_validates_exact_upstream_versions_and_digest_sources(monkeypatch):
+    from tools import v211_official_assets_audit as audit
+
+    result = v211_setup_cli.preflight_v211_provisioning()
+    assert set(result["engines"]) == {
+        "real_esrgan", "waifu2x", "real_cugan", "anime4k"
+    }
+    assert result["release_pins"] == {
+        "real_esrgan": "v0.2.5.0",
+        "waifu2x": "20250915",
+        "real_cugan": "20220728",
+        "anime4k": "v3.2.0",
+    }
+    assert result["digest_sources"] == {
+        "real_esrgan": "observed_sha256",
+        "waifu2x": "release_sha256",
+        "real_cugan": "observed_sha256",
+        "anime4k": "release_sha256",
+    }
+    assert result["network_started"] is False
+    assert result["filesystem_modified"] is False
+
+    monkeypatch.setitem(audit.PACKAGES["anime4k"], "release_sha256", "not-a-sha256")
+    with pytest.raises(RuntimeError, match="SHA256 pin"):
+        v211_setup_cli.preflight_v211_provisioning()
+
+
+def test_check_only_main_does_not_clear_markers_or_start_setup(monkeypatch):
+    def forbidden():
+        pytest.fail("check-only must not touch installer markers")
+
+    monkeypatch.setattr(v211_setup_cli, "_clear_completion_marker", forbidden)
+    monkeypatch.setattr(v211_setup_cli, "preflight_v211_provisioning", lambda: {"ok": True})
+    assert v211_setup_cli.main(preflight_only=True) == 0
 
 
 def test_silent_setup_publishes_marker_only_after_all_four_verify(monkeypatch, tmp_path):
