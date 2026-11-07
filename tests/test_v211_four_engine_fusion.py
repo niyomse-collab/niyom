@@ -535,10 +535,10 @@ def _write_large_header_png(path, width, height, *, rgba=False, icc=b"synthetic-
     )
     ppm = round(float(dpi) / 0.0254)
     payload = (
-        b"\\x89PNG\\r\\n\\x1a\\n"
+        b"\x89PNG\r\n\x1a\n"
         + chunk(b"IHDR", ihdr)
-        + chunk(b"iCCP", b"NiyomSilp ICC\\x00\\x00" + zlib.compress(icc))
-        + chunk(b"pHYs", ppm.to_bytes(4, "big") + ppm.to_bytes(4, "big") + b"\\x01")
+        + chunk(b"iCCP", b"NiyomSilp ICC\x00\x00" + zlib.compress(icc))
+        + chunk(b"pHYs", ppm.to_bytes(4, "big") + ppm.to_bytes(4, "big") + b"\x01")
         + (0).to_bytes(4, "big") + b"IDAT"
     )
     path.write_bytes(payload)
