@@ -21,6 +21,11 @@ from uuid import uuid4
 from typing import Callable
 
 from PIL import Image, ImageOps
+from .v211_large_image_bridge import (
+    inspect_image,
+    prepare_native_2x_inputs_streamed,
+    save_cropped_png_streamed,
+)
 from tools.v211_gpu_device_binding import GPUDeviceBindingError, write_bound_manifest
 
 _LOG = logging.getLogger(__name__)
@@ -167,8 +172,20 @@ def _save_cropped_png(
     padded_size: tuple[int, int],
     mode: str,
     metadata: dict,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> None:
-    """Publish a cropped QA PNG exclusively; never replace an existing file."""
+    """Publish a cropped QA PNG exclusively; large canvases stay disk-backed."""
+    if padded_size[0] * padded_size[1] > _AUXILIARY_MAX_PIXELS:
+        save_cropped_png_streamed(
+            candidate,
+            destination,
+            target_size=target_size,
+            padded_size=padded_size,
+            mode=mode,
+            metadata=metadata,
+            cancel_check=cancel_check,
+        )
+        return
     with Image.open(candidate) as image:
         if image.size != padded_size or image.mode != mode:
             raise ValueError("four-engine candidate dimensions or mode mismatch")
@@ -239,21 +256,18 @@ def maybe_run_four_engine_assist(
     persistent_output_dir = False
     sidecar: Path | None = None
     try:
-        with Image.open(baseline) as image:
-            if image.mode not in ("RGB", "RGBA"):
-                return {"status": "unsupported_colour_mode", "v2_output_preserved": True}
-            target_size = image.size
-            padded_pixels = (target_size[0] + target_size[0] % 2) * (
-                target_size[1] + target_size[1] % 2
-            )
-            if padded_pixels > _AUXILIARY_MAX_PIXELS:
-                return {"status": "auxiliary_image_too_large", "v2_output_preserved": True}
-        with Image.open(original) as source_image:
-            source_size = _oriented_size(source_image)
-            if source_size[0] * source_size[1] > _AUXILIARY_MAX_PIXELS:
-                return {"status": "auxiliary_source_too_large", "v2_output_preserved": True}
-            if source_image.mode not in ("RGB", "RGBA"):
-                return {"status": "unsupported_source_mode", "v2_output_preserved": True}
+        source_size, source_mode, _source_metadata = inspect_image(
+            original, orient=True
+        )
+        target_size, target_mode, _target_metadata = inspect_image(baseline)
+        if target_mode not in ("RGB", "RGBA"):
+            return {"status": "unsupported_colour_mode", "v2_output_preserved": True}
+        if source_mode not in ("RGB", "RGBA"):
+            return {"status": "unsupported_source_mode", "v2_output_preserved": True}
+        large_job = max(
+            source_size[0] * source_size[1],
+            target_size[0] * target_size[1],
+        ) > _AUXILIARY_MAX_PIXELS
 
         from tools.v211_four_engine_run import run
 
@@ -273,11 +287,24 @@ def maybe_run_four_engine_assist(
         def execute(work_dir: Path):
             if cancel and cancel():
                 raise InterruptedError("Processing stopped by user")
-            seed, reference, target_size, padded_size, source_size, metadata = (
-                _prepare_native_2x_inputs(
+            prepare_inputs = (
+                prepare_native_2x_inputs_streamed if large_job
+                else _prepare_native_2x_inputs
+            )
+            if large_job:
+                prepared = prepare_inputs(
+                    original,
+                    baseline,
+                    work_dir,
+                    resize_mode=resize_mode,
+                    cancel_check=cancel,
+                    progress_callback=progress,
+                )
+            else:
+                prepared = prepare_inputs(
                     original, baseline, work_dir, resize_mode=resize_mode
                 )
-            )
+            seed, reference, target_size, padded_size, source_size, metadata = prepared
             if cancel and cancel():
                 raise InterruptedError("Processing stopped by user")
             bound_manifest, device_binding = _prepare_runtime_bound_manifest(
@@ -309,7 +336,7 @@ def maybe_run_four_engine_assist(
                 _save_cropped_png(
                     Path(fusion["output"]), cropped,
                     target_size=target_size, padded_size=padded_size,
-                    mode=Image.open(baseline).mode, metadata=metadata,
+                    mode=target_mode, metadata=metadata, cancel_check=cancel,
                 )
                 fusion["output"] = str(cropped)
                 private_output = str(cropped)
