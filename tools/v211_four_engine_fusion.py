@@ -296,7 +296,8 @@ def fuse_four_engine_details(
                 "RGBA four-engine fusion above 18 MP remains disabled until "
                 "alpha restoration and validation are disk-backed; V2 is untouched."
             )
-        row_bytes = W * (4 if base.mode == "RGBA" else 3)
+        channels = 4 if base.mode == "RGBA" else 3
+        row_bytes = W * channels
         if row_bytes > MAX_STREAMED_ROW_BYTES:
             raise RuntimeError(
                 "Four-engine fusion row exceeds the safe streaming buffer limit; "
