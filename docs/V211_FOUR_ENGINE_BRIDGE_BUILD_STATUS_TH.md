@@ -247,3 +247,10 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - ไม่ได้เปิดใช้งานใน production UI; ไม่มีการอ้าง Native inference จริง, GPU adapter verification, 6 GB VRAM stress, A/B quality หรือ print certification จาก fake-processor tests. Native command outputs ต้องเป็น exact 2x ต่อ tile; model-specific tile behavior ยังต้องทดสอบบนเครื่องร้าน.
 - Independent Core regression บน HEAD acb8c5835e029c4de31fc323ab59e2da5e03de9c ถูกเริ่มเป็น run #42372469315; ณ เวลาบันทึก pytest ทั้ง Windows/Ubuntu ยังทำงานอยู่ จึงยังไม่มีผลผ่าน/ล้มเหลวให้รายงาน. Windows Candidate workflow ถูกเพิ่ม test file ใหม่แล้ว แต่ run/artifact บน HEAD นี้ยังต้องยืนยันแยกต่างหาก.
 - PR #20 และ PR #18 ยังคง Open / Draft / Not Merged. Blob SHA ของ face_protection.py, large_faces.py, v211_face_contract.py และ face_module/__init__.py ตรงกันครบ 4 ไฟล์. ไม่มีการแก้ V1/V2 Stable, ไม่มี Binary/Weights/ภาพลูกค้าใน Git และไม่มี Merge/Release.
+
+### ผล CI หลังเพิ่ม Native Tile Runner — 7 พฤศจิกายน 2569
+
+- Code/test HEAD ที่ทดสอบ: acb8c5835e029c4de31fc323ab59e2da5e03de9c. Independent Core run #42372469315 สำเร็จทั้งสอง Job: Windows 771 passed / 1 skipped; Ubuntu 769 passed / 3 skipped; compileall ผ่านทั้งสองระบบ. ไม่มี test failure — https://github.com/niyomse-collab/niyom/actions/runs/42372469315.
+- Run #42372469315 ใช้ full pytest suite; tests/test_v211_four_engine_tiled_inference.py และ runner integration อยู่ใน suite และผ่าน. Windows/Ubuntu ติดตั้ง requirements_v2_large_images.txt สำเร็จ รวม pyvips.
+- PR HEAD หลังบันทึกผลนี้เป็น docs-only commit; ผล 771/769 อ้างอิง code/test commit acb8 ไม่ใช่การอ้างว่า Candidate Installer ของ HEAD ล่าสุดผ่าน.
+- Windows Candidate workflow trigger ครอบคลุม tools/v211_*.py และ tests/test_v211_*.py; อย่างไรก็ตาม connector ที่ใช้ตรวจ PR-triggered runs ไม่แสดง push-triggered Candidate run ID/artifact ในรอบนี้. จึงยังไม่ยืนยัน PyInstaller, Frozen Import, BUILD_PROOF, SHA256 หรือ installer artifact บน HEAD ล่าสุด. ติดตามที่ https://github.com/niyomse-collab/niyom/actions/workflows/v211-four-engine-bridge-windows.yml.
