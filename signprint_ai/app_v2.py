@@ -1640,6 +1640,8 @@ class App(tk.Tk):
                             caption += " • AI 4 ตัวเสริมผลลัพธ์แล้ว (ยังไม่รับรองคุณภาพ)"
                         elif four_ai.get("status") == "models_not_installed":
                             caption += " • AI 4 ตัว: ยังไม่มีโมเดลที่ติดตั้งสำหรับ V2.1.1"
+                        elif four_ai.get("status") == "face_protection_v2_only":
+                            caption += " • AI 4 ตัว: ข้ามเพื่อปกป้องใบหน้าเมื่อไม่มีขอบเขตใบหน้าที่ยืนยัน • ใช้ภาพ V2 เดิม"
                         elif four_ai.get("status") == "large_image_tiling_pending":
                             caption += " • AI 4 ตัว: งานใหญ่ยังไม่รองรับ • ใช้ภาพ V2 เดิม"
                         elif four_ai.get("status") == "cancelled":
