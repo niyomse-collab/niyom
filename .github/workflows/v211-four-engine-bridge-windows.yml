@@ -69,7 +69,7 @@ jobs:
       - name: Verify packaged GTX 1660 Ti diagnostic command dispatch (help only)
         shell: pwsh
         run: |
-          $exe = '.\\dist\\NiyomsilAIEnhancer\\NiyomsilAIEnhancer.exe'
+          $exe = '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe'
           $help = & $exe --diagnose-v211-four-ai --help 2>&1
           $exitCode = $LASTEXITCODE
           if ($exitCode -ne 0) {
