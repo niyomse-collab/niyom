@@ -416,6 +416,22 @@ def test_png_header_inspection_reads_exif_orientation_without_full_decode(tmp_pa
     assert "icc_profile" not in metadata
 
 
+def test_large_seed_rejects_mismatched_icc_before_creating_work_files(tmp_path):
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
+
+    source = tmp_path / "source-srgb.png"
+    baseline = tmp_path / "v2-lab.png"
+    srgb = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    lab = ImageCms.ImageCmsProfile(ImageCms.createProfile("LAB")).tobytes()
+    Image.new("RGB", (128, 96), (40, 80, 120)).save(source, icc_profile=srgb)
+    Image.new("RGB", (256, 192), (40, 80, 120)).save(baseline, icc_profile=lab)
+    work = tmp_path / "must-not-be-created"
+
+    with pytest.raises(ValueError, match="ICC profiles differ"):
+        prepare_native_2x_inputs_streamed(source, baseline, work)
+    assert not work.exists()
+
+
 def test_large_four_engine_seed_and_qa_crop_use_disk_backed_vips_without_full_pillow_decode(
     tmp_path, monkeypatch
 ):
