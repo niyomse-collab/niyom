@@ -44,6 +44,17 @@ def _header_pixel_count(path: Path) -> int:
         return MAX_FOUR_ENGINE_PIXELS + 1
 
 
+def _header_image_size(path: Path) -> tuple[int, int]:
+    """Read raster geometry without decoding pixels or trusting a caller size."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with Image.open(path) as image:
+                return image.size
+    except Image.DecompressionBombError:
+        return (MAX_FOUR_ENGINE_PIXELS + 1, 1)
+
+
 _NCNN_ENGINES = ("real_esrgan", "waifu2x", "real_cugan")
 _SAFE_ERROR_CLASSES = {
     "vulkan_initialization_failed",
@@ -196,6 +207,18 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             "runner and fusion use disk-backed tile streaming. Continue with "
             "the approved V2 large-image pipeline; no V2 output was changed."
         )
+    if v2_reference is not None:
+        reference_size = _header_image_size(Path(v2_reference))
+        if reference_size[0] * reference_size[1] > MAX_FOUR_ENGINE_PIXELS:
+            raise RuntimeError(
+                "Four-engine V2 reference above 18 MP is disabled until "
+                "disk-backed tile streaming is implemented; the approved V2 "
+                "large-image output remains untouched."
+            )
+        if tuple(reference_size) != tuple(size):
+            raise ValueError(
+                "V2 reference dimensions differ from the requested four-engine target"
+            )
     if real_engines:
         commands = load_real_engine_manifest(config)
     else:
