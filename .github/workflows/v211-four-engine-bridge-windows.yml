@@ -69,7 +69,7 @@ jobs:
       - name: Verify packaged four-engine provisioning dispatch without downloads
         shell: pwsh
         run: |
-          $exe = '.\\dist\\NiyomsilAIEnhancer\\NiyomsilAIEnhancer.exe'
+          $exe = '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe'
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
             throw 'Packaged provisioning executable is missing.'
           }
