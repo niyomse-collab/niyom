@@ -62,6 +62,52 @@ def test_tiled_runner_reserves_all_candidate_and_fusion_disk_before_native_launc
     assert not output.exists()
 
 
+def test_tiled_runner_rechecks_disk_before_each_remaining_engine(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import tools.v211_four_engine_tiled_inference as tiled
+
+    pytest.importorskip("pyvips")
+    source = tmp_path / "source.png"
+    Image.new("RGB", (64, 64), (20, 40, 60)).save(source)
+    v2 = tmp_path / "v2.png"
+    Image.new("RGB", (128, 128), (20, 40, 60)).save(v2)
+    raw_bytes = 128 * 128 * 3
+    checks = {"count": 0}
+
+    def disk_usage(_path):
+        checks["count"] += 1
+        free = (
+            64 * 1024 * 1024 + raw_bytes * 8
+            if checks["count"] <= 2
+            else 64 * 1024 * 1024 + raw_bytes * 3
+        )
+        return SimpleNamespace(free=free)
+
+    monkeypatch.setattr(tiled.shutil, "disk_usage", disk_usage)
+    base = _processors()
+    calls = []
+
+    def wrap(name):
+        def process(src, dst):
+            calls.append(name)
+            base[name](src, dst)
+        return process
+
+    processors = {name: wrap(name) for name in ENGINES}
+    output = tmp_path / "disk-drops-mid-run"
+    result = run_tiled_candidates(
+        source, v2, output, (128, 128), processors,
+        tile_size=64, overlap=8,
+    )
+
+    assert calls == [ENGINES[0]]
+    assert result["ready_for_fusion_research"] is False
+    assert [item.engine for item in result["candidates"]] == [ENGINES[0]]
+    assert set(result["failures"]) == set(ENGINES[1:])
+    assert (output / (ENGINES[0] + ".png")).is_file()
+    assert not any((output / (name + ".png")).exists() for name in ENGINES[1:])
+
+
 def test_tiled_native_candidates_stitch_exact_2x_pixels_and_metadata(tmp_path):
     pytest.importorskip("pyvips")
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
