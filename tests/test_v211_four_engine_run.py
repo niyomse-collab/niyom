@@ -445,9 +445,9 @@ def test_runner_routes_200mp_seed_and_800mp_v2_header_to_disk_tiles_without_pill
     reference = _write_large_header_png(tmp_path / "800mp-v2.png", 40_000, 20_000)
     commands = {
         name: EngineCommand(
-            ("fake-engine.exe", "-g", "0")
+            ("fake-engine.exe", "{input}", "{output}", "-g", "0")
             if name != "anime4k"
-            else ("fake-anime4k.exe", "-p", "cuda", "-d", "0")
+            else ("fake-anime4k.exe", "{input}", "{output}", "-p", "cuda", "-d", "0")
         )
         for name in ENGINES
     }
