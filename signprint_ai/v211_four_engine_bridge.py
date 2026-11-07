@@ -125,6 +125,11 @@ def _prepare_native_2x_inputs(
         # remains free to process larger files through its disk-tile pipeline.
         if source_size[0] * source_size[1] > _AUXILIARY_MAX_PIXELS:
             raise ValueError("auxiliary_source_too_large")
+        if source_image.info.get("icc_profile") != metadata.get("icc_profile"):
+            raise ValueError(
+                "source and accepted V2 ICC profiles differ; "
+                "keep the approved V2 output without auxiliary fusion"
+            )
         oriented = ImageOps.exif_transpose(source_image)
         if oriented.mode not in ("RGB", "RGBA"):
             raise ValueError("source must be RGB or RGBA for four-engine research")
