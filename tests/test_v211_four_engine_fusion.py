@@ -367,3 +367,19 @@ def test_large_rgba_fusion_remains_fail_closed_until_alpha_validation_streams(tm
     with Image.open(large) as image:
         assert image.size == (width, height)
         assert image.mode == "RGBA"
+
+
+def test_png_fusion_reader_bypasses_global_bomb_threshold_without_mutating_it(tmp_path, monkeypatch):
+    from tools import v211_four_engine_fusion as fusion
+
+    source = tmp_path / "small-source.png"
+    Image.new("RGB", (8, 8), (30, 60, 90)).save(source)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1)
+
+    with pytest.raises(Image.DecompressionBombError):
+        Image.open(source)
+
+    with fusion._open_fusion_image(source) as image:
+        assert image.size == (8, 8)
+        assert image.mode == "RGB"
+    assert Image.MAX_IMAGE_PIXELS == 1
