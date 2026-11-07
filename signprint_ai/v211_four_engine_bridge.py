@@ -97,6 +97,9 @@ def _prepare_native_2x_inputs(
     resize_mode: str = "stretch",
 ) -> tuple[Path, Path, tuple[int, int], tuple[int, int], tuple[int, int], dict]:
     """Create a private half-target seed and a PNG V2 reference for the 2x CLIs."""
+    if resize_mode not in ("fit", "stretch"):
+        raise ValueError("resize_mode must be 'fit' or 'stretch'")
+
     with Image.open(baseline) as v2_image:
         if v2_image.mode not in ("RGB", "RGBA"):
             raise ValueError("V2 raster must be RGB or RGBA; CMYK remains V2-only")
@@ -108,66 +111,66 @@ def _prepare_native_2x_inputs(
         if padded_size[0] * padded_size[1] > _AUXILIARY_MAX_PIXELS:
             raise ValueError("auxiliary_image_too_large")
         metadata = _metadata(v2_image)
-        padded_v2 = _edge_pad_even(v2_image)
-    seed_size = (padded_size[0] // 2, padded_size[1] // 2)
-    if min(seed_size) < 2:
-        raise ValueError("auxiliary_target_too_small")
+        seed_size = (padded_size[0] // 2, padded_size[1] // 2)
+        if min(seed_size) < 2:
+            raise ValueError("auxiliary_target_too_small")
 
-    work_dir.mkdir(parents=True, exist_ok=True)
-    reference_path = work_dir / "v2_reference_native_2x.png"
-    seed_path = work_dir / "native_2x_seed.png"
-    padded_v2.save(reference_path, format="PNG", **metadata)
-
-    with Image.open(source) as source_image:
-        source_size = _oriented_size(source_image)
-        # The current bridge resizes with Pillow; refuse a huge source before
-        # EXIF transpose/convert can allocate a full decoded copy. V2 itself
-        # remains free to process larger files through its disk-tile pipeline.
-        if source_size[0] * source_size[1] > _AUXILIARY_MAX_PIXELS:
-            raise ValueError("auxiliary_source_too_large")
-        if source_image.info.get("icc_profile") != metadata.get("icc_profile"):
-            raise ValueError(
-                "source and accepted V2 ICC profiles differ; "
-                "keep the approved V2 output without auxiliary fusion"
-            )
-        oriented = ImageOps.exif_transpose(source_image)
-        if oriented.mode not in ("RGB", "RGBA"):
-            raise ValueError("source must be RGB or RGBA for four-engine research")
-        converted = oriented.convert(padded_v2.mode)
-        if resize_mode == "stretch":
-            seed = converted.resize(seed_size, resample=Image.Resampling.LANCZOS)
-        elif resize_mode == "fit":
-            # The native seed must use the same geometry as the accepted V2
-            # raster. Stretching a wide source into a square half-target would
-            # move every edge before the engines see it, then fuse those
-            # displaced details back onto the correctly letterboxed V2 image.
-            factor = min(seed_size[0] / converted.width, seed_size[1] / converted.height)
-            contained_size = (
-                max(1, min(seed_size[0], round(converted.width * factor))),
-                max(1, min(seed_size[1], round(converted.height * factor))),
-            )
-            contained = converted.resize(contained_size, resample=Image.Resampling.LANCZOS)
-            background = padded_v2.getpixel((0, 0))
-            seed = Image.new(padded_v2.mode, seed_size, background)
-            seed.paste(
-                contained,
-                ((seed_size[0] - contained_size[0]) // 2,
-                 (seed_size[1] - contained_size[1]) // 2),
-            )
-        else:
-            raise ValueError("resize_mode must be 'fit' or 'stretch'")
-        # The accepted V2 alpha is authoritative, including when the original
-        # source was RGB or an external model would otherwise invent transparency.
-        if padded_v2.mode == "RGBA":
-            seed.putalpha(
-                padded_v2.getchannel("A").resize(
-                    seed_size, resample=Image.Resampling.LANCZOS
+        with Image.open(source) as source_image:
+            source_size = _oriented_size(source_image)
+            # Reject a huge source before EXIF transpose/convert can allocate
+            # a full decoded copy. V2 itself remains free to process larger
+            # files through its disk-tile pipeline.
+            if source_size[0] * source_size[1] > _AUXILIARY_MAX_PIXELS:
+                raise ValueError("auxiliary_source_too_large")
+            if source_image.mode not in ("RGB", "RGBA"):
+                raise ValueError("source must be RGB or RGBA for four-engine research")
+            if source_image.info.get("icc_profile") != metadata.get("icc_profile"):
+                raise ValueError(
+                    "source and accepted V2 ICC profiles differ; "
+                    "keep the approved V2 output without auxiliary fusion"
                 )
-            )
-        seed.save(seed_path, format="PNG", **metadata)
+
+            # No work directory or reference file is created until geometry,
+            # colour mode and source/V2 ICC compatibility have passed.
+            padded_v2 = _edge_pad_even(v2_image)
+            work_dir.mkdir(parents=True, exist_ok=True)
+            reference_path = work_dir / "v2_reference_native_2x.png"
+            seed_path = work_dir / "native_2x_seed.png"
+            padded_v2.save(reference_path, format="PNG", **metadata)
+
+            oriented = ImageOps.exif_transpose(source_image)
+            converted = oriented.convert(padded_v2.mode)
+            if resize_mode == "stretch":
+                seed = converted.resize(seed_size, resample=Image.Resampling.LANCZOS)
+            else:
+                # The native seed must use the same geometry as the accepted
+                # V2 raster. Stretching a wide source into a square half-target
+                # would move every edge before the engines see it, then fuse
+                # those displaced details back onto the correctly letterboxed V2.
+                factor = min(seed_size[0] / converted.width, seed_size[1] / converted.height)
+                contained_size = (
+                    max(1, min(seed_size[0], round(converted.width * factor))),
+                    max(1, min(seed_size[1], round(converted.height * factor))),
+                )
+                contained = converted.resize(contained_size, resample=Image.Resampling.LANCZOS)
+                background = padded_v2.getpixel((0, 0))
+                seed = Image.new(padded_v2.mode, seed_size, background)
+                seed.paste(
+                    contained,
+                    ((seed_size[0] - contained_size[0]) // 2,
+                     (seed_size[1] - contained_size[1]) // 2),
+                )
+            # The accepted V2 alpha is authoritative, including when the
+            # original source is RGB or an external model invents transparency.
+            if padded_v2.mode == "RGBA":
+                seed.putalpha(
+                    padded_v2.getchannel("A").resize(
+                        seed_size, resample=Image.Resampling.LANCZOS
+                    )
+                )
+            seed.save(seed_path, format="PNG", **metadata)
 
     return seed_path, reference_path, target_size, padded_size, source_size, metadata
-
 
 def _save_cropped_png(
     candidate: Path,
