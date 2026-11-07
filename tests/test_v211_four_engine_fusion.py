@@ -102,6 +102,13 @@ def test_rgba_fusion_preserves_rgb_under_transparent_and_antialiased_edges(tmp_p
     pixels[:, 7, 3] = 128
     pixels[:, 8, 3] = 0
     Image.fromarray(pixels, "RGBA").save(v2, dpi=(300, 300))
+    # The accepted V2 alpha is authoritative. Each candidate must carry that
+    # exact target-resolution mask before its RGB edge detail can be considered.
+    for path in cands.values():
+        with Image.open(path) as candidate:
+            candidate_pixels = np.asarray(candidate).copy()
+        candidate_pixels[..., 3] = pixels[..., 3]
+        Image.fromarray(candidate_pixels, "RGBA").save(path, dpi=(300, 300))
 
     output = tmp_path / "rgba-edge-safe.png"
     fuse_four_engine_details(src, v2, cands, output)
@@ -151,6 +158,63 @@ def test_never_overwrite_approved_v2_or_source(tmp_path):
         fuse_four_engine_details(src, v2, cands, v2)
     with pytest.raises(ValueError, match="may not overwrite"):
         fuse_four_engine_details(src, v2, cands, src)
+
+
+def test_rgba_disk_backed_fusion_streams_alpha_validation_and_fails_closed(tmp_path, monkeypatch):
+    """Force the large-raster libvips path and forbid full Pillow PNG decoding."""
+    pytest.importorskip("pyvips")
+    from tools import v211_four_engine_fusion as fusion
+
+    src, v2, candidates = _fixture(tmp_path, rgba=True)
+    with Image.open(v2) as base:
+        v2_pixels = np.asarray(base).copy()
+    v2_pixels[:, 7, 3] = 128
+    v2_pixels[:, 8, 3] = 0
+    Image.fromarray(v2_pixels, "RGBA").save(v2, dpi=(300, 300))
+
+    for path in candidates.values():
+        with Image.open(path) as candidate:
+            pixels = np.asarray(candidate).copy()
+        pixels[..., 3] = v2_pixels[..., 3]
+        Image.fromarray(pixels, "RGBA").save(path, dpi=(300, 300))
+
+    # Exercise the exact bounded-region path without allocating 18 MP fixtures.
+    monkeypatch.setattr(fusion, "MAX_RGBA_VALIDATION_PIXELS", 1)
+    original_load = fusion.PngImagePlugin.PngImageFile.load
+
+    def reject_full_decode(image, *args, **kwargs):
+        if image.size == (16, 16):
+            raise AssertionError("large RGBA PNG must be read through libvips regions")
+        return original_load(image, *args, **kwargs)
+
+    output = tmp_path / "rgba-streamed.png"
+    with monkeypatch.context() as patcher:
+        patcher.setattr(
+            fusion.PngImagePlugin.PngImageFile, "load", reject_full_decode
+        )
+        report = fusion.fuse_four_engine_details(src, v2, candidates, output)
+
+    assert report["fusion_implemented"] is True
+    assert report["quality_certified"] is False
+    with Image.open(output) as result:
+        np.testing.assert_array_equal(
+            np.asarray(result.getchannel("A")), v2_pixels[..., 3]
+        )
+
+    # A single candidate alpha mismatch blocks the entire QA output.
+    bad = candidates["anime4k"]
+    with Image.open(bad) as candidate:
+        bad_pixels = np.asarray(candidate).copy()
+    bad_pixels[0, 0, 3] = 0
+    Image.fromarray(bad_pixels, "RGBA").save(bad, dpi=(300, 300))
+    rejected = tmp_path / "rgba-streamed-rejected.png"
+    with monkeypatch.context() as patcher:
+        patcher.setattr(
+            fusion.PngImagePlugin.PngImageFile, "load", reject_full_decode
+        )
+        with pytest.raises(ValueError, match="candidate alpha differs from accepted V2"):
+            fusion.fuse_four_engine_details(src, v2, candidates, rejected)
+    assert not rejected.exists()
 
 
 def test_reject_candidate_wrong_alpha(tmp_path):
