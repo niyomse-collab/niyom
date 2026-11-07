@@ -186,3 +186,18 @@ def test_coordinator_cancellation_removes_already_completed_candidate_files(tmp_
 
     assert calls == ["real_esrgan.png"]
     assert not list(output_dir.glob("*.png"))
+
+
+def test_runner_fails_closed_above_18mp_before_manifest_or_native_launch(tmp_path):
+    source = tmp_path / "source.png"
+    Image.new("RGB", (8, 8), (20, 80, 120)).save(source)
+    # A missing manifest proves the size guard runs before model provisioning
+    # or any native executable is inspected/launched.
+    config = tmp_path / "manifest-must-not-be-read.json"
+    output_dir = tmp_path / "must-not-be-created"
+
+    with pytest.raises(RuntimeError, match="above 18 MP"):
+        run(source, output_dir, config, (6_000, 4_000), real_engines=True)
+
+    assert not output_dir.exists()
+    assert not config.exists()
