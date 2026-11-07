@@ -37,7 +37,7 @@ def test_v211_build_dispatch_and_workflow_only_publish_unique_installer():
     assert 'release/NiyomSilp-Design-v2-Setup*' not in workflow
 
 
-def test_four_engine_download_requires_affirmative_installer_opt_in():
+def test_four_engine_download_requires_affirmative_consent():
     qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
     app = (ROOT / "signprint_ai" / "app_v2.py").read_text(encoding="utf-8")
     tasks = qa.split("[Tasks]", 1)[1].split("[Run]", 1)[0]
@@ -72,8 +72,13 @@ def test_four_engine_download_requires_affirmative_installer_opt_in():
         "SaveStringToFile(FourAIPendingMarker()"
     )
     assert "FourAISetupArmed" in qa
+    # If the installer task was skipped, the editor offers the same one-time
+    # all-four setup consent. The app never downloads directly before consent.
+    assert "self.after(500, self._offer_v211_four_ai_setup)" in app
+    assert "messagebox.askyesno(" in app
+    assert "record_consent_declined()" in app
+    assert "install_for_offline_use()" in app
     assert "provision_after_consent" not in app
-    assert "_offer_v211_four_ai_setup" not in app
 
 
 def test_installer_silent_mode_is_noninteractive_but_still_provisions():
