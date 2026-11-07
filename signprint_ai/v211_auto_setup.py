@@ -32,12 +32,30 @@ def selected_manifest() -> Path:
     return path.resolve()
 
 
-def needs_initial_setup() -> bool:
-    """Return false only when the selected manifest verifies all four engines.
+def declined_marker_path() -> Path:
+    """Local preference marker: a declined first-run offer is not repeated."""
+    return qa_root() / "setup-declined.flag"
 
-    A stale, truncated, or hand-created manifest must never suppress setup by
-    mere file existence. An explicit manifest override is validated exactly
-    like the default LOCALAPPDATA manifest.
+
+def record_consent_declined() -> Path:
+    """Remember that the user declined the one-time all-four setup offer."""
+    marker = declined_marker_path()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("declined\\n", encoding="ascii")
+    return marker
+
+
+def clear_consent_declined() -> None:
+    """Allow a later explicit installer/app consent attempt to proceed."""
+    declined_marker_path().unlink(missing_ok=True)
+
+
+def needs_initial_setup() -> bool:
+    """Return true only when setup is needed and has not already been declined.
+
+    A stale, truncated, or hand-created manifest never counts as installed.
+    A user who declines the first-run offer is not nagged on every launch;
+    selecting the one-time installer task remains an explicit way to retry.
     """
     if os.environ.get("NIYOMSIL_V211_FOUR_AI") == "0":
         return False
@@ -47,9 +65,12 @@ def needs_initial_setup() -> bool:
         from tools.v211_real_engine_manifest import load_real_engine_manifest
 
         verified = load_real_engine_manifest(manifest)
-        return set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
+        if set(verified) == {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
+            clear_consent_declined()
+            return False
     except (ImportError, OSError, ValueError, KeyError, TypeError):
-        return True
+        pass
+    return not declined_marker_path().is_file()
 
 
 def provision_after_consent() -> dict:
@@ -65,6 +86,7 @@ def provision_after_consent() -> dict:
     )
     from tools.v211_real_engine_manifest import load_real_engine_manifest
 
+    clear_consent_declined()
     root = qa_root()
     manifest = selected_manifest()
     if manifest.exists():
@@ -90,6 +112,7 @@ def provision_after_consent() -> dict:
     verified = load_real_engine_manifest(manifest)
     if set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
         raise RuntimeError("four-engine installed manifest did not validate")
+    clear_consent_declined()
     return {
         "status": "installed_for_offline_qa",
         "manifest": str(manifest),
