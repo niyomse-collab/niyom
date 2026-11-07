@@ -180,3 +180,39 @@ def test_tiled_native_rejects_non_single_2x_geometry_before_processor(
         )
     assert calls == []
     assert not (tmp_path / "rejected").exists()
+
+def test_tiled_native_runner_stitches_a_real_24mp_target_without_full_pillow_decode(tmp_path):
+    pytest.importorskip("pyvips")
+    source = tmp_path / "large-source.png"
+    v2 = tmp_path / "large-accepted-v2.png"
+    Image.new("RGB", (3000, 2000), (34, 76, 118)).save(source)
+    Image.new("RGB", (6000, 4000), (34, 76, 118)).save(v2)
+    before_v2 = v2.read_bytes()
+    original_load = PngImagePlugin.PngImageFile.load
+
+    def reject_full_raster_decode(image, *args, **kwargs):
+        if image.size in ((3000, 2000), (6000, 4000)):
+            raise AssertionError("24 MP native tile runner must not decode full source/V2")
+        return original_load(image, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patcher:
+        patcher.setattr(PngImagePlugin.PngImageFile, "load", reject_full_raster_decode)
+        result = run_tiled_candidates(
+            source, v2, tmp_path / "large-candidates", (6000, 4000),
+            _processors(), tile_size=1024, overlap=32,
+        )
+
+    assert result["ready_for_fusion_research"] is True
+    assert result["native_tiled_inference"]["all_four_engines_completed"] is True
+    for name in ENGINES:
+        candidate = tmp_path / "large-candidates" / (name + ".png")
+        with Image.open(candidate) as image:
+            assert image.size == (6000, 4000)
+            assert image.mode == "RGB"
+        report = result["native_tiled_inference"]["engine_results"][name]
+        assert report["tile_count"] == 6
+        assert report["seam_count"] == 7
+        assert report["seam_validation"] == "passed"
+    assert v2.read_bytes() == before_v2
+    assert not list((tmp_path / "large-candidates").glob(".v211_*"))
+
