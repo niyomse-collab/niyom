@@ -4,6 +4,7 @@ This tests wiring and image validation only; it does not claim real AI inference
 """
 import json
 import sys
+import zlib
 
 import pytest
 
@@ -198,6 +199,52 @@ def test_runner_fails_closed_above_18mp_before_manifest_or_native_launch(tmp_pat
 
     with pytest.raises(RuntimeError, match="above 18 MP"):
         run(source, output_dir, config, (6_000, 4_000), real_engines=True)
+
+    assert not output_dir.exists()
+    assert not config.exists()
+
+
+
+def test_runner_rejects_oversized_v2_reference_before_manifest_or_native_launch(tmp_path):
+    source = tmp_path / "source.png"
+    Image.new("RGB", (8, 8), (20, 80, 120)).save(source)
+    large_reference = tmp_path / "large-v2-reference.png"
+    ihdr = (
+        (6_000).to_bytes(4, "big") + (4_000).to_bytes(4, "big")
+        + bytes((8, 2, 0, 0, 0))
+    )
+    chunk = b"IHDR" + ihdr
+    large_reference.write_bytes(
+        b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big")
+        + chunk + (zlib.crc32(chunk) & 0xFFFFFFFF).to_bytes(4, "big")
+    )
+    config = tmp_path / "manifest-must-not-be-read.json"
+    output_dir = tmp_path / "must-not-be-created"
+
+    with pytest.raises(RuntimeError, match="V2 reference above 18 MP"):
+        run(
+            source, output_dir, config, (8, 8),
+            real_engines=True, v2_reference=large_reference,
+        )
+
+    assert not output_dir.exists()
+    assert not config.exists()
+    assert large_reference.stat().st_size == 33
+
+
+def test_runner_rejects_v2_reference_geometry_before_manifest_or_native_launch(tmp_path):
+    source = tmp_path / "source.png"
+    Image.new("RGB", (8, 8), (20, 80, 120)).save(source)
+    reference = tmp_path / "wrong-size-v2.png"
+    Image.new("RGB", (4, 4), (20, 80, 120)).save(reference)
+    config = tmp_path / "manifest-must-not-be-read.json"
+    output_dir = tmp_path / "must-not-be-created"
+
+    with pytest.raises(ValueError, match="V2 reference dimensions"):
+        run(
+            source, output_dir, config, (8, 8),
+            real_engines=True, v2_reference=reference,
+        )
 
     assert not output_dir.exists()
     assert not config.exists()
