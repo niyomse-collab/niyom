@@ -9,9 +9,13 @@ if __name__ == "__main__":
     if sys.argv[1:] in (
         ["--provision-v211-four-ai"],
         ["--provision-v211-four-ai", "--silent"],
+        ["--provision-v211-four-ai", "--check-only"],
     ):
         from signprint_ai.v211_setup_cli import main as provision_main
-        raise SystemExit(provision_main(silent="--silent" in sys.argv[1:]))
+        raise SystemExit(provision_main(
+            silent="--silent" in sys.argv[1:],
+            preflight_only="--check-only" in sys.argv[1:],
+        ))
 
     if len(sys.argv) >= 2 and sys.argv[1] == "--diagnose-v211-four-ai":
         from tools.v211_shop_gpu_diagnostic import main as diagnostic_main
