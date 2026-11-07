@@ -329,3 +329,26 @@ def test_runner_rejects_v2_reference_icc_mismatch_before_manifest_or_native_laun
 
     assert not output_dir.exists()
     assert not config.exists()
+
+
+
+@pytest.mark.parametrize("target_size", [(24,  24), (64, 64), (16, 32)])
+def test_runner_rejects_unsupported_fusion_scale_before_manifest_or_native_launch(
+    tmp_path, target_size
+):
+    """3x, 8x and anisotropic targets must fail before expensive native inference."""
+    source = tmp_path / "source.png"
+    Image.new("RGB", (8, 8), (20, 80, 120)).save(source)
+    reference = tmp_path / "v2-reference.png"
+    Image.new("RGB", target_size, (20, 80, 120)).save(reference)
+    config = tmp_path / "manifest-must-not-be-read.json"
+    output_dir = tmp_path / "must-not-be-created"
+
+    with pytest.raises(ValueError, match="exact 2x or 4x"):
+        run(
+            source, output_dir, config, target_size,
+            real_engines=True, v2_reference=reference,
+        )
+
+    assert not output_dir.exists()
+    assert not config.exists()
