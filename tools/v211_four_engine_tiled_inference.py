@@ -34,6 +34,10 @@ SEAM_MEAN_CHANNEL_DELTA = 6.0
 DISK_RESERVE_BYTES = 64 * 1024 * 1024
 
 
+class DiskReserveError(RuntimeError):
+    """Raised when the complete four-engine workspace can no longer be reserved."""
+
+
 def _required_disk_bytes(
     raw_bytes: int,
     *,
@@ -298,7 +302,7 @@ def run_tiled_candidates(
         raw_bytes, remaining_candidates=len(ENGINES)
     )
     if shutil.disk_usage(disk_root).free < required_disk_bytes:
-        raise RuntimeError(
+        raise DiskReserveError(
             "insufficient free disk space for four native candidates and fusion workspace"
         )
 
@@ -345,7 +349,7 @@ def run_tiled_candidates(
                     completed_candidate_bytes=completed_candidate_bytes,
                 )
                 if shutil.disk_usage(disk_root).free < required_disk_bytes:
-                    raise RuntimeError(
+                    raise DiskReserveError(
                         "free disk space fell below the remaining candidate and fusion reserve"
                     )
                 with TemporaryDirectory(prefix=".v211_" + name + "_tiles_", dir=output_dir) as temp_name:
@@ -476,6 +480,25 @@ def run_tiled_candidates(
                     "seam_validation": "failed",
                     "error_type": type(exc).__name__,
                 }
+                if isinstance(exc, DiskReserveError):
+                    # Once the full four-engine workspace cannot be reserved,
+                    # stop the run rather than opportunistically launching later
+                    # engines with an incomplete candidate set.
+                    for pending_name in ENGINES[engine_index + 1:]:
+                        failures[pending_name] = (
+                            "DiskReserveError: not_started_after_disk_reserve_failure"
+                        )
+                        tile_reports[pending_name] = {
+                            "status": "not_started",
+                            "tile_count": 0,
+                            "tile_process_count": 0,
+                            "tile_process_elapsed_ms_total": 0.0,
+                            "seam_count": 0,
+                            "seam_max_channel_delta": 0,
+                            "seam_validation": "not_run",
+                            "error_type": "DiskReserveError",
+                        }
+                    break
             finally:
                 if execution_records is not None and isinstance(execution_records.get(name), dict):
                     execution_records[name]["tile_count"] = tile_count
