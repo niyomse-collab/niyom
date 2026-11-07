@@ -356,7 +356,7 @@ def maybe_run_four_engine_assist(
                     _save_cropped_png(
                         Path(fusion["output"]), sidecar,
                         target_size=target_size, padded_size=padded_size,
-                        mode=Image.open(baseline).mode, metadata=metadata,
+                        mode=target_mode, metadata=metadata, cancel_check=cancel,
                     )
                     fusion["output"] = str(sidecar)
                     private_output = str(sidecar)
