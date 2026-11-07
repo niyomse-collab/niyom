@@ -51,6 +51,28 @@ def _open_vips_region(path: Path, expected_size: tuple[int, int], mode: str):
     return image, pyvips.Region.new(image)
 
 
+
+def _expand_interval(start: int, end: int, limit: int, halo: int) -> tuple[int, int]:
+    """Keep edge tiles large enough for native kernels while retaining the core."""
+    left = max(0, start - halo)
+    right = min(limit, end + halo)
+    minimum = 64
+    if right - left < minimum:
+        if left == 0:
+            right = min(limit, minimum)
+        elif right == limit:
+            left = max(0, limit - minimum)
+        else:
+            missing = minimum - (right - left)
+            take_left = min(left, missing // 2)
+            left -= take_left
+            right = min(limit, right + missing - take_left)
+            if right - left < minimum:
+                left = max(0, right - minimum)
+    if right - left < minimum:
+        raise ValueError("native edge tile is smaller than the minimum supported kernel size")
+    return left, right
+
 def _read_region(region, mode: str, box: tuple[int, int, int, int]) -> Image.Image:
     left, top, right, bottom = box
     width, height = right - left, bottom - top
@@ -214,6 +236,8 @@ def run_tiled_candidates(
 
     with _open_fusion_image(source) as source_image, _open_fusion_image(v2_reference) as v2_image:
         source_size = source_image.size
+        if min(source_size) < 64:
+            raise ValueError("native tile inference requires source dimensions of at least 64 pixels")
         if (target_size[0], target_size[1]) != (source_size[0] * 2, source_size[1] * 2):
             raise ValueError("disk-backed native tile inference supports one exact 2x native pass")
         if source_image.mode not in ("RGB", "RGBA") or v2_image.mode != source_image.mode:
@@ -287,8 +311,8 @@ def run_tiled_candidates(
                                     discard_all()
                                     raise InterruptedError("Processing stopped by user")
                                 x1 = min(source_width, x0 + tile_size)
-                                tx0, ty0 = max(0, x0 - overlap), max(0, y0 - overlap)
-                                tx1, ty1 = min(source_width, x1 + overlap), min(source_height, y1 + overlap)
+                                tx0, tx1 = _expand_interval(x0, x1, source_width, overlap)
+                                ty0, ty1 = _expand_interval(y0, y1, source_height, overlap)
                                 tile_rect = (tx0, ty0, tx1, ty1)
                                 tile_source = temp_dir / ("tile-r" + str(row_index) + "-c" + str(column_index) + ".png")
                                 tile_output = temp_dir / ("candidate-r" + str(row_index) + "-c" + str(column_index) + ".png")
