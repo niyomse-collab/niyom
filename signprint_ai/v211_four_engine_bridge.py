@@ -205,6 +205,17 @@ def maybe_run_four_engine_assist(
         return {"status": "disabled", "v2_output_preserved": True}
     if cancel and cancel():
         return {"status": "cancelled", "v2_output_preserved": True}
+    # If GFPGAN/Studio AI ran but the adapter cannot map its face ROIs onto
+    # the final V2 canvas, fusion is contractually required to preserve the
+    # ENTIRE V2 raster unchanged. Running four native processes in that case
+    # can never affect the preview, so skip them before manifest/device setup.
+    if preserve_all_v2_faces:
+        return {
+            "status": "face_protection_v2_only",
+            "reason": "unmapped_face_regions",
+            "v2_output_preserved": True,
+            "quality_certified": False,
+        }
 
     original = Path(source)
     baseline = Path(v2_output)
