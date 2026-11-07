@@ -34,15 +34,29 @@ SEAM_MEAN_CHANNEL_DELTA = 6.0
 DISK_RESERVE_BYTES = 64 * 1024 * 1024
 
 
-def _required_disk_bytes(raw_bytes: int) -> int:
-    """Reserve every candidate plus active staging and fusion workspaces.
+def _required_disk_bytes(
+    raw_bytes: int,
+    *,
+    remaining_candidates: int = len(ENGINES),
+    completed_candidate_bytes: int = 0,
+) -> int:
+    """Reserve remaining candidates, completed files, staging and fusion workspaces.
 
-    Completed engine PNGs remain on disk until all four candidates are fused,
-    so they must not be subtracted from the reserve as the engine index advances.
+    Earlier candidate PNGs remain on disk until fusion. Count their actual byte
+    sizes while reserving a full raw-raster equivalent for each engine yet to run.
     """
     if not isinstance(raw_bytes, int) or raw_bytes < 1:
         raise ValueError("raw raster byte count must be a positive integer")
-    return raw_bytes * (len(ENGINES) + 3) + DISK_RESERVE_BYTES
+    if (not isinstance(remaining_candidates, int)
+            or not 1 <= remaining_candidates <= len(ENGINES)):
+        raise ValueError("remaining candidate count is outside the four-engine range")
+    if not isinstance(completed_candidate_bytes, int) or completed_candidate_bytes < 0:
+        raise ValueError("completed candidate byte count must be non-negative")
+    return (
+        raw_bytes * (remaining_candidates + 3)
+        + completed_candidate_bytes
+        + DISK_RESERVE_BYTES
+    )
 
 
 def _open_vips_region(path: Path, expected_size: tuple[int, int], mode: str):
@@ -280,7 +294,9 @@ def run_tiled_candidates(
     # Reserve worst-case uncompressed space for all four candidate PNGs plus
     # the disk-backed fusion raster and its atomic streamed-PNG temporary.
     # PNG compression is not a safe capacity estimate for customer artwork.
-    required_disk_bytes = _required_disk_bytes(raw_bytes)
+    required_disk_bytes = _required_disk_bytes(
+        raw_bytes, remaining_candidates=len(ENGINES)
+    )
     if shutil.disk_usage(disk_root).free < required_disk_bytes:
         raise RuntimeError(
             "insufficient free disk space for four native candidates and fusion workspace"
@@ -318,9 +334,16 @@ def run_tiled_candidates(
             tile_process_count = 0
             tile_process_elapsed_ms_total = 0.0
             try:
-                # Keep the full reserve: earlier candidate PNGs remain on disk
-                # until fusion, so the reserve cannot shrink with engine_index.
-                required_disk_bytes = _required_disk_bytes(raw_bytes)
+                # Completed candidates remain on disk. Count their actual
+                # bytes and reserve raw-raster space for every engine still to run.
+                completed_candidate_bytes = sum(
+                    candidate.path.stat().st_size for candidate in candidates
+                )
+                required_disk_bytes = _required_disk_bytes(
+                    raw_bytes,
+                    remaining_candidates=len(ENGINES) - engine_index,
+                    completed_candidate_bytes=completed_candidate_bytes,
+                )
                 if shutil.disk_usage(disk_root).free < required_disk_bytes:
                     raise RuntimeError(
                         "free disk space fell below the remaining candidate and fusion reserve"
