@@ -14,6 +14,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Callable
 import os
+import zlib
 
 import numpy as np
 from PIL import Image, ImageFilter
@@ -24,8 +25,27 @@ from tools.v211_four_engine_coordinator import ENGINES, validate_candidate
 WEIGHTS = {"real_esrgan": 0.37, "waifu2x": 0.28, "real_cugan": 0.35}
 ANIME4K_DETAIL_WEIGHT = 0.06
 TILE = 384
+MAX_IN_MEMORY_PIXELS = 18_000_000
 HALO = 8
 MAX_DETAIL_CHANGE = 6.0
+
+
+def _png_pixel_count_from_header(path: Path) -> int:
+    """Read only the PNG signature/IHDR; never decode a large print master."""
+    with Path(path).open("rb") as stream:
+        header = stream.read(29)
+    if (len(header) != 29 or header[:8] != b"\\x89PNG\\r\\n\\x1a\\n"
+            or int.from_bytes(header[8:12], "big") != 13
+            or header[12:16] != b"IHDR"):
+        raise ValueError("V2 reference must be a valid RGB/RGBA PNG")
+    expected_crc = int.from_bytes(header[25:29], "big")
+    if (zlib.crc32(header[12:25]) & 0xFFFFFFFF) != expected_crc:
+        raise ValueError("V2 PNG IHDR checksum is invalid")
+    width = int.from_bytes(header[16:20], "big")
+    height = int.from_bytes(header[20:24], "big")
+    if width < 1 or height < 1:
+        raise ValueError("V2 PNG dimensions are invalid")
+    return width * height
 
 
 def _gray_highpass(region: Image.Image) -> np.ndarray:
@@ -80,6 +100,12 @@ def fuse_four_engine_details(
         raise ValueError("fusion may not overwrite source, V2 or AI candidates")
     if not isinstance(protected_regions, (tuple, list)):
         raise ValueError("face protection regions must be normalized rectangles")
+    if _png_pixel_count_from_header(v2_reference) > MAX_IN_MEMORY_PIXELS:
+        raise RuntimeError(
+            "Four-engine fusion above 18 MP is fail-closed until disk-backed "
+            "streaming is implemented; use the approved V2 large-image pipeline. "
+            "The accepted V2 image has not been modified."
+        )
     protected_regions = tuple(protected_regions)
 
     with ExitStack() as stack:
