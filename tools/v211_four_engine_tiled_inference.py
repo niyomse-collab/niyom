@@ -1,13 +1,17 @@
 """Disk-backed 2x native-engine tile orchestration for V2.1.1 research.
 
-This module is deliberately a runner-level prototype. It invokes one existing
-native processor at a time on bounded PNG tiles, checks overlapping predictions
-for gross disagreement, stitches only each tile's non-overlapping core to a
+The V2.1.1 application bridge uses this runner when its target raster exceeds
+the 18 MP in-memory threshold. The bridge first prepares a half-target PNG seed
+and padded V2 reference with libvips; this module then invokes one native
+processor at a time on bounded PNG tiles, checks overlapping predictions for
+gross disagreement, stitches only each tile's non-overlapping core to a
 disk-backed raster, and takes RGBA alpha from the accepted V2 reference.
+Fusion and the final QA crop also use bounded libvips/streamed-PNG paths.
 
-It does not certify visual quality, GPU adapter use, or print readiness. The
-application bridge remains fail-closed until its own large-image seed creation
-and install/QA path are converted to the same bounded workflow.
+This does not certify real native inference on a particular GPU, physical
+adapter use, visual quality, or print readiness. The 18 MP value selects the
+disk-backed path; hard safety limits remain the streamed pixel/row and disk
+reserve guards. Each engine still performs one native 2x pass only.
 """
 from __future__ import annotations
 
