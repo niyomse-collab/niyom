@@ -86,7 +86,7 @@ def test_installer_silent_mode_is_noninteractive_but_still_provisions():
     cli = (ROOT / "signprint_ai" / "v211_setup_cli.py").read_text(encoding="utf-8")
     assert "if WizardSilent then" in qa
     assert " --silent" in qa
-    assert "def main(*, silent: bool = False)" in cli
+    assert "def main(*, silent: bool = False, preflight_only: bool = False)" in cli
     assert "if silent:" in cli
     assert "installer-setup.log" in cli
 
