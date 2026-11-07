@@ -45,6 +45,7 @@ if __name__ == "__main__":
             "tools.v211_provision_four_engines",
             "tools.v211_four_engine_run",
             "tools.v211_four_engine_fusion",
+            "tools.v211_four_engine_tiled_inference",
             "tools.v211_shop_gpu_diagnostic",
         ):
             importlib.import_module(module_name)
