@@ -23,7 +23,7 @@ DiskSpanning=yes
 DiskSliceSize=1800000000
 SlicesPerDisk=1
 WizardStyle=modern
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -35,7 +35,7 @@ Source: "dist\NiyomsilAIEnhancer\*"; DestDir: "{app}"; Flags: ignoreversion recu
 [Registry]
 ; Remember the exact profile-local cache root used by the installer task.
 ; The uninstaller asks before deleting anything and the Python cleanup validates this path.
-Root: HKLM64; Subkey: "Software\NiyomSilp\V211Experimental"; ValueType: string; ValueName: "FourAIDataRoot"; ValueData: "{localappdata}\NiyomSilp\V211-FourAI-QA"; Flags: uninsdeletevalue
+Root: HKCU64; Subkey: "Software\NiyomSilp\V211Experimental"; ValueType: string; ValueName: "FourAIDataRoot"; ValueData: "{localappdata}\NiyomSilp\V211-FourAI-QA"; Flags: uninsdeletevalue
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -162,7 +162,7 @@ begin
   Result := True;
   FourAIDataRootPath := '';
   RegQueryStringValue(
-    HKLM64,
+    HKCU64,
     'Software\NiyomSilp\V211Experimental',
     'FourAIDataRoot',
     FourAIDataRootPath
