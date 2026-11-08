@@ -199,3 +199,19 @@ def test_experimental_installer_is_per_user_for_profile_local_model_cache():
     assert "Root: HKLM64; Subkey: \"Software\\NiyomSilp\\V211Experimental\"" not in registry
     assert "HKCU64," in initialize_uninstall
     assert "HKLM64," not in initialize_uninstall
+
+
+def test_manual_gpu_diagnostic_resolves_the_per_user_installer_path():
+    doc = (ROOT / "docs" / "V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md").read_text(
+        encoding="utf-8"
+    )
+    installer = (ROOT / "installer_v211_experimental.iss").read_text(
+        encoding="utf-8"
+    )
+    assert "PrivilegesRequired=lowest" in installer
+    assert "DefaultDirName={autopf}\\\\NiyomSilpDesignV211Experimental" in installer
+    assert "RegistryView]::Registry64" in doc
+    assert "Inno Setup: App Path" in doc
+    assert "--diagnose-v211-four-ai" in doc
+    assert "$env:ProgramFiles\\\\NiyomSilpDesignV211Experimental" not in doc
+    assert "2,048 MiB" in doc
