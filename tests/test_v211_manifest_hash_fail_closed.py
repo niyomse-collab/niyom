@@ -119,6 +119,13 @@ def test_unhashed_directory_asset_is_rejected(tmp_path):
         _load(tmp_path, data)
 
 
+def test_legacy_manifest_without_digest_source_still_requires_pinned_archive(tmp_path):
+    data, _, _ = _fixture(tmp_path)
+    for item in data.values():
+        item.pop("archive_digest_source")
+    assert set(_load(tmp_path, data)) == set(ENGINES)
+
+
 def test_hand_edited_archive_pin_is_rejected(tmp_path):
     data, _, _ = _fixture(tmp_path)
     data["real_esrgan"]["archive_sha256"] = "0" * 64
