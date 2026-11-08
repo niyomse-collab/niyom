@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from tools import v211_shop_gpu_diagnostic as diagnostic
-from tools.v211_four_engine_subprocess import ENGINES
+from tools.v211_four_engine_subprocess import ENGINES, EngineCommand
 
 
 def _gpu():
@@ -67,6 +67,14 @@ def _write_manifest(path):
     return path
 
 
+def _verified_anime4k_command(executable):
+    return {
+        "anime4k": EngineCommand((
+            str(executable), "-i", "{input}", "-o", "{output}", "-f", "2",
+        ))
+    }
+
+
 def _successful_runner(manifest, source, output, *, timeout_seconds):
     assert timeout_seconds == 180
     try:
@@ -117,8 +125,14 @@ def test_anime4k_probe_reports_processors_and_devices_without_claiming_selection
     }), encoding="utf-8")
 
     calls = []
+    order = []
+
+    def verified_manifest(_path):
+        order.append("manifest_preflight")
+        return _verified_anime4k_command(executable)
 
     def fake_probe(path, args, timeout=15):
+        order.append("binary_probe")
         calls.append((Path(path).name, args))
         if args == ["--lp"]:
             return {
@@ -134,9 +148,12 @@ def test_anime4k_probe_reports_processors_and_devices_without_claiming_selection
             "stderr": "",
         }
 
+    monkeypatch.setattr(diagnostic, "load_real_engine_manifest", verified_manifest)
     monkeypatch.setattr(diagnostic, "_run_probe", fake_probe)
     result = diagnostic.probe_anime4k_backend(manifest)
 
+    assert order == ["manifest_preflight", "binary_probe", "binary_probe"]
+    assert result["manifest_preflight_passed"] is True
     assert calls == [("ac_cli.exe", ["--lp"]), ("ac_cli.exe", ["-l"])]
     assert result["status"] == "ok"
     assert result["available_processors"] == ["cpu", "opencl", "cuda"]
@@ -150,9 +167,32 @@ def test_anime4k_probe_reports_processors_and_devices_without_claiming_selection
 def test_anime4k_probe_fails_closed_for_unreadable_manifest(tmp_path):
     manifest = tmp_path / "manifest.json"
     manifest.write_text("not json", encoding="utf-8")
-    assert diagnostic.probe_anime4k_backend(manifest) == {
-        "status": "manifest_unavailable"
+    result = diagnostic.probe_anime4k_backend(manifest)
+    assert result["status"] == "manifest_preflight_failed"
+    assert result["error_type"] == "JSONDecodeError"
+
+
+def test_anime4k_probe_never_executes_an_unverified_manifest_binary(
+    tmp_path, monkeypatch
+):
+    calls = []
+
+    def reject_manifest(_path):
+        raise ValueError("pinned executable hash mismatch")
+
+    def forbidden_probe(*args, **kwargs):
+        calls.append((args, kwargs))
+        pytest.fail("unverified Anime4K executable must never be launched")
+
+    monkeypatch.setattr(diagnostic, "load_real_engine_manifest", reject_manifest)
+    monkeypatch.setattr(diagnostic, "_run_probe", forbidden_probe)
+    result = diagnostic.probe_anime4k_backend(tmp_path / "tampered-manifest.json")
+
+    assert result == {
+        "status": "manifest_preflight_failed",
+        "error_type": "ValueError",
     }
+    assert calls == []
 
 
 def test_nvidia_smi_parser_handles_csv_device_names():
@@ -292,9 +332,15 @@ def test_anime4k_probe_maps_nvidia_device_by_processor(tmp_path, monkeypatch):
             "stderr": "",
         }
 
+    monkeypatch.setattr(
+        diagnostic,
+        "load_real_engine_manifest",
+        lambda _path: _verified_anime4k_command(executable),
+    )
     monkeypatch.setattr(diagnostic, "_run_probe", fake_probe)
     result = diagnostic.probe_anime4k_backend(manifest)
 
+    assert result["manifest_preflight_passed"] is True
     assert result["device_inventory_by_processor"]["cuda"] == [{
         "index": 0, "name": "NVIDIA GeForce GTX 1660 Ti"
     }]
