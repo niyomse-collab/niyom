@@ -32,6 +32,8 @@ def _gpu():
         "gtx_1660_ti_detected_by_vulkan": True,
         "vulkan_loader_available": True,
         "vulkaninfo_succeeded": True,
+        "vulkan_device_inventory_succeeded": True,
+        "vulkan_inventory_source": "vulkaninfo",
         "vram_budget_6gb_detected": True,
     }
 
@@ -247,10 +249,17 @@ def test_probe_gpu_uses_native_vulkan_loader_when_vulkaninfo_is_missing(
 
     assert report["gtx_1660_ti_detected_by_nvidia_smi"]
     assert report["gtx_1660_ti_detected_by_vulkan"]
-    assert report["vulkaninfo_succeeded"]
+    assert report["vulkaninfo_succeeded"] is False
+    assert report["vulkan_device_inventory_succeeded"] is True
+    assert report["vulkan_inventory_source"] == "vulkan_loader_native"
     assert report["vulkan_device_index"] == 1
     assert report["vulkan_device_inventory"][0]["name"] == "NVIDIA GeForce GTX 1660 Ti"
+    assert report["vulkaninfo"]["success"] is False
     assert report["vulkaninfo"]["inventory_source"] == "vulkan_loader_native"
+    # Native loader inventory is sufficient for device binding; the optional
+    # SDK command must not be falsely reported as executed.
+    from tools.v211_gpu_device_binding import resolve_device_selection
+    assert resolve_device_selection(report, _anime())["binding_configured"]
 
 
 def test_anime4k_probe_maps_nvidia_device_by_processor(tmp_path, monkeypatch):
@@ -341,7 +350,7 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
     )
     assert saved["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert saved["anime4k_backend_inventory"]["status"] == "ok"
-    assert saved["schema_version"] == 3
+    assert saved["schema_version"] == 4
     assert saved["three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host"]
     assert saved["anime4k_cli_outputs_validated_on_both_synthetic_cases"]
     assert saved["anime4k_backend_selection_verified"] is False
