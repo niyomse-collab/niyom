@@ -4,9 +4,11 @@ Each native executable performs one 2x pass on a private seed made at half of
 the accepted V2 target canvas. The current runner accepts exact isotropic 2x
 or 4x source geometry for small jobs; 4x uses a half-target seed followed by
 one native 2x pass, not native 4x inference or a multi-pass workflow. Jobs
-above 18 MP currently accept exact 2x PNG geometry only through disk-backed
-tiles. Large 4x/8x, 3x, custom and anisotropic targets remain unsupported and
-must fail before native inference. Small jobs require a seed of at least 2x2;
+above 18 MP accept exact isotropic 2x or 4x PNG source-to-V2 geometry
+through disk-backed tiles. Both routes execute one native 2x pass on a
+half-target seed; large 4x is not native 4x or multi-pass inference. Large 8x,
+3x, custom, anisotropic and non-PNG jobs remain unsupported and fail before
+native inference. Small jobs require a seed of at least 2x2;
 disk-backed large jobs require at least 64x64. Pixel/row/disk limits fail closed.
 
 No candidate is silently used as the printed deliverable: quality approval is a
@@ -320,13 +322,13 @@ def maybe_run_four_engine_assist(
         # cannot detect an unsupported original-to-print scale such as 3x/8x.
         # Reject those geometries here, before GPU binding or any native CLI.
         if large_job and (
-            source_to_target_scale != 2
+            source_to_target_scale not in (2, 4)
             or original.suffix.lower() != ".png"
             or baseline.suffix.lower() != ".png"
         ):
             return {
                 "status": "unsupported_target_geometry",
-                "reason": "large_auxiliary_jobs_require_exact_2x_png_geometry",
+                "reason": "large_auxiliary_jobs_require_exact_2x_or_4x_png_geometry",
                 "v2_output_preserved": True,
                 "quality_certified": False,
             }
