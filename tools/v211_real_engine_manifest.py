@@ -173,12 +173,13 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
         ):
             raise ValueError(engine + ": model assets must be individual files with SHA256")
 
+        if embedded_algorithm and engine != "anime4k":
+            raise ValueError(engine + ": embedded algorithm exemption forbidden")
         if engine == "anime4k":
             if not embedded_algorithm or assets:
                 raise ValueError(engine + ": only the pinned Anime4KCPP CLI may use embedded algorithms")
-        else:
-            if embedded_algorithm or not assets:
-                raise ValueError(engine + ": verified neural model assets are required")
+        elif not assets:
+            raise ValueError(engine + ": verified neural model assets are required")
 
         asset_paths = set()
         for asset in assets:
