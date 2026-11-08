@@ -435,7 +435,11 @@ def probe_gpu() -> dict:
     vulkan = _run_probe(vulkan_exe, ["--summary"])
     summary = _parse_vulkan_summary(vulkan.pop("stdout", ""))
     vulkan.pop("stderr", None)
-    inventory_source = "vulkaninfo"
+    # Keep the CLI result truthful: native loader enumeration is not a
+    # successful execution of the separate vulkaninfo utility.
+    vulkaninfo_succeeded = bool(vulkan.get("success") and summary["device_inventory"])
+    inventory_source = "vulkaninfo" if summary["device_inventory"] else None
+    native_enumeration = None
     if not summary["device_inventory"]:
         native = _enumerate_vulkan_devices_native()
         if native.get("success"):
@@ -444,21 +448,24 @@ def probe_gpu() -> dict:
                 "device_names": native.get("device_names", []),
                 "api_versions": [],
             }
-            vulkan.update({
-                "available": True,
-                "success": True,
-                "status": "native_loader_enumeration",
-                "source": "vulkan_loader_native",
-            })
             inventory_source = "vulkan_loader_native"
+            native_enumeration = {
+                "success": True,
+                "status": native.get("status", "ok"),
+                "source": "vulkan_loader_native",
+                "device_count": len(summary["device_inventory"]),
+            }
         else:
-            vulkan["native_enumeration"] = {
+            native_enumeration = {
+                "success": False,
                 "status": native.get("status", "unavailable"),
                 "vk_result": native.get("vk_result"),
                 "error_type": native.get("error_type"),
             }
     vulkan.update(summary)
-    vulkan["inventory_source"] = inventory_source if summary["device_inventory"] else None
+    vulkan["inventory_source"] = inventory_source
+    if native_enumeration is not None:
+        vulkan["native_enumeration"] = native_enumeration
 
     target_nvidia = any("gtx 1660 ti" in item["name"].lower() for item in gpus)
     target_vulkan_devices = [
@@ -477,7 +484,9 @@ def probe_gpu() -> dict:
         "gtx_1660_ti_detected_by_nvidia_smi": target_nvidia,
         "gtx_1660_ti_detected_by_vulkan": target_vulkan,
         "vulkan_loader_available": vulkan_loader_available,
-        "vulkaninfo_succeeded": bool(vulkan.get("success") and summary["device_inventory"]),
+        "vulkaninfo_succeeded": vulkaninfo_succeeded,
+        "vulkan_device_inventory_succeeded": bool(summary["device_inventory"]),
+        "vulkan_inventory_source": inventory_source,
         "vram_budget_6gb_detected": any(
             item["memory_total_mib"] >= 5500 for item in gpus
             if "gtx 1660 ti" in item["name"].lower()
@@ -641,12 +650,12 @@ def run_diagnostic(
         and gpu.get("gtx_1660_ti_detected_by_vulkan")
         and gpu.get("vulkan_device_index") is not None
         and gpu.get("vulkan_loader_available")
-        and gpu.get("vulkaninfo_succeeded")
+        and gpu.get("vulkan_device_inventory_succeeded")
         and gpu.get("vram_budget_6gb_detected")
     )
     device_binding_applied = bool(bind_devices and device_binding and binding_error is None)
     report = {
-        "schema_version": 3,
+        "schema_version": 4,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "manifest_present": manifest.is_file(),
         "manifest_preflight_passed": manifest_preflight_passed,
