@@ -438,9 +438,12 @@ def probe_gpu() -> dict:
     # Keep the CLI result truthful: native loader enumeration is not a
     # successful execution of the separate vulkaninfo utility.
     vulkaninfo_succeeded = bool(vulkan.get("success") and summary["device_inventory"])
-    inventory_source = "vulkaninfo" if summary["device_inventory"] else None
+    inventory_source = "vulkaninfo" if vulkaninfo_succeeded else None
     native_enumeration = None
-    if not summary["device_inventory"]:
+    if not vulkaninfo_succeeded:
+        # Ignore partial stdout from a failed CLI and use only a successful
+        # native-loader enumeration as the fallback source.
+        summary = {"device_inventory": [], "device_names": [], "api_versions": []}
         native = _enumerate_vulkan_devices_native()
         if native.get("success"):
             summary = {
@@ -660,6 +663,9 @@ def run_diagnostic(
         "manifest_present": manifest.is_file(),
         "manifest_preflight_passed": manifest_preflight_passed,
         "gpu": gpu,
+        "vulkaninfo_succeeded": bool(gpu.get("vulkaninfo_succeeded")),
+        "vulkan_device_inventory_succeeded": bool(gpu.get("vulkan_device_inventory_succeeded")),
+        "vulkan_inventory_source": gpu.get("vulkan_inventory_source"),
         "gpu_device_inventory_source": (gpu.get("vulkaninfo") or {}).get("inventory_source"),
         "ncnn_vulkan_target_device_index": gpu.get("vulkan_device_index"),
         "vulkan_target_device_index_unambiguous": gpu.get("vulkan_device_index") is not None,
