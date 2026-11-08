@@ -1,4 +1,5 @@
 """Installer-time four-engine setup command tests; no network or real model runs."""
+import os
 from pathlib import Path
 
 import pytest
