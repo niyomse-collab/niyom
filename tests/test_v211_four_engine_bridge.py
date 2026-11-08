@@ -260,7 +260,7 @@ def test_fusion_with_missing_engine_pixel_effect_is_not_reported_ready(tmp_path,
     assert baseline.read_bytes() == before
 
 
-def test_opt_in_three_primary_candidates_do_not_require_anime_preview(tmp_path, monkeypatch):
+def test_deleted_three_engine_preview_is_not_reported_ready(tmp_path, monkeypatch):
     source, baseline = _images(tmp_path)
     before = baseline.read_bytes()
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
@@ -281,7 +281,7 @@ def test_opt_in_three_primary_candidates_do_not_require_anime_preview(tmp_path, 
 
     monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
     result = bridge.maybe_run_four_engine_assist(source, baseline)
-    assert result["status"] == "three_engine_priority_preview_ready"
+    assert result["status"] == "incomplete_four_engine_candidates"
     assert result["priority_preview_selected"] == "real_cugan"
     assert result["priority_preview_path"] is None  # temp folder was deleted
     assert result["quality_certified"] is False
