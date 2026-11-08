@@ -216,7 +216,8 @@ def test_rgb_tiff_v2_output_gets_local_png_qa_without_modifying_tiff(tmp_path, m
     source = tmp_path / "source.png"
     baseline = tmp_path / "accepted-V2.tiff"
     icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
-    Image.new("RGB", (8, 8), (20, 30, 40)).save(
+    # Exact 4x geometry: the native engine receives a half-target 2x seed.
+    Image.new("RGB", (8, 6), (20, 30, 40)).save(
         source, dpi=(300, 300), icc_profile=icc
     )
     Image.new("RGB", (32, 24), (30, 40, 50)).save(
