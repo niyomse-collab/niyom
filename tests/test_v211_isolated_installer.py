@@ -209,9 +209,9 @@ def test_manual_gpu_diagnostic_resolves_the_per_user_installer_path():
         encoding="utf-8"
     )
     assert "PrivilegesRequired=lowest" in installer
-    assert "DefaultDirName={autopf}\\\\NiyomSilpDesignV211Experimental" in installer
+    assert "DefaultDirName={autopf}\\NiyomSilpDesignV211Experimental" in installer
     assert "RegistryView]::Registry64" in doc
     assert "Inno Setup: App Path" in doc
     assert "--diagnose-v211-four-ai" in doc
-    assert "$env:ProgramFiles\\\\NiyomSilpDesignV211Experimental" not in doc
+    assert "$env:ProgramFiles\\NiyomSilpDesignV211Experimental" not in doc
     assert "2,048 MiB" in doc
