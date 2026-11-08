@@ -62,7 +62,7 @@ def resolve_device_selection(
         raise GPUDeviceBindingError("Vulkan target device is not an NVIDIA adapter")
     if not (
         gpu_report.get("vulkan_loader_available") is True
-        and gpu_report.get("vulkaninfo_succeeded") is True
+        and gpu_report.get("vulkan_device_inventory_succeeded") is True
         and gpu_report.get("vram_budget_6gb_detected") is True
     ):
         raise GPUDeviceBindingError(
