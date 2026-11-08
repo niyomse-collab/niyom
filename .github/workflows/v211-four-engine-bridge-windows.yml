@@ -96,7 +96,10 @@ jobs:
         shell: pwsh
         run: |
           $exe = '.\\dist\\NiyomsilAIEnhancer\\NiyomsilAIEnhancer.exe'
-          $cacheRoot = Join-Path $env:RUNNER_TEMP 'Profile\\AppData\\Local\\NiyomSilp\\V211-FourAI-QA'
+          # Isolate LOCALAPPDATA so the frozen cleanup command can prove it
+          # refuses a different profile even when the path suffix looks valid.
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'Profile\\AppData\\Local'
+          $cacheRoot = Join-Path $env:LOCALAPPDATA 'NiyomSilp\\V211-FourAI-QA'
           $archiveDir = Join-Path $cacheRoot 'archives'
           $engineDir = Join-Path $cacheRoot 'engines\\real-esrgan'
           New-Item -ItemType Directory -Force -Path $archiveDir, $engineDir | Out-Null
@@ -116,8 +119,22 @@ jobs:
           if (-not (Test-Path -LiteralPath (Join-Path $cacheRoot 'operator-note.txt'))) {
             throw 'Packaged cleanup removed an unknown file; refusing broad deletion.'
           }
+
+          $outsideRoot = Join-Path $env:RUNNER_TEMP 'OtherProfile\\AppData\\Local\\NiyomSilp\\V211-FourAI-QA'
+          New-Item -ItemType Directory -Force -Path $outsideRoot | Out-Null
+          $outsideSentinel = Join-Path $outsideRoot 'keep.txt'
+          Set-Content -LiteralPath $outsideSentinel -Value 'must not be deleted'
+          $outsideProcess = Start-Process -FilePath $exe -ArgumentList @('--remove-v211-four-ai-assets', '--confirmed-by-user', '--data-root', $outsideRoot) -Wait -PassThru
+          if ($null -eq $outsideProcess -or $outsideProcess.ExitCode -eq 0) {
+            throw 'Packaged cleanup accepted a cache path belonging to another profile.'
+          }
+          if (-not (Test-Path -LiteralPath $outsideSentinel -PathType Leaf)) {
+            throw 'Packaged cleanup deleted data outside the current profile LocalAppData.'
+          }
+          Remove-Item -LiteralPath $outsideRoot -Recurse -Force
+
           Remove-Item -LiteralPath $cacheRoot -Recurse -Force
-          Write-Output 'Packaged cleanup removed only approved cache entries and preserved the unknown file.'
+          Write-Output 'Packaged cleanup removed only approved cache entries, preserved unknown files, and rejected another profile.'
       - name: Verify packaged GTX 1660 Ti diagnostic command dispatch (help only)
         shell: pwsh
         run: |
