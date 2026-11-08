@@ -140,6 +140,8 @@ def test_uninstall_model_cache_removal_requires_interactive_consent_and_safe_cli
     qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
     run = (ROOT / "run.py").read_text(encoding="utf-8")
     cli = (ROOT / "signprint_ai" / "v211_setup_cli.py").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" /
+                "v211-four-engine-bridge-windows.yml").read_text(encoding="utf-8")
 
     registry = qa.split("[Registry]", 1)[1].split("[Icons]", 1)[0]
     code = qa.split("[Code]", 1)[1]
@@ -167,4 +169,7 @@ def test_uninstall_model_cache_removal_requires_interactive_consent_and_safe_cli
     assert "def cleanup_four_engine_assets(" in cli
     assert "_validate_four_ai_data_root(data_root)" in cli
     assert "_remove_cache_entry_without_following_links" in cli
+    assert "os.path.ismount(path)" in cli
+    assert "Verify packaged consented model-cache cleanup on isolated synthetic data" in workflow
+    assert "'--remove-v211-four-ai-assets', '--confirmed-by-user', '--data-root'" in workflow
 
