@@ -347,3 +347,10 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Jobs above 18 MP accept only exact 2x PNG source-to-V2 geometry through the disk-backed route. Large 4x/8x and non-PNG source/V2 paths remain V2-only until a separately validated multi-pass/format route exists.
 - Regression tests now cover supported small 2x/4x, unsupported small geometries, large exact-2x tiled execution, and large 4x/8x rejection before GPU binding. The tiled fusion fixture uses distinct engine detail strengths so the weaker conditional Anime4K term is tested without artificially increasing its production weight.
 - This is an orchestration/guardrail correction. It does not certify Native GPU execution, 6 GB peak VRAM, large-image 4x/8x, or visual quality versus V2.
+
+## 9 พฤศจิกายน 2569 — เปิด Large 4x แบบ disk-backed โดยไม่เพิ่ม Native Pass
+
+- ปรับ Bridge ให้รับ source-to-V2 geometry แบบ PNG ที่เป็น isotropic 2x **หรือ 4x** เมื่อเข้าเส้นทางภาพใหญ่เกิน 18 MP; ทั้งสองกรณีสร้าง seed ครึ่ง target ด้วย libvips แล้วเรียก Native Engine เพียง 2x หนึ่ง pass ต่อ tile.
+- สำหรับ 4x จากภาพต้นฉบับ seed มีขนาด 2x ของต้นฉบับ และ Native 2x pass จึงได้ target 4x. นี่ไม่ใช่ Native 4x, ไม่ใช่การรัน AI ต่อเนื่องหลาย pass และไม่เปลี่ยน V2 Master.
+- เพิ่ม integration test ให้ใช้ streamed seed/reference, tiled runner, fusion และ QA crop จริงในโค้ด โดยแทนเฉพาะ Native executables ด้วย synthetic processors; ครอบคลุม target scale 2x และ 4x. งาน 8x/3x/custom/anisotropic, non-PNG large, CMYK/PDF/PSD ยังคง fail-closed.
+- การทดสอบนี้พิสูจน์ orchestration/disk path เท่านั้น ไม่ใช่ Native inference บน GTX 1660 Ti, ไม่ใช่ peak VRAM 6 GB, ไม่ใช่คุณภาพเหนือ V2 และไม่ใช่ print certification. ต้องรอ CI HEAD ใหม่และทดสอบเครื่องร้าน.
