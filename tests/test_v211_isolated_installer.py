@@ -155,6 +155,10 @@ def test_uninstall_model_cache_removal_requires_interactive_consent_and_safe_cli
     assert "function InitializeUninstall(): Boolean;" in code
     assert "CurUninstallStep = usUninstall" in uninstall_event
     assert "not UninstallSilent" in uninstall_event
+    assert "CurrentUserFourAIDataRoot :=" in uninstall_event
+    assert "ExpandConstant('{localappdata}\\NiyomSilp\\V211-FourAI-QA')" in uninstall_event
+    assert "Uppercase(FourAIDataRootPath) <> Uppercase(CurrentUserFourAIDataRoot)" in uninstall_event
+    assert "It was left untouched for safety." in uninstall_event
     assert "MB_YESNO or MB_DEFBUTTON2" in uninstall_event
     assert "IDYES" in uninstall_event
     assert "SW_HIDE" in uninstall_event
