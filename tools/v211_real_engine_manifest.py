@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand
-from tools.v211_official_assets_audit import PACKAGES
+from tools import v211_official_assets_audit
 
 
 EXECUTABLES = {
@@ -61,7 +61,7 @@ def _inside(path: Path, root: Path, engine: str, label: str) -> Path:
 
 
 def _expected_provenance(engine: str) -> dict:
-    package = PACKAGES[engine]
+    package = v211_official_assets_audit.PACKAGES[engine]
     return {
         "source_url": package["url"],
         "license_name": package["license"],
