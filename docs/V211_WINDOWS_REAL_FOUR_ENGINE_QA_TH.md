@@ -63,8 +63,28 @@ $env:NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR = "$qa\private-ab"
 เมื่อใช้ Installer รุ่นทดลอง V2.1.1 และเลือกติดตั้ง AI ทั้งสี่ในขั้นตอนติดตั้งแล้ว ให้เปิด PowerShell และรัน:
 
 ~~~powershell
-& "$env:ProgramFiles\NiyomSilpDesignV211Experimental\NiyomsilAIEnhancer.exe" --diagnose-v211-four-ai --output-dir "$env:USERPROFILE\Desktop\NiyomSilp-V211-GPU-QA"
+# This experimental installer is per-user (PrivilegesRequired=lowest).
+# Resolve its actual install folder from this user's 64-bit Inno Setup uninstall record.
+$subkey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{4B6A2C18-0F95-47EE-A6B8-0F2DD7B0CE11}_is1'
+$base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+  [Microsoft.Win32.RegistryHive]::CurrentUser,
+  [Microsoft.Win32.RegistryView]::Registry64
+)
+try {
+  $key = $base.OpenSubKey($subkey)
+  if ($null -eq $key) { throw 'ไม่พบการติดตั้ง V2.1.1 ใน Windows profile นี้' }
+  try { $installDir = [string]$key.GetValue('Inno Setup: App Path') }
+  finally { $key.Dispose() }
+}
+finally { $base.Dispose() }
+
+if ([string]::IsNullOrWhiteSpace($installDir)) { throw 'ไม่พบ Install Path ของ V2.1.1' }
+$exe = Join-Path $installDir 'NiyomsilAIEnhancer.exe'
+if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "ไม่พบไฟล์: $exe" }
+& $exe --diagnose-v211-four-ai --output-dir "$env:USERPROFILE\Desktop\NiyomSilp-V211-GPU-QA"
 ~~~
+
+คำสั่งนี้ค้นหา path จาก HKCU ของผู้ใช้ปัจจุบัน เพราะ Installer ใช้ `PrivilegesRequired=lowest` และ `{autopf}` จึงติดตั้งแบบ per-user ไม่ใช่ `%ProgramFiles%` ของทุกบัญชี
 
 รายงานอยู่ที่:
 
@@ -77,6 +97,7 @@ $env:NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR = "$qa\private-ab"
 - ใช้เฉพาะภาพสังเคราะห์ RGB และ RGBA พร้อม sRGB ICC และ 300 DPI
 - เรียก Native CLI จริงทั้งสี่ตัวกับภาพทดสอบทั้งสองชนิด โดยตรวจขนาด 2x, Alpha, ICC และ DPI
 - จำกัดเวลาแต่ละ Engine ไว้ 180 วินาทีในงานวินิจฉัยนี้
+- ต้องมี VRAM ว่างอย่างน้อย 2,048 MiB ก่อน bind/เริ่ม optional Four-Engine; ค่านี้เป็น launch preflight ไม่ใช่การจอง VRAM หรือการรับประกัน peak-memory
 - ลบภาพทดสอบและภาพผลลัพธ์ชั่วคราวหลังจบ เหลือเฉพาะ JSON
 - ไม่อ่านภาพลูกค้า ไม่ใช้เครือข่าย ไม่อัปโหลดไฟล์ และไม่แก้ไฟล์ V2 ที่ผ่านการบันทึกแล้ว
 
