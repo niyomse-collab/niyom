@@ -589,13 +589,17 @@ def run_diagnostic(
 
     gpu = gpu_probe()
     anime4k_backend = anime4k_probe(manifest)
+    manifest_preflight_ok = bool(
+        manifest.is_file()
+        and anime4k_backend.get("manifest_preflight_passed") is True
+    )
     cases = {}
     device_binding = None
     binding_error = None
     with tempfile.TemporaryDirectory(prefix="v211-shop-gpu-", dir=output_dir) as temporary:
         work_root = Path(temporary)
         bound_manifest = Path(manifest)
-        if bind_devices:
+        if bind_devices and manifest_preflight_ok:
             try:
                 device_binding = write_bound_manifest(
                     manifest, work_root / "manifest.runtime-bound.json",
@@ -608,7 +612,20 @@ def run_diagnostic(
             source = work_root / (case_name + "-synthetic.png")
             case_output = work_root / case_name
             create_synthetic_png(source, rgba=rgba)
-            if binding_error is not None:
+            if not manifest_preflight_ok:
+                # Do not call any injected or production engine runner when
+                # the pinned manifest has not passed its full preflight.
+                result = {
+                    "real_inference_verified": False,
+                    "completed_engine_count": 0,
+                    "failed_stage": "manifest_preflight",
+                    "failure_type": (
+                        anime4k_backend.get("error_type")
+                        or "ManifestPreflightFailed"
+                    ),
+                    "engines": {},
+                }
+            elif binding_error is not None:
                 result = {
                     "real_inference_verified": False,
                     "completed_engine_count": 0,
@@ -647,8 +664,7 @@ def run_diagnostic(
         item["both_cases_pass"] = item["rgb_pass"] and item["rgba_pass"]
 
     manifest_preflight_passed = bool(
-        manifest.is_file()
-        and anime4k_backend.get("manifest_preflight_passed") is True
+        manifest_preflight_ok
         and all(case.get("failed_stage") != "manifest_preflight" for case in cases.values())
     )
     all_four = manifest_preflight_passed and all(
