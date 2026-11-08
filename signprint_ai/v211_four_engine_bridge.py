@@ -319,7 +319,7 @@ def maybe_run_four_engine_assist(
             None,
         )
         # The runner sees only a half-target seed, so its own 2x preflight
-        # cannot detect an unsupported original-to-print scale such as 3x/8x.
+        # cannot detect an unsupported original-to-print scale such as 3x.
         # Reject those geometries here, before GPU binding or any native CLI.
         if large_job and (
             source_to_target_scale not in (2, 4, 8)

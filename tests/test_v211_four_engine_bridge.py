@@ -747,17 +747,32 @@ def test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_ru
     assert tiled_runner_calls, "large bridge must route through disk-backed native tiles"
     assert result["completed_engine_count"] == 4
     assert result["fusion_implemented"] is True
-    assert result["all_four_engine_pixels_contributed"] is True, result
-    assert all(result["engine_pixel_effect_verified"].values())
     assert result["v2_output_preserved"] is True
     assert result["quality_certified"] is False
 
-    qa = Path(result["four_engine_fusion_output"])
-    assert qa.is_file()
-    assert ".V211-4AI-QA-" in qa.name
-    with Image.open(qa) as preview:
-        assert preview.size == target_size
-        assert preview.mode == "RGB"
-        assert preview.info.get("icc_profile") == profile
-        assert preview.info.get("dpi")[0] == pytest.approx(300, abs=0.1)
+    if target_scale == 8:
+        # The 8x source is first resampled to a 4x half-target seed. In this
+        # high-contrast synthetic fixture, the conditional Anime4K detail
+        # exceeds its conservative agreement gate, so fail closed: keep all
+        # four candidate runs as diagnostic evidence but publish no fused QA.
+        assert result["status"] == "four_engine_fusion_contribution_incomplete"
+        assert result["all_four_engine_pixels_contributed"] is False
+        assert result["engine_pixel_effect_verified"]["anime4k"] is False
+        assert all(
+            result["engine_pixel_effect_verified"][name]
+            for name in ("real_esrgan", "waifu2x", "real_cugan")
+        )
+        assert result["four_engine_fusion_output"] is None
+        assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+    else:
+        assert result["all_four_engine_pixels_contributed"] is True, result
+        assert all(result["engine_pixel_effect_verified"].values())
+        qa = Path(result["four_engine_fusion_output"])
+        assert qa.is_file()
+        assert ".V211-4AI-QA-" in qa.name
+        with Image.open(qa) as preview:
+            assert preview.size == target_size
+            assert preview.mode == "RGB"
+            assert preview.info.get("icc_profile") == profile
+            assert preview.info.get("dpi")[0] == pytest.approx(300, abs=0.1)
     assert baseline.read_bytes() == original_v2

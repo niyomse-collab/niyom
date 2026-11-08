@@ -365,3 +365,10 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - ปรับ Bridge ให้รับ Large PNG geometry แบบ isotropic **2x/4x/8x** เมื่อ source หรือ V2 target เกิน 18 MP. Large 8x สร้าง half-target seed ที่ 4x source geometry แล้วใช้ Native Engine 2x เพียงหนึ่ง pass ต่อ tile; ไม่ใช่ Native 8x และไม่ใช่ multi-pass. Small 8x, 3x, custom, anisotropic และ Large non-PNG ยังคง fail-closed.
 - เพิ่ม synthetic integration coverage ให้เส้นทาง streamed seed → tiled runner → fusion → QA crop สำหรับ Large 2x/4x/8x และคงการปฏิเสธ Large 3x. V2 master ไม่ถูกเขียนทับ. การทดสอบนี้ยังไม่ใช่ native GPU inference, peak-VRAM stress หรือ quality A/B.
 - Native CLI Smoke #45 ยังคงเป็น diagnostic: Real-CUGAN/Anime4KCPP ทำ synthetic output ได้; Real-ESRGAN/Waifu2x ถูกบล็อกด้วย `vkCreateInstance failed -9` บน Hosted Runner. ต้องทดสอบทั้งสี่บน Windows 11 GTX 1660 Ti ของร้าน.
+
+
+### 9 พฤศจิกายน 2569 — ตรวจแก้ Large 8x attribution regression
+
+- Core run **#977** บน commit `9983dc1` พบ failure 1 รายการจาก integration fixture ของ Large 8x: native-like synthetic processors ทั้งสี่จบครบ แต่ conditional Anime4K term ไม่เปลี่ยน final 8-bit RGB pixel หลัง edge gate/rounding; ดังนั้น Bridge คืน `four_engine_fusion_contribution_incomplete` และไม่สร้าง QA sidecar. Windows job ถูกยกเลิกหลัง Ubuntu fail-fast; Ubuntu รายงาน **830 passed, 1 failed, 3 skipped**.
+- ตรวจ root cause แล้วไม่ลด Anime4K agreement threshold/เพิ่ม production weight เพราะจะทำให้รายละเอียดที่ไม่สอดคล้องกับ 3 primary engines ผ่านโดยไม่มีหลักฐาน. ปรับ regression ให้คาดหวัง fail-closed ที่ถูกต้องสำหรับ fixture 8x นี้: ต้องรัน candidate ทั้งสี่ครบ, primary 3 engines ต้องมี pixel effect, Anime4K ที่ไม่มี effect ต้องทำให้ QA output ถูก withheld และ V2 bytes ต้องคงเดิม. Large 2x/4x ยังคงต้องพิสูจน์ contribution ครบทั้งสี่.
+- นี่ไม่ใช่การรับรองว่า Anime4K จะไม่ contribute กับภาพ 8x จริงทุกภาพ; เป็นข้อจำกัดที่พบใน synthetic high-contrast fixture. Native shop-PC A/B ยังจำเป็น.
