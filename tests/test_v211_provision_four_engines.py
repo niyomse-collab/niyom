@@ -9,6 +9,7 @@ import zipfile
 import pytest
 
 from tools import v211_provision_four_engines as provision
+from tools import v211_official_assets_audit as official
 from tools.v211_real_engine_manifest import load_real_engine_manifest
 
 
@@ -39,6 +40,7 @@ def _fake_archives(tmp_path, monkeypatch, *, missing_weights=False):
             "release_sha256": sha,
         }
     monkeypatch.setattr(provision, "PACKAGES", configs)
+    monkeypatch.setattr(official, "PACKAGES", configs)
     return archives
 
 
