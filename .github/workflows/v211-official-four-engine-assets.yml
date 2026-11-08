@@ -1,6 +1,16 @@
 name: V2.1.1 official engine archive provenance audit
 # 2026-11-09: rerun archive/license/digest provenance against the current hardened manifest and provisioner; no redistribution is authorized.
 on:
+  pull_request:
+    branches:
+      - feature/v2.1.1-super-ai
+    paths:
+      - 'tools/v211_official_assets_audit.py'
+      - 'tests/test_v211_official_assets_audit.py'
+      - 'tools/v211_provision_four_engines.py'
+      - 'tests/test_v211_provision_four_engines.py'
+      - 'tools/v211_real_engine_manifest.py'
+      - '.github/workflows/v211-official-four-engine-assets.yml'
   push:
     branches:
       - work/v211-four-engine-v2-bridge-20261103
@@ -16,6 +26,9 @@ permissions:
   contents: read
 jobs:
   archive-provenance:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.ref == 'work/v211-four-engine-v2-bridge-20261103'
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
