@@ -26,6 +26,7 @@ from PIL import Image, ImageCms, ImageDraw
 from signprint_ai.v211_auto_setup import default_manifest, qa_root
 from tools.v211_four_engine_real_inference_qa import run as run_real_inference_qa
 from tools.v211_four_engine_subprocess import ENGINES
+from tools.v211_real_engine_manifest import load_real_engine_manifest
 from tools.v211_gpu_device_binding import GPUDeviceBindingError, write_bound_manifest
 
 # Real-ESRGAN, Waifu2x and Real-CUGAN are NCNN/Vulkan engines.
@@ -324,23 +325,31 @@ def _parse_anime4k_device_inventory(value: str) -> dict:
 
 
 def probe_anime4k_backend(manifest: Path) -> dict:
-    """Inventory Anime4KCPP processors/devices without treating it as Vulkan.
+    """Inventory Anime4KCPP only after the complete four-engine manifest passes SHA/provenance checks.
 
     Anime4KCPP v3 exposes --lp (processor list) and -l (device list).
-    Its CLI default is processor=auto/device=0 unless the manifest overrides
-    those options. Inventory is not proof of the backend used by inference.
+    Never execute a path read from an unverified manifest, even for a harmless
+    capability probe. Inventory is not proof of the backend used by inference.
     """
     try:
-        data = json.loads(Path(manifest).read_text(encoding="utf-8"))
-        entry = data.get("anime4k") if isinstance(data, dict) else None
-        if not isinstance(entry, dict):
-            return {"status": "manifest_unavailable"}
-        executable = Path(entry.get("executable", ""))
+        # This verifies all four isolated engine roots, official archive pins,
+        # executable hashes, individual model-asset hashes and exact CLI
+        # contracts before any manifest-supplied native binary is launched.
+        commands = load_real_engine_manifest(Path(manifest))
+        command = commands.get("anime4k")
+        argv = tuple(command.argv) if command is not None else ()
+        if not argv:
+            return {
+                "status": "manifest_preflight_failed",
+                "error_type": "ValueError",
+            }
+        executable = Path(argv[0])
+        args = list(argv[1:])
         if not executable.is_absolute() or not executable.is_file():
-            return {"status": "executable_missing"}
-        args = entry.get("args", [])
-        if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
-            return {"status": "invalid_engine_args"}
+            return {
+                "status": "manifest_preflight_failed",
+                "error_type": "FileNotFoundError",
+            }
 
         def option_value(short: str, long: str, default):
             for index, item in enumerate(args[:-1]):
@@ -377,6 +386,7 @@ def probe_anime4k_backend(manifest: Path) -> dict:
         return {
             "status": "ok" if processors.get("success") and devices.get("success")
                       else "partial_or_failed",
+            "manifest_preflight_passed": True,
             "executable_name": executable.name,
             "processor_probe": {
                 "available": bool(processors.get("available")),
@@ -403,13 +413,16 @@ def probe_anime4k_backend(manifest: Path) -> dict:
             "device_selection_verified": False,
             "note": (
                 "Anime4KCPP uses CPU/OpenCL/CUDA processors, not NCNN Vulkan. "
-                "This is a capability inventory only; the current manifest uses "
-                "processor auto and device 0 defaults and does not prove which "
-                "backend/device performed the image inference."
+                "This is a capability inventory only; configured processor/device "
+                "values are reported above but do not prove which backend/device "
+                "performed the image inference."
             ),
         }
-    except (OSError, ValueError, TypeError, KeyError):
-        return {"status": "manifest_unavailable"}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+        return {
+            "status": "manifest_preflight_failed",
+            "error_type": type(exc).__name__,
+        }
 
 
 def probe_gpu() -> dict:
