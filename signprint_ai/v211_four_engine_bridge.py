@@ -295,6 +295,20 @@ def maybe_run_four_engine_assist(
             source_size[0] * source_size[1],
             target_size[0] * target_size[1],
         ) > _AUXILIARY_MAX_PIXELS
+        # Reject undersized native seeds first, preserving the explicit
+        # diagnostic for tiny jobs before checking the original print scale.
+        minimum_seed_dimension = 64 if large_job else 2
+        if min(seed_size) < minimum_seed_dimension:
+            return {
+                "status": "unsupported_target_geometry",
+                "reason": (
+                    "half_target_seed_must_be_at_least_64x64_for_disk_tiles"
+                    if large_job else
+                    "half_target_seed_must_be_at_least_2x2"
+                ),
+                "v2_output_preserved": True,
+                "quality_certified": False,
+            }
         source_to_target_scale = next(
             (
                 scale for scale in (2, 4)
@@ -320,18 +334,6 @@ def maybe_run_four_engine_assist(
             return {
                 "status": "unsupported_target_geometry",
                 "reason": "source_to_v2_geometry_must_be_exact_isotropic_2x_or_4x",
-                "v2_output_preserved": True,
-                "quality_certified": False,
-            }
-        minimum_seed_dimension = 64 if large_job else 2
-        if min(seed_size) < minimum_seed_dimension:
-            return {
-                "status": "unsupported_target_geometry",
-                "reason": (
-                    "half_target_seed_must_be_at_least_64x64_for_disk_tiles"
-                    if large_job else
-                    "half_target_seed_must_be_at_least_2x2"
-                ),
                 "v2_output_preserved": True,
                 "quality_certified": False,
             }
