@@ -176,6 +176,8 @@ def _remove_cache_entry_without_following_links(path: Path) -> None:
         return
 
     if stat.S_ISDIR(info.st_mode):
+        if os.path.ismount(path):
+            raise ValueError("four-engine cache cleanup refuses to traverse a mount point")
         with os.scandir(path) as entries:
             for entry in entries:
                 _remove_cache_entry_without_following_links(Path(entry.path))
