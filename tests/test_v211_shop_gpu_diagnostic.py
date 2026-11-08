@@ -371,7 +371,7 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
         ("gtx_1660_ti_detected_by_vulkan", False),
         ("vulkan_device_index", None),
         ("vulkan_loader_available", False),
-        ("vulkaninfo_succeeded", False),
+        ("vulkan_device_inventory_succeeded", False),
         ("vram_budget_6gb_detected", False),
     ],
 )
@@ -392,6 +392,29 @@ def test_gpu_readiness_requires_real_vulkan_adapter_and_vram(
     assert not report["gtx_1660_ti_and_vulkan_environment_detected"]
     assert not report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"]
 
+
+def test_gpu_readiness_accepts_native_loader_inventory_without_vulkaninfo(
+    tmp_path,
+):
+    gpu = _gpu()
+    gpu["vulkaninfo_succeeded"] = False
+    gpu["vulkan_device_inventory_succeeded"] = True
+    gpu["vulkan_inventory_source"] = "vulkan_loader_native"
+    gpu["vulkaninfo"]["success"] = False
+    gpu["vulkaninfo"]["inventory_source"] = "vulkan_loader_native"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("test manifest", encoding="utf-8")
+
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=lambda: gpu, engine_runner=_successful_runner,
+        bind_devices=False,
+    )
+
+    assert report["vulkaninfo_succeeded"] is False
+    assert report["vulkan_device_inventory_succeeded"] is True
+    assert report["vulkan_inventory_source"] == "vulkan_loader_native"
+    assert report["gtx_1660_ti_and_vulkan_environment_detected"] is True
 
 
 @pytest.mark.parametrize(("target_gpu_ready", "expected_exit"), [(False, 1), (True, 0)])
