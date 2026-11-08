@@ -178,3 +178,10 @@ $env:NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR = "$qa\private-ab"
 - เมื่อเครื่องไม่มีโปรแกรม `vulkaninfo` แต่ `vulkan-1.dll` enumerates อุปกรณ์ได้ รายงานจะไม่กล่าวว่า vulkaninfo สำเร็จอีกต่อไป; GPU binding ใช้ผล inventory ที่ตรวจได้จริงแทนการบังคับให้ติดตั้ง Vulkan SDK
 - เพิ่ม Regression สำหรับกรณี Native Loader สำเร็จแต่ vulkaninfo ไม่ได้ติดตั้ง และกรณี inventory ไม่สำเร็จต้องหยุดแบบ fail-closed
 - การแก้ไขนี้เป็นการทำให้หลักฐาน GPU ตรงกับสิ่งที่เกิดขึ้นจริง ไม่ใช่หลักฐานว่า Native Engine ใช้ GTX 1660 Ti ระหว่าง inference; `runtime_device_use_verified=false` ยังคงเดิม
+
+## 9 พฤศจิกายน 2569 — ขอบเขต Large 4x ที่เพิ่มเข้ามา
+
+- งาน PNG RGB/RGBA ที่เกิน 18 MP รองรับ source-to-V2 แบบ 2x หรือ 4x ผ่าน disk-backed seed/tile path เมื่อผ่าน pixel, row-buffer, disk-space และ minimum-tile checks.
+- ทั้ง 2x และ 4x ใช้ Native Engine 2x เพียงหนึ่ง pass บน seed ครึ่ง target; กรณี source-to-V2 4x seed จะมีขนาด 2x ของ source ก่อนเข้า Native 2x. ห้ามเรียกสิ่งนี้ว่า Native 4x หรือ multi-pass AI.
+- 8x, 3x, custom, anisotropic และ large non-PNG ยังใช้ V2-only. การเปิด 4x เป็นการขยาย orchestration route ที่ใช้ tile เดิม ไม่ได้ยืนยันว่า 6 GB VRAM, ความเร็ว, seam หรือคุณภาพภาพจริงผ่านแล้ว.
+- CI ใช้ synthetic processors เพื่อทดสอบเส้นทางไฟล์/geometry; ต้องทดสอบ Native CLI ทั้งสี่และ A/B ภาพจริงบน GTX 1660 Ti ก่อนรับรอง.
