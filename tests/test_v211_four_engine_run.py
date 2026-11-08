@@ -5,6 +5,7 @@ This tests wiring and image validation only; it does not claim real AI inference
 import json
 import sys
 import zlib
+from pathlib import Path
 
 import pytest
 
