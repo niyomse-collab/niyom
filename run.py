@@ -3,6 +3,22 @@ import sys
 
 
 if __name__ == "__main__":
+    # The uninstaller reaches this command only after an explicit Yes choice.
+    # The supplied path is validated against the dedicated per-profile cache
+    # location; cleanup never follows symlinks/junctions or touches unknown files.
+    if (len(sys.argv) == 5
+            and sys.argv[1:4] == [
+                "--remove-v211-four-ai-assets",
+                "--confirmed-by-user",
+                "--data-root",
+            ]):
+        from signprint_ai.v211_setup_cli import cleanup_four_engine_assets
+        try:
+            cleanup_four_engine_assets(sys.argv[4], confirmed=True)
+        except Exception:
+            raise SystemExit(1)
+        raise SystemExit(0)
+
     # The experimental installer offers this one-time setup task before the
     # editor launches. Keep it ahead of app_v2 imports so provisioning does
     # not start the UI or display a second consent prompt.
