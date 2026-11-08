@@ -592,8 +592,8 @@ def test_bridge_rejects_unsupported_small_source_to_v2_geometry_before_gpu(
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
 
 
-@pytest.mark.parametrize("target_scale", [8])
-def test_large_bridge_rejects_unsupported_8x_geometry_before_gpu(
+@pytest.mark.parametrize("target_scale", [3])
+def test_large_bridge_rejects_unsupported_3x_geometry_before_gpu(
     tmp_path, monkeypatch, target_scale
 ):
     source = tmp_path / "large-source.png"
@@ -613,17 +613,17 @@ def test_large_bridge_rejects_unsupported_8x_geometry_before_gpu(
     monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
     result = bridge.maybe_run_four_engine_assist(source, baseline)
     assert result["status"] == "unsupported_target_geometry"
-    assert result["reason"] == "large_auxiliary_jobs_require_exact_2x_or_4x_png_geometry"
+    assert result["reason"] == "large_auxiliary_jobs_require_exact_2x_4x_or_8x_png_geometry"
     assert result["v2_output_preserved"] is True
     assert baseline.read_bytes() == before
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
 
 
-@pytest.mark.parametrize("target_scale", [2, 4])
-def test_large_bridge_routes_2x_and_4x_png_through_streamed_seed_and_tiled_runner(
+@pytest.mark.parametrize("target_scale", [2, 4, 8])
+def test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_runner(
     tmp_path, monkeypatch, target_scale
 ):
-    """Exercise large 2x/4x source targets through one native 2x tiled pass."""
+    """Exercise large 2x/4x/8x source targets through one native 2x tiled pass."""
     pytest.importorskip("pyvips")
     import tools.v211_four_engine_run as runner
     import tools.v211_four_engine_fusion as fusion

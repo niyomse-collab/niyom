@@ -354,3 +354,14 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - สำหรับ 4x จากภาพต้นฉบับ seed มีขนาด 2x ของต้นฉบับ และ Native 2x pass จึงได้ target 4x. นี่ไม่ใช่ Native 4x, ไม่ใช่การรัน AI ต่อเนื่องหลาย pass และไม่เปลี่ยน V2 Master.
 - เพิ่ม integration test ให้ใช้ streamed seed/reference, tiled runner, fusion และ QA crop จริงในโค้ด โดยแทนเฉพาะ Native executables ด้วย synthetic processors; ครอบคลุม target scale 2x และ 4x. งาน 8x/3x/custom/anisotropic, non-PNG large, CMYK/PDF/PSD ยังคง fail-closed.
 - การทดสอบนี้พิสูจน์ orchestration/disk path เท่านั้น ไม่ใช่ Native inference บน GTX 1660 Ti, ไม่ใช่ peak VRAM 6 GB, ไม่ใช่คุณภาพเหนือ V2 และไม่ใช่ print certification. ต้องรอ CI HEAD ใหม่และทดสอบเครื่องร้าน.
+
+
+## 9 พฤศจิกายน 2569 — Candidate #451 และเปิด Large 8x แบบ QA-only
+
+- Windows Candidate **#451** บน PR HEAD `3be9bd2ce8702bd545c89eabef024ff1ae98b802` สำเร็จทั้ง `bridge-tests` และ `windows-v2-candidate`. Bridge/Privacy tests ผ่าน **290 รายการ** (231 + 59); Independent Core **#976** ผ่าน Windows **832 passed / 1 skipped** และ Ubuntu **830 passed / 3 skipped**, พร้อม compileall ทั้งสองระบบ.
+- Candidate #451 ตรวจ Frozen V2 imports, packaged provisioning `--check-only` แบบไม่ดาวน์โหลด, consented cleanup บน synthetic cache, diagnostic `--help`, BUILD_PROOF source SHA และ installer slice SHA256 ครบ. นี่เป็น Frozen/package provenance pass ไม่ใช่การติดตั้งหรือรัน GPU จริงบนเครื่องร้าน.
+- Installer SHA256: `6c078d3805262722bdfca20cea5a60734981d6df8a9af60f8efba264acd6c020`. Artifact ID `13635710275`, ZIP SHA256 `57650a7fecd53e43b6879ec97c7f155bfd34ecc89f2f643400aeb6cc86ff6f98`, ขนาด **2,584,565,314 bytes**; หมดอายุ 15 พ.ย. 2569 21:37 UTC. [Candidate #451](https://github.com/niyomse-collab/niyom/actions/runs/42524375276) · [Artifact](https://github.com/niyomse-collab/niyom/actions/runs/42524375276/artifacts/13635710275).
+- PyInstaller มีคำเตือน non-fatal ว่าไม่พบ `nvcuda.dll` และ optional `tbb12.dll` บน Hosted Runner. ไม่ได้เพิ่ม DLL เหล่านี้แบบเดาสุ่ม; ต้องตรวจความเกี่ยวข้องกับ runtime บนเครื่อง GTX 1660 Ti จริง.
+- ปรับ Bridge ให้รับ Large PNG geometry แบบ isotropic **2x/4x/8x** เมื่อ source หรือ V2 target เกิน 18 MP. Large 8x สร้าง half-target seed ที่ 4x source geometry แล้วใช้ Native Engine 2x เพียงหนึ่ง pass ต่อ tile; ไม่ใช่ Native 8x และไม่ใช่ multi-pass. Small 8x, 3x, custom, anisotropic และ Large non-PNG ยังคง fail-closed.
+- เพิ่ม synthetic integration coverage ให้เส้นทาง streamed seed → tiled runner → fusion → QA crop สำหรับ Large 2x/4x/8x และคงการปฏิเสธ Large 3x. V2 master ไม่ถูกเขียนทับ. การทดสอบนี้ยังไม่ใช่ native GPU inference, peak-VRAM stress หรือ quality A/B.
+- Native CLI Smoke #45 ยังคงเป็น diagnostic: Real-CUGAN/Anime4KCPP ทำ synthetic output ได้; Real-ESRGAN/Waifu2x ถูกบล็อกด้วย `vkCreateInstance failed -9` บน Hosted Runner. ต้องทดสอบทั้งสี่บน Windows 11 GTX 1660 Ti ของร้าน.
