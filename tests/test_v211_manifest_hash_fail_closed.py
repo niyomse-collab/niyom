@@ -114,8 +114,8 @@ def test_modified_bytes_are_rejected(tmp_path, target):
 
 def test_unhashed_directory_asset_is_rejected(tmp_path):
     data, _, model = _fixture(tmp_path)
-    data["anime4k"]["model_assets"] = [{"path": str(model.parent), "sha256": "0" * 64}]
-    with pytest.raises(ValueError, match="individual files with SHA256"):
+    data["real_esrgan"]["model_assets"] = [{"path": str(model.parent), "sha256": "0" * 64}]
+    with pytest.raises(FileNotFoundError, match="missing individual model asset"):
         _load(tmp_path, data)
 
 
