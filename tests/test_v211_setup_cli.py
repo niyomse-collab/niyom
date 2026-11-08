@@ -237,3 +237,95 @@ def test_setup_log_writer_canonicalizes_only_exact_success_engine_set(
         "FAILED setup_failed",
         "FAILED setup_failed",
     ]
+
+def _four_ai_cache_root(tmp_path):
+    return (tmp_path / "Profile" / "AppData" / "Local" /
+            "NiyomSilp" / "V211-FourAI-QA")
+
+
+def test_uninstall_cache_cleanup_requires_explicit_confirmation(tmp_path):
+    root = _four_ai_cache_root(tmp_path)
+    engine_file = root / "engines" / "real-esrgan" / "realesrgan-ncnn-vulkan.exe"
+    engine_file.parent.mkdir(parents=True)
+    engine_file.write_bytes(b"synthetic engine placeholder")
+
+    result = v211_setup_cli.cleanup_four_engine_assets(root, confirmed=False)
+
+    assert result == {"status": "consent_required", "removed": False}
+    assert engine_file.is_file()
+
+
+def test_uninstall_cache_cleanup_removes_only_owned_assets_and_keeps_unknown_files(
+    tmp_path,
+):
+    root = _four_ai_cache_root(tmp_path)
+    archive = root / "archives" / "real_esrgan.zip"
+    engine = root / "engines" / "real-esrgan" / "model.bin"
+    archive.parent.mkdir(parents=True)
+    engine.parent.mkdir(parents=True)
+    archive.write_bytes(b"synthetic archive placeholder")
+    engine.write_bytes(b"synthetic model placeholder")
+    (root / "manifest.json").write_text("{}", encoding="utf-8")
+    (root / "setup-complete.flag").write_text("verified", encoding="ascii")
+    unknown = root / "operator-note.txt"
+    unknown.write_text("keep this unrelated file", encoding="utf-8")
+
+    result = v211_setup_cli.cleanup_four_engine_assets(root, confirmed=True)
+
+    assert result["status"] == "removed"
+    assert result["removed"] is True
+    assert not archive.exists()
+    assert not engine.exists()
+    assert not (root / "manifest.json").exists()
+    assert not (root / "setup-complete.flag").exists()
+    assert unknown.read_text(encoding="utf-8") == "keep this unrelated file"
+    assert root.is_dir()
+    assert result["unknown_entries_preserved"] is True
+
+
+def test_uninstall_cache_cleanup_rejects_paths_outside_profile_localappdata(tmp_path):
+    unsafe = tmp_path / "customer-artwork" / "V211-FourAI-QA"
+    unsafe.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="outside the approved LocalAppData"):
+        v211_setup_cli.cleanup_four_engine_assets(unsafe, confirmed=True)
+
+    assert unsafe.is_dir()
+
+
+def test_uninstall_cache_cleanup_does_not_follow_child_directory_symlinks(tmp_path):
+    root = _four_ai_cache_root(tmp_path)
+    engines = root / "engines"
+    engines.mkdir(parents=True)
+    external = tmp_path / "external-models"
+    external.mkdir()
+    external_file = external / "keep.bin"
+    external_file.write_bytes(b"must remain outside the cache")
+    link = engines / "external-link"
+    try:
+        link.symlink_to(external, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
+
+    v211_setup_cli.cleanup_four_engine_assets(root, confirmed=True)
+
+    assert external_file.is_file()
+    assert not link.exists()
+    assert not engines.exists()
+
+
+def test_uninstall_cache_cleanup_rejects_cache_root_symlink(tmp_path):
+    expected = _four_ai_cache_root(tmp_path)
+    expected.parent.mkdir(parents=True)
+    external = tmp_path / "external-cache"
+    external.mkdir()
+    try:
+        expected.symlink_to(external, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
+
+    with pytest.raises(ValueError, match="not a safe ordinary directory"):
+        v211_setup_cli.cleanup_four_engine_assets(expected, confirmed=True)
+
+    assert external.is_dir()
+
