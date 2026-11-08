@@ -1,10 +1,11 @@
 """Opt-in V2.1.1 four-engine research hook, isolated from accepted V2 output.
 
-The native executables are configured for one 2x pass. Only exact 2x or 4x
-source-to-V2 geometry is eligible. A 2x target uses a source-sized seed; a 4x
-target uses a 2x-resized seed followed by one native 2x pass. This is NOT native
-4x inference or a multi-pass workflow. 3x, 8x, anisotropic and other target
-geometries are rejected before any native GPU process is launched.
+Each native executable performs one 2x pass on a private seed made at half of
+the accepted V2 target canvas. This decouples native engine scale from the
+original-to-print scale, so 2x/3x/4x/8x/custom and anisotropic target geometry
+can use the same bounded native pass. This is NOT native 4x/8x inference or a
+multi-pass workflow. Small jobs require a seed of at least 2x2; disk-backed
+large jobs require at least 64x64. Pixel/row/disk limits still fail closed.
 
 No candidate is silently used as the printed deliverable: quality approval is a
 separate release gate.
@@ -276,20 +277,34 @@ def maybe_run_four_engine_assist(
             return {"status": "unsupported_colour_mode", "v2_output_preserved": True}
         if source_mode not in ("RGB", "RGBA"):
             return {"status": "unsupported_source_mode", "v2_output_preserved": True}
-        if not any(
-            tuple(target_size) == (source_size[0] * scale, source_size[1] * scale)
-            for scale in (2, 4)
-        ):
-            return {
-                "status": "unsupported_scale",
-                "reason": "exact_2x_or_4x_source_geometry_required",
-                "v2_output_preserved": True,
-                "quality_certified": False,
-            }
+        # Native CLIs are fixed at 2x. Build their input from half of the
+        # exact accepted V2 canvas rather than restricting the user's original
+        # source-to-print scale. This supports custom/anisotropic dimensions
+        # while keeping the V2 raster as the authoritative colour/alpha base.
+        padded_target_size = (
+            target_size[0] + target_size[0] % 2,
+            target_size[1] + target_size[1] % 2,
+        )
+        seed_size = (
+            padded_target_size[0] // 2,
+            padded_target_size[1] // 2,
+        )
         large_job = max(
             source_size[0] * source_size[1],
             target_size[0] * target_size[1],
         ) > _AUXILIARY_MAX_PIXELS
+        minimum_seed_dimension = 64 if large_job else 2
+        if min(seed_size) < minimum_seed_dimension:
+            return {
+                "status": "unsupported_target_geometry",
+                "reason": (
+                    "half_target_seed_must_be_at_least_64x64_for_disk_tiles"
+                    if large_job else
+                    "half_target_seed_must_be_at_least_2x2"
+                ),
+                "v2_output_preserved": True,
+                "quality_certified": False,
+            }
 
         from tools.v211_four_engine_run import run
 
