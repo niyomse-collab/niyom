@@ -294,7 +294,7 @@ def test_uninstall_cache_cleanup_rejects_paths_outside_profile_localappdata(
     unsafe = tmp_path / "customer-artwork" / "V211-FourAI-QA"
     unsafe.mkdir(parents=True)
 
-    with pytest.raises(ValueError, match="outside the approved LocalAppData"):
+    with pytest.raises(ValueError, match="approved LocalAppData"):
         v211_setup_cli.cleanup_four_engine_assets(unsafe, confirmed=True)
 
     assert unsafe.is_dir()
