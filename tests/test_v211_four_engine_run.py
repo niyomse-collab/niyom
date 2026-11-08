@@ -131,20 +131,23 @@ def test_small_rgba_runner_rebinds_candidates_to_exact_v2_alpha(tmp_path):
     assert report["completed_engine_count"] == 4
     assert report["fusion_implemented"] is True
     assert "fusion_error" not in report
-    expected_alpha = reference_alpha.tobytes()
+    with Image.open(v2_reference) as accepted_v2:
+        expected_alpha = accepted_v2.getchannel("A").tobytes()
+        expected_icc = accepted_v2.info.get("icc_profile")
+        expected_dpi = accepted_v2.info.get("dpi")
     for candidate_path in report["candidates"].values():
         with Image.open(candidate_path) as candidate:
             assert candidate.mode == "RGBA"
             assert candidate.getchannel("A").tobytes() == expected_alpha
-            assert candidate.info.get("icc_profile") == profile
-            assert candidate.info.get("dpi") == reference.info.get("dpi")
+            assert candidate.info.get("icc_profile") == expected_icc
+            assert candidate.info.get("dpi") == expected_dpi
 
     fused_path = Path(report["four_engine_fusion"]["output"])
     with Image.open(fused_path) as fused:
         assert fused.mode == "RGBA"
         assert fused.getchannel("A").tobytes() == expected_alpha
-        assert fused.info.get("icc_profile") == profile
-        assert fused.info.get("dpi") == reference.info.get("dpi")
+        assert fused.info.get("icc_profile") == expected_icc
+        assert fused.info.get("dpi") == expected_dpi
 
 
 
