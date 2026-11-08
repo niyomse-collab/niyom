@@ -1,4 +1,5 @@
 name: V2.1.1 official engine archive provenance audit
+# 2026-11-09: rerun archive/license/digest provenance against the current hardened manifest and provisioner; no redistribution is authorized.
 on:
   push:
     branches:
