@@ -173,45 +173,60 @@ procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ErrorCode: Integer;
   Parameters: String;
+  CurrentUserFourAIDataRoot: String;
 begin
   { usUninstall occurs after the user confirms uninstall and before app files
-    are removed. Silent uninstall deliberately keeps the offline model cache. }
-  if (CurUninstallStep = usUninstall) and
-     (not UninstallSilent) and
-     (FourAIDataRootPath <> '') and
-     DirExists(FourAIDataRootPath) then
+    are removed. Silent uninstall deliberately keeps all per-user model caches. }
+  if (CurUninstallStep = usUninstall) and (not UninstallSilent) then
   begin
-    if MsgBox(
-      'Do you also want to remove the four downloaded AI engines and their manifest?' #13#13 +
-      'Only the dedicated NiyomSilp V2.1.1 engine cache in the installer profile will be removed. ' +
-      'Unknown files, customer artwork, V1 and V2 Stable files are not part of this cleanup.' #13#13 +
-      'Choose No to keep the models for later offline use.',
-      mbConfirmation,
-      MB_YESNO or MB_DEFBUTTON2
-    ) = IDYES then
+    CurrentUserFourAIDataRoot :=
+      ExpandConstant('{localappdata}\NiyomSilp\V211-FourAI-QA');
+    if DirExists(CurrentUserFourAIDataRoot) then
     begin
-      Parameters :=
-        '--remove-v211-four-ai-assets --confirmed-by-user --data-root "' +
-        FourAIDataRootPath + '"';
-      if not Exec(
-        ExpandConstant('{app}\{#MyAppExeName}'),
-        Parameters,
-        ExpandConstant('{app}'),
-        SW_HIDE,
-        ewWaitUntilTerminated,
-        ErrorCode
-      ) then
-        MsgBox(
-          'The four-engine cache cleanup could not be started. The cache was left in place.',
-          mbError,
-          MB_OK
-        )
-      else if ErrorCode <> 0 then
-        MsgBox(
-          'The four-engine cache cleanup did not complete safely. Remaining files were left in place.',
-          mbError,
-          MB_OK
-        );
+      if MsgBox(
+        'Do you also want to remove the four downloaded AI engines and their manifest from this Windows account?' #13#13 +
+        'Only the dedicated NiyomSilp V2.1.1 engine cache will be removed. ' +
+        'Unknown files, customer artwork, V1 and V2 Stable files are not part of this cleanup.' #13#13 +
+        'Choose No to keep the models for later offline use.',
+        mbConfirmation,
+        MB_YESNO or MB_DEFBUTTON2
+      ) = IDYES then
+      begin
+        Parameters :=
+          '--remove-v211-four-ai-assets --confirmed-by-user --data-root "' +
+          CurrentUserFourAIDataRoot + '"';
+        if not Exec(
+          ExpandConstant('{app}\{#MyAppExeName}'),
+          Parameters,
+          ExpandConstant('{app}'),
+          SW_HIDE,
+          ewWaitUntilTerminated,
+          ErrorCode
+        ) then
+          MsgBox(
+            'The four-engine cache cleanup could not be started. The cache was left in place.',
+            mbError,
+            MB_OK
+          )
+        else if ErrorCode <> 0 then
+          MsgBox(
+            'The four-engine cache cleanup did not complete safely. Remaining files were left in place.',
+            mbError,
+            MB_OK
+          );
+      end;
     end;
+
+    { The install-time profile may differ if Setup was elevated with another
+      administrator account. Never delete that other profile's cache silently. }
+    if (FourAIDataRootPath <> '') and
+       (Uppercase(FourAIDataRootPath) <> Uppercase(CurrentUserFourAIDataRoot)) and
+       DirExists(FourAIDataRootPath) then
+      MsgBox(
+        'A separate V2.1.1 model cache exists in another Windows user profile. ' +
+        'It was left untouched for safety. Sign in to that account to remove its cache if desired.',
+        mbInformation,
+        MB_OK
+      );
   end;
 end;
