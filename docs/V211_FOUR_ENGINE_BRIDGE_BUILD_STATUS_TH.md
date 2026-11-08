@@ -338,3 +338,12 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Earlier Candidate #380 completed successfully on source HEAD cd93819851ee3877bcd74ca8da9cc831e4e39aa8, but is superseded by the manifest/GPU-binding hardening above. Its installer SHA256 was 151ccfc18ae9e89092af68c15509598f9756e7f9a335793e19ae15cc217dad1a; uploaded artifact ZIP was 2,584,441,682 bytes with digest 7a772a353f6a5d949f4ab103878a99445d9852a6814d52f61ca21a9ad38de525 (artifact ID 13596444870). Do not use that stale artifact as the current candidate. Run: https://github.com/niyomse-collab/niyom/actions/runs/42427638832.
 - PR #18 GFPGAN/face-protection files remain byte-identical 4/4. Current PR #20 contains 57 changed source/test/documentation files and no executable, DLL, archive or model-weight files. No V1/V2 Stable files were changed; no merge/release or quality certification was performed.
 - The four-engine native GPU run on the shop GTX 1660 Ti, 6 GB VRAM stress, large-print native tile execution, and visual A/B comparison against V2 remain unverified. Hosted-runner Vulkan errors are not treated as proof of shop-PC failure or success.
+
+
+## 8 พฤศจิกายน 2569 — enforce source-to-print scale before native GPU work
+
+- The bridge now checks the **original source dimensions against the accepted V2 output dimensions**, not only the half-target seed seen by the fixed-2x native runner. This closes a gap where an 8x original target could otherwise look like a valid 2x seed-to-reference job.
+- Small auxiliary jobs accept only exact isotropic 2x or 4x source-to-V2 geometry. The 4x path is a half-target seed followed by one native 2x pass; it is not native 4x or multi-pass inference. 3x, 8x, custom and anisotropic geometries fail before GPU binding/native launch.
+- Jobs above 18 MP accept only exact 2x PNG source-to-V2 geometry through the disk-backed route. Large 4x/8x and non-PNG source/V2 paths remain V2-only until a separately validated multi-pass/format route exists.
+- Regression tests now cover supported small 2x/4x, unsupported small geometries, large exact-2x tiled execution, and large 4x/8x rejection before GPU binding. The tiled fusion fixture uses distinct engine detail strengths so the weaker conditional Anime4K term is tested without artificially increasing its production weight.
+- This is an orchestration/guardrail correction. It does not certify Native GPU execution, 6 GB peak VRAM, large-image 4x/8x, or visual quality versus V2.

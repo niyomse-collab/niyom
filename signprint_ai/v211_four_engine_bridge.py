@@ -295,6 +295,34 @@ def maybe_run_four_engine_assist(
             source_size[0] * source_size[1],
             target_size[0] * target_size[1],
         ) > _AUXILIARY_MAX_PIXELS
+        source_to_target_scale = next(
+            (
+                scale for scale in (2, 4)
+                if target_size == (source_size[0] * scale, source_size[1] * scale)
+            ),
+            None,
+        )
+        # The runner sees only a half-target seed, so its own 2x preflight
+        # cannot detect an unsupported original-to-print scale such as 3x/8x.
+        # Reject those geometries here, before GPU binding or any native CLI.
+        if large_job and (
+            source_to_target_scale != 2
+            or original.suffix.lower() != ".png"
+            or baseline.suffix.lower() != ".png"
+        ):
+            return {
+                "status": "unsupported_target_geometry",
+                "reason": "large_auxiliary_jobs_require_exact_2x_png_geometry",
+                "v2_output_preserved": True,
+                "quality_certified": False,
+            }
+        if source_to_target_scale is None:
+            return {
+                "status": "unsupported_target_geometry",
+                "reason": "source_to_v2_geometry_must_be_exact_isotropic_2x_or_4x",
+                "v2_output_preserved": True,
+                "quality_certified": False,
+            }
         minimum_seed_dimension = 64 if large_job else 2
         if min(seed_size) < minimum_seed_dimension:
             return {

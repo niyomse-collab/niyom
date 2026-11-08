@@ -129,15 +129,11 @@ def test_faulty_engine_does_not_fail_v2_job(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("target_size", "expected_seed", "expected_padded"),
     [
-        ((16, 16), (8, 8), (16, 16)),       # 2x
-        ((24, 24), (12, 12), (24, 24)),     # 3x
-        ((32, 32), (16, 16), (32, 32)),     # 4x
-        ((64, 64), (32, 32), (64, 64)),     # 8x
-        ((32, 24), (16, 12), (32, 24)),     # anisotropic
-        ((25, 17), (13, 9), (26, 18)),      # odd custom canvas, edge-padded
+        ((16, 16), (8, 8), (16, 16)),       # exact 2x
+        ((32, 32), (16, 16), (32, 32)),     # exact 4x via half-target seed
     ],
 )
-def test_native_2x_engines_use_half_target_seed_for_custom_target_geometry(
+def test_native_2x_engines_use_half_target_seed_for_supported_scale_geometry(
     tmp_path, monkeypatch, target_size, expected_seed, expected_padded
 ):
     source, baseline = _images(tmp_path)
@@ -571,16 +567,63 @@ def test_large_four_engine_seed_and_qa_crop_use_disk_backed_vips_without_full_pi
             assert qa_header.info["dpi"][0] == pytest.approx(300, abs=0.1)
         assert baseline.read_bytes() == before
 
-@pytest.mark.parametrize("target_scale", [2, 4, 8])
-def test_large_bridge_routes_custom_scales_through_streamed_seed_and_tiled_runner(
+@pytest.mark.parametrize(
+    "target_size",
+    [(24, 24), (64, 64), (32, 24), (25, 17)],
+)
+def test_bridge_rejects_unsupported_small_source_to_v2_geometry_before_gpu(
+    tmp_path, monkeypatch, target_size
+):
+    source, baseline = _images(tmp_path)
+    Image.new("RGBA", target_size, (30, 40, 50, 120)).save(baseline)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("unsupported source-to-V2 geometry must fail before GPU binding")
+
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+    assert result["status"] == "unsupported_target_geometry"
+    assert result["reason"] == "source_to_v2_geometry_must_be_exact_isotropic_2x_or_4x"
+    assert result["v2_output_preserved"] is True
+    assert baseline.read_bytes() == before
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+
+
+@pytest.mark.parametrize("target_scale", [4, 8])
+def test_large_bridge_rejects_non_2x_geometry_before_gpu(
     tmp_path, monkeypatch, target_scale
 ):
-    """Exercise 2x/4x/8x original targets through one native 2x half-target pass.
+    source = tmp_path / "large-source.png"
+    baseline = tmp_path / "large-v2.png"
+    Image.new("RGB", (128, 128), (40, 80, 120)).save(source)
+    Image.new(
+        "RGB", (128 * target_scale, 128 * target_scale), (40, 80, 120)
+    ).save(baseline)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 1024)
 
-    Pixel thresholds are lowered only in this test so it covers orchestration
-    cheaply. Separate 24 MP regressions cover the actual disk-backed seed,
-    native tile runner, and streamed QA crop implementations.
-    """
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("large non-2x jobs must fail before GPU binding or native launch")
+
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+    assert result["status"] == "unsupported_target_geometry"
+    assert result["reason"] == "large_auxiliary_jobs_require_exact_2x_png_geometry"
+    assert result["v2_output_preserved"] is True
+    assert baseline.read_bytes() == before
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+
+
+@pytest.mark.parametrize("target_scale", [2])
+def test_large_bridge_routes_exact_2x_png_through_streamed_seed_and_tiled_runner(
+    tmp_path, monkeypatch, target_scale
+):
+    """Exercise the supported >18 MP exact-2x PNG route through disk-backed tiles."""
     pytest.importorskip("pyvips")
     import tools.v211_four_engine_run as runner
     import tools.v211_four_engine_fusion as fusion
@@ -631,9 +674,14 @@ def test_large_bridge_routes_custom_scales_through_streamed_seed_and_tiled_runne
     )
 
     def processor(name):
-        # Equal synthetic edge deltas keep the low-weight Anime4K term
-        # observable after final RGB quantization at every target scale.
-        amount = 9
+        # Distinct synthetic edge strengths mirror the direct fusion
+        # fixture: Anime4K remains a weaker, conditional contributor.
+        amount = {
+            "real_esrgan": 9,
+            "waifu2x": 7,
+            "real_cugan": 8,
+            "anime4k": 5,
+        }[name]
 
         def run_tile(input_path, output_path):
             with Image.open(input_path) as tile:
