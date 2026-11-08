@@ -67,6 +67,33 @@ def test_create_verified_manifest_from_four_archives(tmp_path, monkeypatch):
     assert all(Path(v["executable"]).is_file() for v in data.values())
 
 
+def test_manifest_records_published_and_observed_archive_digest_sources(
+    tmp_path, monkeypatch
+):
+    archives = _fake_archives(tmp_path, monkeypatch)
+    # Simulate two official releases with no publisher-provided digest. Their
+    # independently recorded CI pins must remain visibly distinct from the
+    # published SHA256 values used by the other two packages.
+    for engine in ("real_esrgan", "real_cugan"):
+        package = provision.PACKAGES[engine]
+        package["observed_sha256"] = package["release_sha256"]
+        package["release_sha256"] = None
+
+    manifest_path = tmp_path / "qa-manifest.json"
+    provision.provision_from_archives(
+        archives, tmp_path / "installed-engines", manifest_path
+    )
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert data["real_esrgan"]["archive_digest_source"] == "observed_ci_sha256"
+    assert data["real_cugan"]["archive_digest_source"] == "observed_ci_sha256"
+    assert data["waifu2x"]["archive_digest_source"] == "published_release_sha256"
+    assert data["anime4k"]["archive_digest_source"] == "published_release_sha256"
+    assert set(load_real_engine_manifest(manifest_path)) == {
+        "real_esrgan", "waifu2x", "real_cugan", "anime4k"
+    }
+
+
 def test_no_manifest_when_archive_hash_changes(tmp_path, monkeypatch):
     archives = _fake_archives(tmp_path, monkeypatch)
     (archives / "anime4k.zip").write_bytes(b"tampered")
