@@ -85,16 +85,60 @@ def _validate_args(engine: str, args: list, engine_root: Path) -> list[str]:
     if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
         raise ValueError(engine + ": args must be a string array")
 
+    # The installed manifest has no device flags. A per-run copy may add only
+    # the explicit GPU selector produced by v211_gpu_device_binding. Validate
+    # those flags here, then compare the remaining arguments exactly.
+    base_args = list(args)
+    if engine in ("real_esrgan", "waifu2x", "real_cugan"):
+        positions = [
+            index for index, token in enumerate(base_args)
+            if token in ("-g", "--gpu")
+        ]
+        if len(positions) > 1:
+            raise ValueError(engine + ": duplicate Vulkan GPU index")
+        if positions:
+            index = positions[0]
+            if index + 1 >= len(base_args):
+                raise ValueError(engine + ": Vulkan GPU index is missing")
+            raw_index = base_args[index + 1]
+            if not raw_index.isdecimal():
+                raise ValueError(engine + ": Vulkan GPU index must be a non-negative integer")
+            del base_args[index:index + 2]
+    elif engine == "anime4k":
+        processor_positions = [
+            index for index, token in enumerate(base_args)
+            if token in ("-p", "--processor")
+        ]
+        device_positions = [
+            index for index, token in enumerate(base_args)
+            if token in ("-d", "--device")
+        ]
+        if len(processor_positions) > 1 or len(device_positions) > 1:
+            raise ValueError(engine + ": duplicate processor/device selection")
+        if bool(processor_positions) != bool(device_positions):
+            raise ValueError(engine + ": Anime4K processor and device must be selected together")
+        if processor_positions:
+            processor_index = processor_positions[0]
+            device_index = device_positions[0]
+            if processor_index + 1 >= len(base_args) or device_index + 1 >= len(base_args):
+                raise ValueError(engine + ": Anime4K processor/device value is missing")
+            if base_args[processor_index + 1] not in ("cuda", "opencl"):
+                raise ValueError(engine + ": Anime4K processor must be CUDA or OpenCL")
+            if not base_args[device_index + 1].isdecimal():
+                raise ValueError(engine + ": Anime4K device index must be a non-negative integer")
+            for index in sorted((processor_index, device_index), reverse=True):
+                del base_args[index:index + 2]
+
     prefix = ["-i", "{input}", "-o", "{output}"]
     if engine == "anime4k":
         expected = prefix + ["-f", "2"]
-        if args != expected:
+        if base_args != expected:
             raise ValueError(engine + ": CLI arguments differ from the pinned v3.2.0 contract")
         return args
 
-    if len(args) != 12 or args[:4] != prefix or args[4] != "-m":
+    if len(base_args) != 12 or base_args[:4] != prefix or base_args[4] != "-m":
         raise ValueError(engine + ": CLI arguments differ from the pinned NCNN contract")
-    model_dir = Path(args[5])
+    model_dir = Path(base_args[5])
     if not model_dir.is_absolute():
         raise ValueError(engine + ": model directory must be an absolute path")
     model_dir = _inside(model_dir, engine_root, engine, "model directory")
@@ -112,7 +156,7 @@ def _validate_args(engine: str, args: list, engine_root: Path) -> list[str]:
         "-s", "2",
         "-t", "128",
     ]
-    if args != expected:
+    if base_args != expected:
         raise ValueError(engine + ": CLI arguments differ from the pinned NCNN model/scale contract")
     return args
 
