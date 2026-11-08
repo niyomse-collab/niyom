@@ -577,6 +577,7 @@ def run_diagnostic(
     gpu_probe=probe_gpu,
     engine_runner=run_real_inference_qa,
     anime4k_probe=probe_anime4k_backend,
+    manifest_loader=load_real_engine_manifest,
     timeout_seconds: int = 180,
     bind_devices: bool = True,
 ) -> dict:
@@ -588,9 +589,33 @@ def run_diagnostic(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     gpu = gpu_probe()
-    anime4k_backend = anime4k_probe(manifest)
+    # Verify the complete pinned four-engine manifest independently before
+    # trusting an inventory callback or launching any manifest-supplied CLI.
+    # This second boundary is intentional: injected/test probes must never be
+    # able to turn an invalid or tampered manifest into permission to execute.
+    manifest_preflight_error = None
+    try:
+        manifest_loader(manifest)
+    except Exception as exc:
+        manifest_preflight_error = exc
+        anime4k_backend = {
+            "status": "manifest_preflight_failed",
+            "manifest_preflight_passed": False,
+            "error_type": type(exc).__name__,
+        }
+    else:
+        try:
+            anime4k_backend = anime4k_probe(manifest)
+        except Exception as exc:
+            manifest_preflight_error = exc
+            anime4k_backend = {
+                "status": "manifest_preflight_failed",
+                "manifest_preflight_passed": False,
+                "error_type": type(exc).__name__,
+            }
     manifest_preflight_ok = bool(
-        manifest.is_file()
+        manifest_preflight_error is None
+        and manifest.is_file()
         and anime4k_backend.get("manifest_preflight_passed") is True
     )
     cases = {}
