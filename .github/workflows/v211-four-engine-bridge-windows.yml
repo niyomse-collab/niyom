@@ -92,6 +92,32 @@ jobs:
           }
           Write-Output 'Packaged four-engine provisioning dispatch passed without downloads.'
 
+      - name: Verify packaged consented model-cache cleanup on isolated synthetic data
+        shell: pwsh
+        run: |
+          $exe = '.\\dist\\NiyomsilAIEnhancer\\NiyomsilAIEnhancer.exe'
+          $cacheRoot = Join-Path $env:RUNNER_TEMP 'Profile\\AppData\\Local\\NiyomSilp\\V211-FourAI-QA'
+          $archiveDir = Join-Path $cacheRoot 'archives'
+          $engineDir = Join-Path $cacheRoot 'engines\\real-esrgan'
+          New-Item -ItemType Directory -Force -Path $archiveDir, $engineDir | Out-Null
+          Set-Content -LiteralPath (Join-Path $archiveDir 'synthetic.zip') -Value 'not a real archive'
+          Set-Content -LiteralPath (Join-Path $engineDir 'model.bin') -Value 'synthetic placeholder'
+          Set-Content -LiteralPath (Join-Path $cacheRoot 'manifest.json') -Value '{}'
+          Set-Content -LiteralPath (Join-Path $cacheRoot 'operator-note.txt') -Value 'preserve unknown files'
+          $process = Start-Process -FilePath $exe -ArgumentList @('--remove-v211-four-ai-assets', '--confirmed-by-user', '--data-root', $cacheRoot) -Wait -PassThru
+          if ($null -eq $process -or $process.ExitCode -ne 0) {
+            throw 'Packaged consented model-cache cleanup failed.'
+          }
+          foreach ($removed in @($archiveDir, (Join-Path $cacheRoot 'engines'), (Join-Path $cacheRoot 'manifest.json'))) {
+            if (Test-Path -LiteralPath $removed) {
+              throw "Packaged cleanup left an owned cache entry: $removed"
+            }
+          }
+          if (-not (Test-Path -LiteralPath (Join-Path $cacheRoot 'operator-note.txt'))) {
+            throw 'Packaged cleanup removed an unknown file; refusing broad deletion.'
+          }
+          Remove-Item -LiteralPath $cacheRoot -Recurse -Force
+          Write-Output 'Packaged cleanup removed only approved cache entries and preserved the unknown file.'
       - name: Verify packaged GTX 1660 Ti diagnostic command dispatch (help only)
         shell: pwsh
         run: |
