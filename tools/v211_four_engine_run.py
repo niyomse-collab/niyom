@@ -342,8 +342,8 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             )
         if large_job and tuple(size) != (source_size[0] * 2, source_size[1] * 2):
             raise ValueError(
-                "large disk-backed native inference currently supports one exact 2x pass; "
-                "4x and 8x multi-pass remain disabled"
+                "large disk-backed native inference requires one exact 2x pass from the half-target seed; "
+                "additional native passes remain disabled"
             )
         # Reject mismatched RGB/RGBA or ICC before manifest parsing and before
         # any native executable can consume GPU/CPU time on unusable candidates.
