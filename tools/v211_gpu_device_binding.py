@@ -15,6 +15,8 @@ from tools.v211_four_engine_subprocess import ENGINES
 
 TARGET_GPU = "gtx 1660 ti"
 NCNN_ENGINES = ("real_esrgan", "waifu2x", "real_cugan")
+# Conservative launch threshold, not a promise that every tile/model fits.
+MIN_FREE_VRAM_MIB = 2048
 
 
 class GPUDeviceBindingError(RuntimeError):
@@ -41,6 +43,39 @@ def resolve_device_selection(
     if not nvidia.get("success") or len(nvidia_matches) != 1:
         raise GPUDeviceBindingError(
             "NVIDIA-SMI must report exactly one " + target_name + " adapter"
+        )
+
+    # A 6 GB card can be almost full because of Photoshop, browsers or another
+    # inference process. Require a fresh NVIDIA-SMI free-memory reading before
+    # binding any optional native engine. This is only a launch preflight: VRAM
+    # can change afterwards, so native processes must still handle OOM safely.
+    nvidia_target = nvidia_matches[0]
+    memory_total = nvidia_target.get("memory_total_mib")
+    memory_free = nvidia_target.get("memory_free_mib")
+    if (
+        isinstance(memory_total, bool)
+        or not isinstance(memory_total, int)
+        or memory_total <= 0
+    ):
+        raise GPUDeviceBindingError(
+            "NVIDIA-SMI must report a valid total VRAM capacity"
+        )
+    if (
+        isinstance(memory_free, bool)
+        or not isinstance(memory_free, int)
+        or memory_free < 0
+    ):
+        raise GPUDeviceBindingError(
+            "NVIDIA-SMI must report a valid free VRAM reading"
+        )
+    if memory_free > memory_total:
+        raise GPUDeviceBindingError(
+            "NVIDIA-SMI free VRAM exceeds the reported total capacity"
+        )
+    if memory_free < MIN_FREE_VRAM_MIB:
+        raise GPUDeviceBindingError(
+            f"insufficient free VRAM: {memory_free} MiB available; "
+            f"at least {MIN_FREE_VRAM_MIB} MiB required"
         )
 
     vulkan_devices = gpu_report.get("vulkan_device_inventory") or []
@@ -116,6 +151,13 @@ def resolve_device_selection(
             "device_name": device_name,
         },
         "binding_configured": True,
+        "vram_preflight": {
+            "total_mib": memory_total,
+            "free_mib": memory_free,
+            "minimum_free_mib": MIN_FREE_VRAM_MIB,
+            "passed": True,
+            "note": "Launch-time snapshot only; not a reservation or peak-memory guarantee.",
+        },
         "runtime_device_use_verified": False,
         "note": (
             "CLI device indexes are explicitly configured from local inventories; "
