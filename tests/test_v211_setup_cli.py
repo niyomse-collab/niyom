@@ -238,13 +238,14 @@ def test_setup_log_writer_canonicalizes_only_exact_success_engine_set(
         "FAILED setup_failed",
     ]
 
-def _four_ai_cache_root(tmp_path):
-    return (tmp_path / "Profile" / "AppData" / "Local" /
-            "NiyomSilp" / "V211-FourAI-QA")
+def _four_ai_cache_root(tmp_path, monkeypatch):
+    local_app_data = tmp_path / "Profile" / "AppData" / "Local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    return local_app_data / "NiyomSilp" / "V211-FourAI-QA"
 
 
-def test_uninstall_cache_cleanup_requires_explicit_confirmation(tmp_path):
-    root = _four_ai_cache_root(tmp_path)
+def test_uninstall_cache_cleanup_requires_explicit_confirmation(tmp_path, monkeypatch):
+    root = _four_ai_cache_root(tmp_path, monkeypatch)
     engine_file = root / "engines" / "real-esrgan" / "realesrgan-ncnn-vulkan.exe"
     engine_file.parent.mkdir(parents=True)
     engine_file.write_bytes(b"synthetic engine placeholder")
@@ -256,9 +257,9 @@ def test_uninstall_cache_cleanup_requires_explicit_confirmation(tmp_path):
 
 
 def test_uninstall_cache_cleanup_removes_only_owned_assets_and_keeps_unknown_files(
-    tmp_path,
+    tmp_path, monkeypatch,
 ):
-    root = _four_ai_cache_root(tmp_path)
+    root = _four_ai_cache_root(tmp_path, monkeypatch)
     archive = root / "archives" / "real_esrgan.zip"
     engine = root / "engines" / "real-esrgan" / "model.bin"
     archive.parent.mkdir(parents=True)
@@ -283,7 +284,12 @@ def test_uninstall_cache_cleanup_removes_only_owned_assets_and_keeps_unknown_fil
     assert result["unknown_entries_preserved"] is True
 
 
-def test_uninstall_cache_cleanup_rejects_paths_outside_profile_localappdata(tmp_path):
+def test_uninstall_cache_cleanup_rejects_paths_outside_profile_localappdata(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv(
+        "LOCALAPPDATA", str(tmp_path / "Profile" / "AppData" / "Local")
+    )
     unsafe = tmp_path / "customer-artwork" / "V211-FourAI-QA"
     unsafe.mkdir(parents=True)
 
@@ -293,8 +299,91 @@ def test_uninstall_cache_cleanup_rejects_paths_outside_profile_localappdata(tmp_
     assert unsafe.is_dir()
 
 
-def test_uninstall_cache_cleanup_does_not_follow_child_directory_symlinks(tmp_path):
-    root = _four_ai_cache_root(tmp_path)
+def test_uninstall_cache_cleanup_rejects_other_profile_with_same_cache_suffix(
+    tmp_path, monkeypatch
+):
+    current_local = tmp_path / "CurrentProfile" / "AppData" / "Local"
+    monkeypatch.setenv("LOCALAPPDATA", str(current_local))
+    unsafe = (
+        tmp_path / "OtherProfile" / "AppData" / "Local" /
+        "NiyomSilp" / "V211-FourAI-QA"
+    )
+    unsafe.mkdir(parents=True)
+    sentinel = unsafe / "keep.txt"
+    sentinel.write_text("must not be deleted", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="current user's approved LocalAppData"):
+        v211_setup_cli.cleanup_four_engine_assets(unsafe, confirmed=True)
+
+    assert sentinel.read_text(encoding="utf-8") == "must not be deleted"
+
+
+def test_uninstall_cache_cleanup_rejects_parent_traversal(tmp_path, monkeypatch):
+    local_app_data = tmp_path / "Profile" / "AppData" / "Local"
+    monkeypatch.setenv("LOCALAPPDATA", str(local_app_data))
+    unsafe = (
+        local_app_data / "NiyomSilp" / ".." / "Local" /
+        "NiyomSilp" / "V211-FourAI-QA"
+    )
+
+    with pytest.raises(ValueError, match="parent traversal"):
+        v211_setup_cli.cleanup_four_engine_assets(unsafe, confirmed=True)
+
+
+def test_uninstall_cache_cleanup_rejects_mount_point_before_reparse_removal(
+    tmp_path, monkeypatch
+):
+    root = _four_ai_cache_root(tmp_path, monkeypatch)
+    engines = root / "engines"
+    engines.mkdir(parents=True)
+    external = tmp_path / "external-mounted-cache"
+    external.mkdir()
+    (external / "keep.bin").write_bytes(b"outside cache")
+    link = engines / "mounted-entry"
+    try:
+        link.symlink_to(external, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
+
+    original_ismount = v211_setup_cli.os.path.ismount
+    monkeypatch.setattr(
+        v211_setup_cli.os.path,
+        "ismount",
+        lambda candidate: (
+            os.fspath(candidate) == os.fspath(link) or original_ismount(candidate)
+        ),
+    )
+    with pytest.raises(ValueError, match="mount point"):
+        v211_setup_cli.cleanup_four_engine_assets(root, confirmed=True)
+
+    assert os.path.lexists(link)
+    assert (external / "keep.bin").is_file()
+
+
+def test_uninstall_cache_cleanup_removes_broken_directory_symlink_without_following_target(
+    tmp_path, monkeypatch
+):
+    root = _four_ai_cache_root(tmp_path, monkeypatch)
+    engines = root / "engines"
+    engines.mkdir(parents=True)
+    external = tmp_path / "removed-link-target"
+    external.mkdir()
+    link = engines / "broken-directory-link"
+    try:
+        link.symlink_to(external, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable on this runner")
+    external.rmdir()
+
+    v211_setup_cli.cleanup_four_engine_assets(root, confirmed=True)
+
+    assert not os.path.lexists(link)
+
+
+def test_uninstall_cache_cleanup_does_not_follow_child_directory_symlinks(
+    tmp_path, monkeypatch
+):
+    root = _four_ai_cache_root(tmp_path, monkeypatch)
     engines = root / "engines"
     engines.mkdir(parents=True)
     external = tmp_path / "external-models"
@@ -314,8 +403,8 @@ def test_uninstall_cache_cleanup_does_not_follow_child_directory_symlinks(tmp_pa
     assert not engines.exists()
 
 
-def test_uninstall_cache_cleanup_rejects_cache_root_symlink(tmp_path):
-    expected = _four_ai_cache_root(tmp_path)
+def test_uninstall_cache_cleanup_rejects_cache_root_symlink(tmp_path, monkeypatch):
+    expected = _four_ai_cache_root(tmp_path, monkeypatch)
     expected.parent.mkdir(parents=True)
     external = tmp_path / "external-cache"
     external.mkdir()
