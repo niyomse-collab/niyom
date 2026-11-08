@@ -1,11 +1,13 @@
 """Opt-in V2.1.1 four-engine research hook, isolated from accepted V2 output.
 
 Each native executable performs one 2x pass on a private seed made at half of
-the accepted V2 target canvas. This decouples native engine scale from the
-original-to-print scale, so 2x/3x/4x/8x/custom and anisotropic target geometry
-can use the same bounded native pass. This is NOT native 4x/8x inference or a
-multi-pass workflow. Small jobs require a seed of at least 2x2; disk-backed
-large jobs require at least 64x64. Pixel/row/disk limits still fail closed.
+the accepted V2 target canvas. The current runner accepts exact isotropic 2x
+or 4x source geometry for small jobs; 4x uses a half-target seed followed by
+one native 2x pass, not native 4x inference or a multi-pass workflow. Jobs
+above 18 MP currently accept exact 2x PNG geometry only through disk-backed
+tiles. Large 4x/8x, 3x, custom and anisotropic targets remain unsupported and
+must fail before native inference. Small jobs require a seed of at least 2x2;
+disk-backed large jobs require at least 64x64. Pixel/row/disk limits fail closed.
 
 No candidate is silently used as the printed deliverable: quality approval is a
 separate release gate.
