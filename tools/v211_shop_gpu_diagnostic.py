@@ -648,6 +648,7 @@ def run_diagnostic(
 
     manifest_preflight_passed = bool(
         manifest.is_file()
+        and anime4k_backend.get("manifest_preflight_passed") is True
         and all(case.get("failed_stage") != "manifest_preflight" for case in cases.values())
     )
     all_four = manifest_preflight_passed and all(
