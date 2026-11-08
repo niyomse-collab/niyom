@@ -185,3 +185,9 @@ $env:NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR = "$qa\private-ab"
 - ทั้ง 2x และ 4x ใช้ Native Engine 2x เพียงหนึ่ง pass บน seed ครึ่ง target; กรณี source-to-V2 4x seed จะมีขนาด 2x ของ source ก่อนเข้า Native 2x. ห้ามเรียกสิ่งนี้ว่า Native 4x หรือ multi-pass AI.
 - 8x, 3x, custom, anisotropic และ large non-PNG ยังใช้ V2-only. การเปิด 4x เป็นการขยาย orchestration route ที่ใช้ tile เดิม ไม่ได้ยืนยันว่า 6 GB VRAM, ความเร็ว, seam หรือคุณภาพภาพจริงผ่านแล้ว.
 - CI ใช้ synthetic processors เพื่อทดสอบเส้นทางไฟล์/geometry; ต้องทดสอบ Native CLI ทั้งสี่และ A/B ภาพจริงบน GTX 1660 Ti ก่อนรับรอง.
+
+## 9 พฤศจิกายน 2569 — runtime GPU binding update
+
+- ก่อนเรียก Native subprocess ระบบตรวจ NVIDIA-SMI และ Vulkan physical-device inventory แล้วสร้าง manifest ชั่วคราวสำหรับ run นั้น: Real-ESRGAN, Waifu2x และ Real-CUGAN รับ `-g` จาก Vulkan index; Anime4KCPP แยกตรวจ `--lp/-l` แล้วกำหนด `-p/-d` เป็น CUDA หรือ OpenCL device ที่ตรงกับ GTX 1660 Ti.
+- Manifest ที่ติดตั้งไว้ไม่ถูกแก้ไข; runtime-bound manifest ถูกลบหลังเรียก runner. หาก inventory หายหรือกำกวม ระบบหยุด Four-Engine assist และคง V2.
+- `binding_configured=true` หมายถึง CLI flags ถูกกำหนดจาก inventory เท่านั้น; `runtime_device_use_verified=false` ยังคงบังคับ เพราะยังไม่มี per-process telemetry ยืนยันว่า Native process ใช้ adapter ที่ระบุจริง.
