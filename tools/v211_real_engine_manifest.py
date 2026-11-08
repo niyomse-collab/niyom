@@ -71,7 +71,7 @@ def _expected_provenance(engine: str) -> dict:
 
 
 def _expected_archive_digest(engine: str) -> tuple[str, str]:
-    package = PACKAGES[engine]
+    package = v211_official_assets_audit.PACKAGES[engine]
     published = package.get("release_sha256")
     observed = package.get("observed_sha256")
     digest = published or observed
