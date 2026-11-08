@@ -115,6 +115,11 @@ def manifest_entry(engine: str, directory: Path, package: dict, digest: dict) ->
         },
         "qa_notice": "research_only; 2x inference not verified; manual rights review required",
         "archive_sha256": digest["archive_sha256"],
+        "archive_digest_source": (
+            "published_release_sha256"
+            if digest.get("release_digest_published")
+            else "observed_ci_sha256"
+        ),
     }
     if embedded:
         entry["embedded_algorithm"] = True
