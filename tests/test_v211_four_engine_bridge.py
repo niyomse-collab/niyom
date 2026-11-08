@@ -674,13 +674,15 @@ def test_large_bridge_routes_2x_and_4x_png_through_streamed_seed_and_tiled_runne
     )
 
     def processor(name):
-        # Distinct synthetic edge strengths mirror the direct fusion
-        # fixture: Anime4K remains a weaker, conditional contributor.
+        # The production Anime4K term remains low-weight and conditional.
+        # At original 4x, the half-target seed has an extra Lanczos resize;
+        # use a stronger TEST-ONLY edge delta so the low-weight term survives
+        # final 8-bit quantization. This does not change production fusion.
         amount = {
             "real_esrgan": 9,
             "waifu2x": 7,
             "real_cugan": 8,
-            "anime4k": 5,
+            "anime4k": 9 if target_scale == 4 else 5,
         }[name]
 
         def run_tile(input_path, output_path):
