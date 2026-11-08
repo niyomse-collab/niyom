@@ -631,8 +631,9 @@ def test_large_bridge_routes_custom_scales_through_streamed_seed_and_tiled_runne
     )
 
     def processor(name):
-        amounts = {"real_esrgan": 9, "waifu2x": 7, "real_cugan": 8, "anime4k": 5}
-        amount = amounts[name]
+        # Equal synthetic edge deltas keep the low-weight Anime4K term
+        # observable after final RGB quantization at every target scale.
+        amount = 9
 
         def run_tile(input_path, output_path):
             with Image.open(input_path) as tile:
@@ -696,6 +697,8 @@ def test_large_bridge_routes_custom_scales_through_streamed_seed_and_tiled_runne
     assert tiled_runner_calls, "large bridge must route through disk-backed native tiles"
     assert result["completed_engine_count"] == 4
     assert result["fusion_implemented"] is True
+    assert result["all_four_engine_pixels_contributed"] is True, result
+    assert all(result["engine_pixel_effect_verified"].values())
     assert result["v2_output_preserved"] is True
     assert result["quality_certified"] is False
 
