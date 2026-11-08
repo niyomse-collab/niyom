@@ -614,7 +614,7 @@ def test_fake_anime_probe_cannot_bypass_independent_manifest_preflight(tmp_path)
     assert runner_calls == []
     assert report["manifest_preflight_passed"] is False
     assert report["cases"]["rgb_icc_dpi"]["failed_stage"] == "manifest_preflight"
-    assert report["cases"]["rgb_icc_dpi"]["failure_type"] == "ValueError"
+    assert report["cases"]["rgb_icc_dpi"]["failure_type"] == "JSONDecodeError"
     assert report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"] is False
     assert report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"] is False
 
