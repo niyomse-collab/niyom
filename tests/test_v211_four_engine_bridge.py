@@ -646,8 +646,15 @@ def test_large_bridge_routes_custom_scales_through_streamed_seed_and_tiled_runne
                     resample=Image.Resampling.NEAREST,
                 )
                 pixels = np.asarray(enlarged, dtype=np.int16).copy()
-                pixels[:, 127, :] = np.clip(pixels[:, 127, :] - amount, 0, 255)
-                pixels[:, 128, :] = np.clip(pixels[:, 128, :] + amount, 0, 255)
+                # Place synthetic engine detail at the rescaled source edge,
+                # not at a fixed output column; half-target seeds vary by scale.
+                boundary = enlarged.width // 2
+                pixels[:, boundary - 1, :] = np.clip(
+                    pixels[:, boundary - 1, :] - amount, 0, 255
+                )
+                pixels[:, boundary, :] = np.clip(
+                    pixels[:, boundary, :] + amount, 0, 255
+                )
                 Image.fromarray(pixels.astype(np.uint8), "RGB").save(
                     output_path, format="PNG", **metadata
                 )
