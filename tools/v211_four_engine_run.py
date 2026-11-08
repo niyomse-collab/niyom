@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import json
 import hashlib
+import os
+import tempfile
 import warnings
 import zlib
 from pathlib import Path
@@ -249,6 +251,50 @@ def _configured_device_selection(engine: str, command: EngineCommand) -> dict:
     }
 
 
+def _restore_candidate_rgba_from_v2(candidate_path: Path, v2_reference: Path) -> None:
+    """Bind a small-job RGBA candidate to the exact accepted V2 alpha/metadata.
+
+    Native CLI wrappers restore alpha from their input seed. For small jobs the
+    seed is downsampled from V2 alpha, so resizing that alpha back to target
+    dimensions is not pixel-identical to the accepted V2 alpha. Fusion requires
+    exact V2 alpha; restore it here before candidate hashing/fusion. Large jobs
+    already copy alpha from V2 tile-by-tile in the disk-backed inference path.
+    """
+    candidate_path = Path(candidate_path)
+    v2_reference = Path(v2_reference)
+    if candidate_path.resolve() == v2_reference.resolve():
+        raise ValueError("candidate may not overwrite the accepted V2 reference")
+    if candidate_path.suffix.lower() != ".png":
+        raise ValueError("RGBA candidate alpha restoration requires PNG")
+    with Image.open(candidate_path) as candidate, Image.open(v2_reference) as reference:
+        if candidate.mode != "RGBA" or reference.mode != "RGBA":
+            raise ValueError("small RGBA candidate and V2 reference must both be RGBA")
+        if candidate.size != reference.size:
+            raise ValueError("candidate dimensions differ from accepted V2 reference")
+        if candidate.info.get("icc_profile") != reference.info.get("icc_profile"):
+            raise ValueError("candidate ICC differs from accepted V2 reference")
+        candidate.load()
+        reference.load()
+        restored = candidate.convert("RGBA")
+        restored.putalpha(reference.getchannel("A").copy())
+        metadata = {
+            key: reference.info[key]
+            for key in ("icc_profile", "dpi")
+            if key in reference.info
+        }
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=".v211_v2_alpha_", suffix=".png", dir=candidate_path.parent
+    )
+    os.close(fd)
+    temporary = Path(temporary_name)
+    try:
+        restored.save(temporary, format="PNG", **metadata)
+        os.replace(temporary, candidate_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+        restored.close()
+
+
 def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None, protected_regions: tuple = (), preserve_all_v2_faces: bool = False, cancel: Callable[[], bool] | None = None, progress_callback: Callable[[int, str], None] | None = None) -> dict:
     source = Path(source)
     output_dir = Path(output_dir)
@@ -330,6 +376,19 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             source, output_dir, size, processors,
             cancel_check=cancel, progress_callback=progress_callback,
         )
+
+    # The native wrapper restores seed alpha after each 2x inference. For a
+    # small RGBA job that seed alpha was itself downsampled from V2, so its
+    # round-trip cannot be assumed identical to the accepted V2 alpha. Rebind
+    # every validated candidate to V2's exact target alpha before fusion.
+    if not large_job and v2_reference is not None and result["candidates"]:
+        with _open_fusion_image(source) as source_image:
+            if source_image.mode == "RGBA":
+                for candidate in result["candidates"]:
+                    _restore_candidate_rgba_from_v2(
+                        candidate.path, Path(v2_reference)
+                    )
+
     report = {
         "research_only": True,
         "real_engine_manifest_preflight_passed": real_engines,
