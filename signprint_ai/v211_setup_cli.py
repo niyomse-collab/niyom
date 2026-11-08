@@ -164,13 +164,12 @@ def _remove_cache_entry_without_following_links(path: Path) -> None:
     except FileNotFoundError:
         return
 
-    if stat.S_ISLNK(info.st_mode) or bool(
-        getattr(info, "st_file_attributes", 0) & 0x400
-    ):
-        # On Windows, directory symlinks/junctions are removed with rmdir;
-        # file symlinks are removed with unlink. Neither operation traverses
-        # the target.
-        if path.is_dir():
+    is_symlink = stat.S_ISLNK(info.st_mode)
+    is_reparse = bool(getattr(info, "st_file_attributes", 0) & 0x400)
+    if is_symlink or is_reparse:
+        # POSIX removes every symlink with unlink. Windows requires rmdir for
+        # directory symlinks/junctions. Neither operation traverses the target.
+        if os.name == "nt" and path.is_dir():
             os.rmdir(path)
         else:
             os.unlink(path)
