@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import queue
+import stat
 import threading
 from pathlib import Path
 
@@ -118,6 +119,123 @@ def completion_marker_path() -> Path:
 def pending_marker_path() -> Path:
     """Return the per-attempt marker that prevents stale-success reuse."""
     return completion_marker_path().with_name("setup-pending.flag")
+
+
+def _is_link_or_reparse_point(path: Path) -> bool:
+    """Detect symlinks and Windows junction/reparse points without following them."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & 0x400
+    )
+
+
+def _validate_four_ai_data_root(data_root: str | Path) -> Path:
+    """Accept only the dedicated per-profile LocalAppData engine-cache directory."""
+    root = Path(data_root).expanduser()
+    if not root.is_absolute():
+        raise ValueError("four-engine cache path must be absolute")
+    tail = [part.casefold() for part in root.parts[-4:]]
+    if tail != ["appdata", "local", "niyomsilp", "v211-fourai-qa"]:
+        raise ValueError("four-engine cache path is outside the approved LocalAppData location")
+
+    profile = root.parents[3]
+    if not profile.name or str(profile) == root.anchor:
+        raise ValueError("four-engine cache profile root is invalid")
+    protected_ancestors = (
+        profile,
+        profile / "AppData",
+        profile / "AppData" / "Local",
+        root.parent,
+        root,
+    )
+    for candidate in protected_ancestors:
+        if os.path.lexists(candidate) and _is_link_or_reparse_point(candidate):
+            raise ValueError("four-engine cache path contains a link or reparse point")
+    return root
+
+
+def _remove_cache_entry_without_following_links(path: Path) -> None:
+    """Remove one cache entry; never recurse through a symlink or junction."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+
+    if stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & 0x400
+    ):
+        # On Windows, directory symlinks/junctions are removed with rmdir;
+        # file symlinks are removed with unlink. Neither operation traverses
+        # the target.
+        if path.is_dir():
+            os.rmdir(path)
+        else:
+            os.unlink(path)
+        return
+
+    if stat.S_ISDIR(info.st_mode):
+        with os.scandir(path) as entries:
+            for entry in entries:
+                _remove_cache_entry_without_following_links(Path(entry.path))
+        os.rmdir(path)
+    else:
+        os.unlink(path)
+
+
+def cleanup_four_engine_assets(
+    data_root: str | Path, *, confirmed: bool
+) -> dict:
+    """Remove only the dedicated four-engine cache after explicit uninstall consent.
+
+    Unknown files in the parent cache directory are deliberately retained.
+    A custom manifest override outside this installer-owned directory is never
+    followed or deleted by this cleanup path.
+    """
+    if not confirmed:
+        return {"status": "consent_required", "removed": False}
+
+    root = _validate_four_ai_data_root(data_root)
+    if not os.path.lexists(root):
+        return {"status": "already_absent", "removed": False}
+    if _is_link_or_reparse_point(root) or not root.is_dir():
+        raise ValueError("four-engine cache root is not a safe ordinary directory")
+
+    removed = []
+    for name in ("archives", "engines"):
+        target = root / name
+        if os.path.lexists(target):
+            _remove_cache_entry_without_following_links(target)
+            removed.append(name)
+
+    for name in (
+        "manifest.json",
+        "setup-complete.flag",
+        "setup-complete.flag.tmp",
+        "setup-pending.flag",
+        "setup-declined.flag",
+        "installer-setup.log",
+    ):
+        target = root / name
+        if os.path.lexists(target):
+            _remove_cache_entry_without_following_links(target)
+            removed.append(name)
+
+    try:
+        root.rmdir()
+        removed.append("cache-directory")
+    except OSError:
+        # Preserve any unrecognized user-created files; never broaden cleanup.
+        pass
+
+    return {
+        "status": "removed" if removed else "already_absent",
+        "removed": bool(removed),
+        "removed_entries": sorted(removed),
+        "unknown_entries_preserved": os.path.isdir(root),
+    }
 
 
 def _log_path() -> Path:
