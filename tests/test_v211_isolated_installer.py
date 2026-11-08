@@ -136,3 +136,35 @@ def test_frozen_candidate_checks_the_actual_provisioning_dispatch_without_networ
     assert "def preflight_v211_provisioning()" in cli
     assert "preflight_v211_provisioning()" in cli
 
+def test_uninstall_model_cache_removal_requires_interactive_consent_and_safe_cli():
+    qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
+    run = (ROOT / "run.py").read_text(encoding="utf-8")
+    cli = (ROOT / "signprint_ai" / "v211_setup_cli.py").read_text(encoding="utf-8")
+
+    registry = qa.split("[Registry]", 1)[1].split("[Icons]", 1)[0]
+    code = qa.split("[Code]", 1)[1]
+    uninstall_event = code.split(
+        "procedure CurUninstallStepChanged", 1
+    )[1]
+
+    assert 'ValueName: "FourAIDataRoot"' in registry
+    assert 'ValueData: "{localappdata}\\NiyomSilp\\V211-FourAI-QA"' in registry
+    assert "Flags: uninsdeletevalue" in registry
+    assert "function InitializeUninstall(): Boolean;" in code
+    assert "CurUninstallStep = usUninstall" in uninstall_event
+    assert "not UninstallSilent" in uninstall_event
+    assert "MB_YESNO or MB_DEFBUTTON2" in uninstall_event
+    assert "IDYES" in uninstall_event
+    assert "SW_HIDE" in uninstall_event
+    assert "ewWaitUntilTerminated" in uninstall_event
+    assert "--remove-v211-four-ai-assets --confirmed-by-user --data-root" in uninstall_event
+    assert "[UninstallRun]" not in qa
+
+    assert '"--remove-v211-four-ai-assets"' in run
+    assert '"--confirmed-by-user"' in run
+    assert '"--data-root"' in run
+    assert "cleanup_four_engine_assets(sys.argv[4], confirmed=True)" in run
+    assert "def cleanup_four_engine_assets(" in cli
+    assert "_validate_four_ai_data_root(data_root)" in cli
+    assert "_remove_cache_entry_without_following_links" in cli
+
