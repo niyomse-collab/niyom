@@ -179,3 +179,23 @@ def test_uninstall_model_cache_removal_requires_interactive_consent_and_safe_cli
     assert "Verify packaged consented model-cache cleanup on isolated synthetic data" in workflow
     assert "'--remove-v211-four-ai-assets', '--confirmed-by-user', '--data-root'" in workflow
 
+
+
+def test_experimental_installer_is_per_user_for_profile_local_model_cache():
+    qa = (ROOT / "installer_v211_experimental.iss").read_text(encoding="utf-8")
+    setup = qa.split("[Setup]", 1)[1].split("[Files]", 1)[0]
+    registry = qa.split("[Registry]", 1)[1].split("[Icons]", 1)[0]
+    code = qa.split("[Code]", 1)[1]
+    initialize_uninstall = code.split(
+        "function InitializeUninstall(): Boolean;", 1
+    )[1].split("procedure CurUninstallStepChanged", 1)[0]
+
+    # Four-engine models, setup markers and uninstall cleanup are per-user.
+    # Inno's lowest mode keeps {localappdata}, {autopf}, and the auto shell
+    # folders in the same profile instead of switching to an admin account.
+    assert "PrivilegesRequired=lowest" in setup
+    assert "DefaultDirName={autopf}\\NiyomSilpDesignV211Experimental" in setup
+    assert 'Root: HKCU64; Subkey: "Software\\NiyomSilp\\V211Experimental"' in registry
+    assert "Root: HKLM64; Subkey: \"Software\\NiyomSilp\\V211Experimental\"" not in registry
+    assert "HKCU64," in initialize_uninstall
+    assert "HKLM64," not in initialize_uninstall
