@@ -1,91 +1,214 @@
-"""Preflight installed real engine executables and checkpoint assets.
+"""Preflight four official engine executables and model assets.
 
-No simulated inference or implicit downloads. The manifest supplies explicit
-absolute paths to the four installed engines and their model assets.
+The manifest is not trusted merely because it contains self-reported hashes.
+Every entry must match the repository's pinned upstream release provenance,
+the expected executable/CLI contract, and one isolated engine directory.
+No simulated inference or implicit downloads are performed here.
 """
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 from pathlib import Path
 
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand
+from tools.v211_official_assets_audit import PACKAGES
+
+
+EXECUTABLES = {
+    "real_esrgan": "realesrgan-ncnn-vulkan.exe",
+    "waifu2x": "waifu2x-ncnn-vulkan.exe",
+    "real_cugan": "realcugan-ncnn-vulkan.exe",
+    "anime4k": "ac_cli.exe",
+}
+MODEL_DIRECTORIES = {
+    "real_esrgan": "models",
+    "waifu2x": "models-cunet",
+    "real_cugan": "models-se",
+}
+MODEL_NAMES = {
+    "real_esrgan": "realesrgan-x4plus",
+    "waifu2x": "2",
+    "real_cugan": "1",
+}
+MODEL_SUFFIXES = {".param", ".bin", ".onnx", ".pth", ".safetensors", ".weights"}
 
 
 def _verify_hash(path: Path, expected: str, engine: str) -> None:
-    if not isinstance(expected, str) or len(expected) != 64 or any(c not in "0123456789abcdefABCDEF" for c in expected):
+    if (not isinstance(expected, str) or len(expected) != 64
+            or any(c not in "0123456789abcdefABCDEF" for c in expected)):
         raise ValueError(engine + ": expected_sha256 must be a 64-character hex digest")
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
+    with Path(path).open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     if digest.hexdigest() != expected.lower():
         raise ValueError(engine + ": SHA256 mismatch for " + str(path))
 
 
+def _inside(path: Path, root: Path, engine: str, label: str) -> Path:
+    """Resolve a regular path and reject symlinks or paths outside one engine root."""
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError(engine + ": " + label + " must not be a symlink")
+    try:
+        resolved = path.resolve(strict=True)
+        resolved_root = Path(root).resolve(strict=True)
+        resolved.relative_to(resolved_root)
+    except (OSError, ValueError) as exc:
+        raise ValueError(engine + ": " + label + " is outside its isolated engine directory") from exc
+    return resolved
+
+
+def _expected_provenance(engine: str) -> dict:
+    package = PACKAGES[engine]
+    return {
+        "source_url": package["url"],
+        "license_name": package["license"],
+        "license_url": package["license_url"],
+        "additional_license_notices": package.get("additional_license_notices", []),
+    }
+
+
+def _expected_archive_digest(engine: str) -> tuple[str, str]:
+    package = PACKAGES[engine]
+    published = package.get("release_sha256")
+    observed = package.get("observed_sha256")
+    digest = published or observed
+    if not isinstance(digest, str) or len(digest) != 64:
+        raise ValueError(engine + ": repository-pinned archive SHA256 is unavailable")
+    source = "published_release_sha256" if published else "observed_ci_sha256"
+    return digest, source
+
+
+def _validate_args(engine: str, args: list, engine_root: Path) -> list[str]:
+    if not isinstance(args, list) or not all(isinstance(item, str) for item in args):
+        raise ValueError(engine + ": args must be a string array")
+
+    prefix = ["-i", "{input}", "-o", "{output}"]
+    if engine == "anime4k":
+        expected = prefix + ["-f", "2"]
+        if args != expected:
+            raise ValueError(engine + ": CLI arguments differ from the pinned v3.2.0 contract")
+        return args
+
+    if len(args) != 12 or args[:4] != prefix or args[4] != "-m":
+        raise ValueError(engine + ": CLI arguments differ from the pinned NCNN contract")
+    model_dir = Path(args[5])
+    if not model_dir.is_absolute():
+        raise ValueError(engine + ": model directory must be an absolute path")
+    model_dir = _inside(model_dir, engine_root, engine, "model directory")
+    if model_dir.name.casefold() != MODEL_DIRECTORIES[engine].casefold():
+        raise ValueError(engine + ": unexpected NCNN model directory")
+    if not model_dir.is_dir():
+        raise ValueError(engine + ": NCNN model directory is missing")
+    if not any(item.is_file() and item.suffix.lower() == ".param" for item in model_dir.iterdir()):
+        raise ValueError(engine + ": NCNN model directory lacks a .param file")
+    if not any(item.is_file() and item.suffix.lower() == ".bin" for item in model_dir.iterdir()):
+        raise ValueError(engine + ": NCNN model directory lacks a .bin file")
+    expected = prefix + [
+        "-m", str(model_dir),
+        "-n", MODEL_NAMES[engine],
+        "-s", "2",
+        "-t", "128",
+    ]
+    if args != expected:
+        raise ValueError(engine + ": CLI arguments differ from the pinned NCNN model/scale contract")
+    return args
+
+
 def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    manifest_path = Path(path)
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or set(data) != set(ENGINES):
         raise ValueError("manifest must configure exactly four engines")
+
     commands = {}
+    engine_roots = []
     for engine in ENGINES:
         item = data[engine]
         if not isinstance(item, dict):
             raise ValueError(engine + ": expected engine configuration")
-        executable = Path(item["executable"])
-        if not executable.is_absolute() or not executable.is_file():
-            raise FileNotFoundError(engine + ": executable not installed: " + str(executable))
+
+        executable = Path(item.get("executable", ""))
+        if not executable.is_absolute() or executable.is_symlink() or not executable.is_file():
+            raise FileNotFoundError(engine + ": executable not installed")
+        if executable.name.casefold() != EXECUTABLES[engine].casefold():
+            raise ValueError(engine + ": unexpected official executable name")
+
+        resolved_executable = executable.resolve(strict=True)
+        engine_root = next(
+            (parent for parent in resolved_executable.parents
+             if parent.name.casefold() == engine.casefold()),
+            None,
+        )
+        if engine_root is None or not engine_root.is_dir():
+            raise ValueError(engine + ": executable is not inside its isolated engine directory")
+        engine_root = engine_root.resolve(strict=True)
+        executable = _inside(resolved_executable, engine_root, engine, "executable")
+        engine_roots.append(engine_root)
+
+        expected_archive, expected_digest_source = _expected_archive_digest(engine)
+        if item.get("archive_sha256") != expected_archive:
+            raise ValueError(engine + ": archive SHA256 does not match the repository-pinned release")
+        if item.get("archive_digest_source") != expected_digest_source:
+            raise ValueError(engine + ": archive digest source does not match the repository pin")
+
         provenance = item.get("provenance")
-        if not isinstance(provenance, dict) or not all(
-            isinstance(provenance.get(key), str) and provenance[key].strip()
-            for key in ("source_url", "license_name", "license_url")
-        ):
-            raise ValueError(engine + ": source_url, license_name and license_url provenance required")
-        additional_notices = provenance.get("additional_license_notices", [])
-        if not isinstance(additional_notices, list) or any(
-            not isinstance(notice, dict)
-            or not isinstance(notice.get("name"), str) or not notice["name"].strip()
-            or not isinstance(notice.get("url"), str) or not notice["url"].strip()
-            for notice in additional_notices
-        ):
-            raise ValueError(engine + ": additional license notices must include name and URL")
+        if provenance != _expected_provenance(engine):
+            raise ValueError(engine + ": source/license provenance differs from the pinned upstream package")
+
         _verify_hash(executable, item.get("executable_sha256"), engine)
-        # Anime4KCPP v3.2.0 implements its algorithms in the shipped CLI.
-        # Its official Windows archive has no separate .bin/.param model
-        # weights; verification is anchored to the executable SHA-256 instead.
-        # Never silently grant this exemption to a different engine.
+
         embedded_algorithm = item.get("embedded_algorithm") is True
-        if embedded_algorithm and engine != "anime4k":
-            raise ValueError(engine + ": embedded algorithm exemption forbidden")
         assets = item.get("model_assets", [])
-        if not isinstance(assets, list) or not all(
-            isinstance(a, dict) and isinstance(a.get("path"), str) for a in assets
+        if not isinstance(assets, list) or any(
+            not isinstance(asset, dict)
+            or not isinstance(asset.get("path"), str)
+            for asset in assets
         ):
             raise ValueError(engine + ": model assets must be individual files with SHA256")
-        if (not assets and not embedded_algorithm) or (assets and embedded_algorithm):
-            raise ValueError(engine + ": verified model assets required unless Anime4KCPP is embedded")
+
+        if engine == "anime4k":
+            if not embedded_algorithm or assets:
+                raise ValueError(engine + ": only the pinned Anime4KCPP CLI may use embedded algorithms")
+        else:
+            if embedded_algorithm or not assets:
+                raise ValueError(engine + ": verified neural model assets are required")
+
+        asset_paths = set()
         for asset in assets:
-            model = Path(asset['path'] if isinstance(asset, dict) else asset)
-            if not model.is_absolute() or not model.exists():
-                raise FileNotFoundError(engine + ": missing model asset: " + str(model))
-            if model.is_file():
-                valid = model.stat().st_size > 0
-            elif model.is_dir():
-                # NCNN Vulkan engines commonly distribute model files in a directory.
-                valid = any(p.is_file() and p.stat().st_size > 0 for p in model.rglob("*"))
-            else:
-                valid = False
-            if not valid:
-                raise FileNotFoundError(engine + ": empty model asset: " + str(model))
-            if not isinstance(asset, dict) or not model.is_file():
-                raise ValueError(engine + ": model assets must be individual files with SHA256")
+            model = Path(asset["path"])
+            if not model.is_absolute() or not model.is_file():
+                raise FileNotFoundError(engine + ": missing individual model asset")
+            model = _inside(model, engine_root, engine, "model asset")
+            if model.stat().st_size <= 0 or model.suffix.lower() not in MODEL_SUFFIXES:
+                raise ValueError(engine + ": model asset is empty or has an unsupported type")
             _verify_hash(model, asset.get("sha256"), engine)
-        args = item.get("args")
-        if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
-            raise ValueError(engine + ": args must be a string array")
-        if not any("{input}" in a for a in args) or not any("{output}" in a for a in args):
-            raise ValueError(engine + ": args must include input/output placeholders")
+            asset_paths.add(model)
+
+        args = _validate_args(engine, item.get("args"), engine_root)
+        if engine != "anime4k":
+            model_dir = Path(args[5]).resolve(strict=True)
+            required_model_files = {
+                item.resolve(strict=True)
+                for item in model_dir.iterdir()
+                if item.is_file() and item.suffix.lower() in MODEL_SUFFIXES
+            }
+            if not required_model_files or not required_model_files.issubset(asset_paths):
+                raise ValueError(engine + ": NCNN model files are not all SHA256-pinned")
+
+        timeout = item.get("timeout_seconds", 1800)
+        if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 1800:
+            raise ValueError(engine + ": timeout_seconds is outside the safe limit")
+
         commands[engine] = EngineCommand(
-            (str(executable), *args), timeout_seconds=int(item.get("timeout_seconds", 1800))
+            (str(executable), *args),
+            timeout_seconds=timeout,
         )
+
+    if len(engine_roots) != len(ENGINES):
+        raise ValueError("manifest does not contain four isolated engine roots")
+    if len({root.parent for root in engine_roots}) != 1:
+        raise ValueError("four engines must share one provisioned install root")
     return commands
