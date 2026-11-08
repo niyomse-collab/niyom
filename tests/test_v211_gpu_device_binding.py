@@ -30,7 +30,9 @@ def gpu_report():
         "vulkan_device_index": 2,
         "vulkan_target_device_match_count": 1,
         "vulkan_loader_available": True,
-        "vulkaninfo_succeeded": True,
+        "vulkaninfo_succeeded": False,
+        "vulkan_device_inventory_succeeded": True,
+        "vulkan_inventory_source": "vulkan_loader_native",
         "vram_budget_6gb_detected": True,
     }
 
@@ -89,6 +91,7 @@ def test_resolves_separate_vulkan_and_anime4k_device_indexes():
         (lambda value: value.update(vulkan_device_index=None), "Vulkan"),
         (lambda value: value.update(vulkan_target_device_match_count=2), "Vulkan"),
         (lambda value: value.update(vulkan_loader_available=False), "Vulkan loader"),
+        (lambda value: value.update(vulkan_device_inventory_succeeded=False), "Vulkan loader"),
         (lambda value: value.update(vram_budget_6gb_detected=False), "Vulkan loader"),
     ],
 )
