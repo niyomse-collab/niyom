@@ -32,6 +32,11 @@ SetupIconFile=assets\app_icon.ico
 [Files]
 Source: "dist\NiyomsilAIEnhancer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[Registry]
+; Remember the exact profile-local cache root used by the installer task.
+; The uninstaller asks before deleting anything and the Python cleanup validates this path.
+Root: HKLM64; Subkey: "Software\NiyomSilp\V211Experimental"; ValueType: string; ValueName: "FourAIDataRoot"; ValueData: "{localappdata}\NiyomSilp\V211-FourAI-QA"; Flags: uninsdeletevalue
+
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
@@ -48,6 +53,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Check: Sh
 var
   FourAISetupExitCode: Integer;
   FourAISetupArmed: Boolean;
+  FourAIDataRootPath: String;
 
 function GetProvisionParameters(Param: String): String;
 begin
@@ -148,5 +154,64 @@ begin
   begin
     if (InstalledV2 <> '') and IsInFolder(TargetDir, InstalledV2) then
       Result := 'V2.1.1 experimental cannot overwrite registered V2 Stable.';
+  end;
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  FourAIDataRootPath := '';
+  RegQueryStringValue(
+    HKLM64,
+    'Software\NiyomSilp\V211Experimental',
+    'FourAIDataRoot',
+    FourAIDataRootPath
+  );
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ErrorCode: Integer;
+  Parameters: String;
+begin
+  { usUninstall occurs after the user confirms uninstall and before app files
+    are removed. Silent uninstall deliberately keeps the offline model cache. }
+  if (CurUninstallStep = usUninstall) and
+     (not UninstallSilent) and
+     (FourAIDataRootPath <> '') and
+     DirExists(FourAIDataRootPath) then
+  begin
+    if MsgBox(
+      'Do you also want to remove the four downloaded AI engines and their manifest?' #13#13 +
+      'Only the dedicated NiyomSilp V2.1.1 engine cache in the installer profile will be removed. ' +
+      'Unknown files, customer artwork, V1 and V2 Stable files are not part of this cleanup.' #13#13 +
+      'Choose No to keep the models for later offline use.',
+      mbConfirmation,
+      MB_YESNO or MB_DEFBUTTON2
+    ) = IDYES then
+    begin
+      Parameters :=
+        '--remove-v211-four-ai-assets --confirmed-by-user --data-root "' +
+        FourAIDataRootPath + '"';
+      if not Exec(
+        ExpandConstant('{app}\{#MyAppExeName}'),
+        Parameters,
+        ExpandConstant('{app}'),
+        SW_HIDE,
+        ewWaitUntilTerminated,
+        ErrorCode
+      ) then
+        MsgBox(
+          'The four-engine cache cleanup could not be started. The cache was left in place.',
+          mbError,
+          MB_OK
+        )
+      else if ErrorCode <> 0 then
+        MsgBox(
+          'The four-engine cache cleanup did not complete safely. Remaining files were left in place.',
+          mbError,
+          MB_OK
+        );
+    end;
   end;
 end;
