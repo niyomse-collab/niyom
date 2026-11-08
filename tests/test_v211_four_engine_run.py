@@ -8,7 +8,7 @@ import zlib
 
 import pytest
 
-from PIL import Image, ImageCms
+from PIL import Image, ImageCms, ImageDraw
 
 from tools.v211_four_engine_run import (
     run, _privacy_safe_report, _safe_error_summary,
@@ -81,6 +81,71 @@ def test_four_engine_runner_produces_four_valid_candidates(tmp_path):
             assert image.mode == "RGB"
     report = json.loads((tmp_path / "outputs" / "four_engine_report.json").read_text(encoding="utf-8"))
     assert report["ready_for_fusion_research"]
+
+
+
+def test_small_rgba_runner_rebinds_candidates_to_exact_v2_alpha(tmp_path):
+    """Small native jobs must use V2's exact alpha, not a seed down/up round-trip."""
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    reference = Image.new("RGBA", (32, 32), (180, 80, 60, 255))
+    reference_alpha = Image.new("L", (32, 32), 0)
+    draw = ImageDraw.Draw(reference_alpha)
+    for y in range(0, 32, 4):
+        for x in range(0, 32, 4):
+            if ((x // 4) + (y // 4)) % 2 == 0:
+                draw.rectangle((x, y, x + 3, y + 3), fill=255)
+    reference.putalpha(reference_alpha)
+    v2_reference = tmp_path / "accepted-v2-rgba.png"
+    reference.save(v2_reference, dpi=(300, 300), icc_profile=profile)
+
+    source = Image.new("RGBA", (16, 16), (70, 110, 150, 255))
+    source.putalpha(reference_alpha.resize((16, 16), Image.Resampling.LANCZOS))
+    source_path = tmp_path / "native-seed-rgba.png"
+    source.save(source_path, dpi=(300, 300), icc_profile=profile)
+
+    # This fake CLI models the native wrapper's 2x output. The subprocess
+    # adapter restores seed alpha; the runner must then rebind it to exact V2.
+    code = (
+        "import sys; from PIL import Image; "
+        "im=Image.open(sys.argv[1]); "
+        "out=im.resize((im.width*2, im.height*2), Image.Resampling.LANCZOS); "
+        "out.save(sys.argv[2], format='PNG', "
+        "icc_profile=im.info.get('icc_profile'), dpi=im.info.get('dpi'))"
+    )
+    config = tmp_path / "rgba-engines.json"
+    commands = {
+        name: [sys.executable, "-c", code, "{input}", "{output}"]
+        for name in ENGINES
+    }
+    config.write_text(json.dumps(commands), encoding="utf-8")
+
+    report = run(
+        source_path,
+        tmp_path / "rgba-output",
+        config,
+        (32, 32),
+        real_engines=False,
+        v2_reference=v2_reference,
+    )
+
+    assert report["completed_engine_count"] == 4
+    assert report["fusion_implemented"] is True
+    assert "fusion_error" not in report
+    expected_alpha = reference_alpha.tobytes()
+    for candidate_path in report["candidates"].values():
+        with Image.open(candidate_path) as candidate:
+            assert candidate.mode == "RGBA"
+            assert candidate.getchannel("A").tobytes() == expected_alpha
+            assert candidate.info.get("icc_profile") == profile
+            assert candidate.info.get("dpi") == reference.info.get("dpi")
+
+    fused_path = Path(report["four_engine_fusion"]["output"])
+    with Image.open(fused_path) as fused:
+        assert fused.mode == "RGBA"
+        assert fused.getchannel("A").tobytes() == expected_alpha
+        assert fused.info.get("icc_profile") == profile
+        assert fused.info.get("dpi") == reference.info.get("dpi")
+
 
 
 def test_runner_reports_failed_engine(tmp_path):
