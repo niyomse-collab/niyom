@@ -169,3 +169,12 @@ $env:NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR = "$qa\private-ab"
 - หลักฐาน CI: มี synthetic 24 MP tile-runner test และ 24 MP streamed seed/QA-crop test; เพิ่ม bridge integration test ที่ลด threshold เฉพาะใน test เพื่อบังคับเส้นทาง streamed seed → tiled runner → streamed QA ด้วย fake processors และยืนยัน V2 bytes/ICC/DPI ไม่เปลี่ยน. Integration fixture นี้เป็นภาพเล็ก ไม่ใช่การทดสอบ real 24 MP inference ทั้งสี่ตัว.
 - GPU diagnostic ตรวจว่าเครื่องเห็น GTX 1660 Ti ผ่าน NVIDIA-SMI/Vulkan และ total VRAM อย่างน้อยประมาณ 5,500 MiB ก่อน bind device; นี่เป็น capacity gate ไม่ใช่การวัด peak VRAM. ยังไม่มี 6 GB VRAM stress test บนเครื่องร้าน.
 - `real_inference_verified=false` และ `quality_certified=false` ยังคงเป็นข้อบังคับจนกว่าจะรัน Native ทั้งสี่บน Windows 11 GTX 1660 Ti, เก็บ backend/device telemetry จริง และทำ A/B/Print QA ภาพจริง. Hosted Runner ที่ไม่มี Vulkan ไม่ใช่หลักฐานลบหรือบวกต่อเครื่องร้าน.
+
+
+## 8 พฤศจิกายน 2569 — แยก Vulkan CLI กับ Native Loader Inventory (Diagnostic schema 4)
+
+- แก้ความหมายของ `vulkaninfo_succeeded`: เป็น `true` เฉพาะเมื่อเรียก `vulkaninfo --summary` สำเร็จและอ่านรายการอุปกรณ์ได้จริงเท่านั้น
+- เพิ่ม `vulkan_device_inventory_succeeded` และ `vulkan_inventory_source` เพื่อบอกว่ารายการอุปกรณ์มาจาก `vulkaninfo` หรือการเรียก Vulkan Loader โดยตรง
+- เมื่อเครื่องไม่มีโปรแกรม `vulkaninfo` แต่ `vulkan-1.dll` enumerates อุปกรณ์ได้ รายงานจะไม่กล่าวว่า vulkaninfo สำเร็จอีกต่อไป; GPU binding ใช้ผล inventory ที่ตรวจได้จริงแทนการบังคับให้ติดตั้ง Vulkan SDK
+- เพิ่ม Regression สำหรับกรณี Native Loader สำเร็จแต่ vulkaninfo ไม่ได้ติดตั้ง และกรณี inventory ไม่สำเร็จต้องหยุดแบบ fail-closed
+- การแก้ไขนี้เป็นการทำให้หลักฐาน GPU ตรงกับสิ่งที่เกิดขึ้นจริง ไม่ใช่หลักฐานว่า Native Engine ใช้ GTX 1660 Ti ระหว่าง inference; `runtime_device_use_verified=false` ยังคงเดิม
