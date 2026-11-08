@@ -151,7 +151,11 @@ def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
         expected_archive, expected_digest_source = _expected_archive_digest(engine)
         if item.get("archive_sha256") != expected_archive:
             raise ValueError(engine + ": archive SHA256 does not match the repository-pinned release")
-        if item.get("archive_digest_source") != expected_digest_source:
+        # Older experimental manifests stored the pinned archive digest but
+        # predated the explicit source label. Accept that legacy shape only
+        # when the digest itself still matches the current repository pin.
+        digest_source = item.get("archive_digest_source", expected_digest_source)
+        if digest_source != expected_digest_source:
             raise ValueError(engine + ": archive digest source does not match the repository pin")
 
         provenance = item.get("provenance")
