@@ -351,6 +351,9 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
     assert saved["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert saved["anime4k_backend_inventory"]["status"] == "ok"
     assert saved["schema_version"] == 4
+    assert saved["vulkaninfo_succeeded"] is True
+    assert saved["vulkan_device_inventory_succeeded"] is True
+    assert saved["vulkan_inventory_source"] == "vulkaninfo"
     assert saved["three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host"]
     assert saved["anime4k_cli_outputs_validated_on_both_synthetic_cases"]
     assert saved["anime4k_backend_selection_verified"] is False
