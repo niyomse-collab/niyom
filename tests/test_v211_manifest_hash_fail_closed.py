@@ -126,6 +126,30 @@ def test_legacy_manifest_without_digest_source_still_requires_pinned_archive(tmp
     assert set(_load(tmp_path, data)) == set(ENGINES)
 
 
+def test_runtime_bound_manifest_accepts_only_explicit_gpu_flags(tmp_path):
+    data, _, _ = _fixture(tmp_path)
+    for engine in ("real_esrgan", "waifu2x", "real_cugan"):
+        data[engine]["args"].extend(["-g", "0"])
+    data["anime4k"]["args"].extend(["-p", "cuda", "-d", "0"])
+    assert set(_load(tmp_path, data)) == set(ENGINES)
+
+
+@pytest.mark.parametrize(
+    "engine,flags",
+    [
+        ("real_esrgan", ["-g", "not-an-index"]),
+        ("waifu2x", ["-g", "0", "-g", "1"]),
+        ("anime4k", ["-p", "cuda"]),
+        ("anime4k", ["-p", "vulkan", "-d", "0"]),
+    ],
+)
+def test_invalid_runtime_device_flags_are_rejected(tmp_path, engine, flags):
+    data, _, _ = _fixture(tmp_path)
+    data[engine]["args"].extend(flags)
+    with pytest.raises(ValueError, match="GPU index|duplicate|must be selected together|CUDA or OpenCL"):
+        _load(tmp_path, data)
+
+
 def test_hand_edited_archive_pin_is_rejected(tmp_path):
     data, _, _ = _fixture(tmp_path)
     data["real_esrgan"]["archive_sha256"] = "0" * 64
