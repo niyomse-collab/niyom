@@ -133,10 +133,31 @@ def _is_link_or_reparse_point(path: Path) -> bool:
 
 
 def _validate_four_ai_data_root(data_root: str | Path) -> Path:
-    """Accept only the dedicated per-profile LocalAppData engine-cache directory."""
+    """Accept only this process user's exact LocalAppData engine-cache directory."""
     root = Path(data_root).expanduser()
     if not root.is_absolute():
         raise ValueError("four-engine cache path must be absolute")
+    if ".." in root.parts:
+        raise ValueError("four-engine cache path must not contain parent traversal")
+
+    root = Path(os.path.abspath(os.fspath(root)))
+    local_app_data_value = os.environ.get("LOCALAPPDATA")
+    if not local_app_data_value:
+        local_app_data_value = os.fspath(Path.home() / "AppData" / "Local")
+    local_app_data = Path(local_app_data_value).expanduser()
+    if not local_app_data.is_absolute() or ".." in local_app_data.parts:
+        raise ValueError("current user's LocalAppData path is invalid")
+    expected_root = Path(os.path.abspath(os.fspath(
+        local_app_data / "NiyomSilp" / "V211-FourAI-QA"
+    )))
+
+    def normalized(path: Path) -> str:
+        return os.path.normcase(os.path.normpath(os.fspath(path)))
+
+    if normalized(root) != normalized(expected_root):
+        raise ValueError(
+            "four-engine cache path is not the current user's approved LocalAppData location"
+        )
     tail = [part.casefold() for part in root.parts[-4:]]
     if tail != ["appdata", "local", "niyomsilp", "v211-fourai-qa"]:
         raise ValueError("four-engine cache path is outside the approved LocalAppData location")
@@ -144,14 +165,13 @@ def _validate_four_ai_data_root(data_root: str | Path) -> Path:
     profile = root.parents[3]
     if not profile.name or str(profile) == root.anchor:
         raise ValueError("four-engine cache profile root is invalid")
-    protected_ancestors = (
-        profile,
-        profile / "AppData",
-        profile / "AppData" / "Local",
-        root.parent,
-        root,
-    )
-    for candidate in protected_ancestors:
+
+    # Check every existing ancestor, not only the final four directories. A
+    # redirected profile parent must never make the approved-looking suffix
+    # point somewhere else. The volume root itself is an expected mount root.
+    for candidate in (root, *root.parents):
+        if candidate == Path(candidate.anchor):
+            continue
         if os.path.lexists(candidate) and (
             _is_link_or_reparse_point(candidate) or os.path.ismount(candidate)
         ):
@@ -166,20 +186,26 @@ def _remove_cache_entry_without_following_links(path: Path) -> None:
     except FileNotFoundError:
         return
 
+    # A mount point must be rejected before the reparse-point branch. It is
+    # never a cache entry to remove, even though it also carries reparse flags.
+    if os.path.ismount(path):
+        raise ValueError("four-engine cache cleanup refuses to traverse a mount point")
+
+    attributes = getattr(info, "st_file_attributes", 0)
     is_symlink = stat.S_ISLNK(info.st_mode)
-    is_reparse = bool(getattr(info, "st_file_attributes", 0) & 0x400)
+    is_reparse = bool(attributes & 0x400)
     if is_symlink or is_reparse:
-        # POSIX removes every symlink with unlink. Windows requires rmdir for
-        # directory symlinks/junctions. Neither operation traverses the target.
-        if os.name == "nt" and path.is_dir():
+        # POSIX removes symlinks with unlink. On Windows use the directory
+        # attribute from lstat rather than path.is_dir(), which follows the
+        # target and returns False for a broken directory junction/symlink.
+        is_directory_entry = stat.S_ISDIR(info.st_mode) or bool(attributes & 0x10)
+        if os.name == "nt" and is_directory_entry:
             os.rmdir(path)
         else:
             os.unlink(path)
         return
 
     if stat.S_ISDIR(info.st_mode):
-        if os.path.ismount(path):
-            raise ValueError("four-engine cache cleanup refuses to traverse a mount point")
         with os.scandir(path) as entries:
             for entry in entries:
                 _remove_cache_entry_without_following_links(Path(entry.path))
