@@ -131,11 +131,9 @@ def test_faulty_engine_does_not_fail_v2_job(tmp_path, monkeypatch):
     [
         ((16, 16), (8, 8), (16, 16)),
         ((32, 32), (16, 16), (32, 32)),
-        ((64, 64), (32, 32), (64, 64)),
-        ((31, 23), (16, 12), (32, 24)),
     ],
 )
-def test_native_2x_engines_support_custom_and_4x_8x_target_sizes(
+def test_native_2x_engines_support_exact_2x_and_4x_target_sizes(
     tmp_path, monkeypatch, target_size, expected_seed, expected_padded
 ):
     source, baseline = _images(tmp_path)
@@ -181,6 +179,38 @@ def test_native_2x_engines_support_custom_and_4x_8x_target_sizes(
         assert image.getchannel("A").tobytes() == reference.getchannel("A").tobytes()
         assert image.info.get("icc_profile") == icc
 
+
+
+@pytest.mark.parametrize("target_size", [(24, 24), (64, 64), (16, 32), (31, 23)])
+def test_unsupported_scale_is_rejected_before_gpu_binding_or_native_launch(
+    tmp_path, monkeypatch, target_size
+):
+    source = tmp_path / "source.png"
+    baseline = tmp_path / "V2.png"
+    icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    Image.new("RGBA", (8, 8), (20, 30, 40, 120)).save(
+        source, dpi=(300, 300), icc_profile=icc
+    )
+    Image.new("RGBA", target_size, (30, 40, 50, 120)).save(
+        baseline, dpi=(300, 300), icc_profile=icc
+    )
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv(
+        "NIYOMSIL_V211_FOUR_AI_MANIFEST",
+        str(tmp_path / "manifest.json"),
+    )
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("unsupported scale must be rejected before GPU binding or native launch")
+
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+
+    assert result["status"] == "unsupported_scale"
+    assert result["reason"] == "exact_2x_or_4x_source_geometry_required"
+    assert result["v2_output_preserved"] is True
+    assert baseline.read_bytes() == before
 
 def test_rgb_tiff_v2_output_gets_local_png_qa_without_modifying_tiff(tmp_path, monkeypatch):
     source = tmp_path / "source.png"
