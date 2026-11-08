@@ -383,6 +383,16 @@ def maybe_run_four_engine_assist(
         fusion = result.get("four_engine_fusion") or {}
         preview = result.get("three_engine_priority_preview") or {}
         selection = preview.get("selected")
+        # A priority preview created inside the default TemporaryDirectory has
+        # already been deleted here. Do not report it as "ready" unless the
+        # private evidence directory actually retains the file for inspection.
+        priority_preview_path = None
+        if evidence_root and selection is not None:
+            preview_output = preview.get("output")
+            if preview_output:
+                candidate_preview = Path(preview_output)
+                if candidate_preview.is_file():
+                    priority_preview_path = str(candidate_preview)
         source_w, source_h = source_size
         target_w, target_h = target_size
         return {
@@ -392,7 +402,7 @@ def maybe_run_four_engine_assist(
                 else "four_engine_fusion_contribution_incomplete"
                 if fusion.get("fusion_implemented")
                 else "three_engine_priority_preview_ready"
-                if selection is not None
+                if priority_preview_path is not None
                 else "candidate_research_complete"
                 if result.get("ready_for_fusion_research")
                 else "incomplete_four_engine_candidates"
@@ -413,10 +423,7 @@ def maybe_run_four_engine_assist(
                 "resize_mode": resize_mode,
             } if fusion else None,
             "priority_preview_selected": selection,
-            "priority_preview_path": (
-                preview.get("output") if evidence_root and selection is not None
-                else None
-            ),
+            "priority_preview_path": priority_preview_path,
             "anime4k_optional_for_priority_preview": True,
             "failures": result.get("failures", {}),
             "fusion_implemented": bool(fusion.get("fusion_implemented")),
