@@ -41,6 +41,7 @@ def _gpu():
 def _anime():
     return {
         "status": "ok",
+        "manifest_preflight_passed": True,
         "processor_probe": {"success": True},
         "device_probe": {"success": True},
         "available_processors": ["cpu", "opencl", "cuda"],
@@ -431,6 +432,7 @@ def test_gpu_readiness_requires_real_vulkan_adapter_and_vram(
     report = diagnostic.run_diagnostic(
         manifest, tmp_path / "report",
         gpu_probe=lambda: gpu, engine_runner=_successful_runner,
+        anime4k_probe=lambda _manifest: _anime(),
         bind_devices=False,
     )
     # Engine output validity and target-machine readiness are independent.
@@ -454,6 +456,7 @@ def test_gpu_readiness_accepts_native_loader_inventory_without_vulkaninfo(
     report = diagnostic.run_diagnostic(
         manifest, tmp_path / "report",
         gpu_probe=lambda: gpu, engine_runner=_successful_runner,
+        anime4k_probe=lambda _manifest: _anime(),
         bind_devices=False,
     )
 
@@ -538,6 +541,29 @@ def test_invalid_manifest_exception_fails_closed_without_retaining_images(tmp_pa
     assert sorted(p.name for p in (tmp_path / "report").iterdir()) == [
         "shop_gpu_diagnostic.json"
     ]
+
+
+def test_manifest_preflight_failure_cannot_be_overridden_by_fake_engine_success(tmp_path):
+    manifest = tmp_path / "tampered-manifest.json"
+    manifest.write_text("tampered", encoding="utf-8")
+
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu,
+        engine_runner=_successful_runner,
+        anime4k_probe=lambda _manifest: {
+            "status": "manifest_preflight_failed",
+            "manifest_preflight_passed": False,
+            "error_type": "ValueError",
+        },
+        bind_devices=False,
+    )
+
+    # Even if an injected/test runner claims successful outputs, the overall
+    # four-engine gate must remain closed when the pinned manifest was rejected.
+    assert report["manifest_preflight_passed"] is False
+    assert report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"] is False
+    assert report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"] is False
 
 
 def test_timeout_bounds_are_validated(tmp_path):
