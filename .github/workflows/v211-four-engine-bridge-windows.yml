@@ -1,8 +1,8 @@
 name: V2.1.1 four-AI bridge Windows candidate
 on:
-  push:
+  pull_request:
     branches:
-      - work/v211-four-engine-v2-bridge-20261103
+      - feature/v2.1.1-super-ai
     paths:
       - 'signprint_ai/**'
       - 'tools/v211_*.py'
@@ -23,6 +23,11 @@ concurrency:
 
 jobs:
   bridge-tests:
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.ref == 'work/v211-four-engine-v2-bridge-20261103') ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103')
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -46,6 +51,11 @@ jobs:
           python -m pytest -q tests/test_v211_bridge_error_privacy.py tests/test_v211_official_assets_audit.py tests/test_v211_provision_four_engines.py tests/test_v211_manifest_hash_fail_closed.py tests/test_v211_model_preflight.py
 
   windows-v2-candidate:
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.ref == 'work/v211-four-engine-v2-bridge-20261103') ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103')
     needs: bridge-tests
     runs-on: windows-latest
     timeout-minutes: 150
