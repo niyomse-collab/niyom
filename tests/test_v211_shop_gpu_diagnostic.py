@@ -376,6 +376,7 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
         manifest, tmp_path / "report",
         gpu_probe=_gpu, engine_runner=_successful_runner,
         anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
     )
     assert report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert report["gtx_1660_ti_and_vulkan_environment_detected"]
@@ -433,6 +434,7 @@ def test_gpu_readiness_requires_real_vulkan_adapter_and_vram(
         manifest, tmp_path / "report",
         gpu_probe=lambda: gpu, engine_runner=_successful_runner,
         anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
         bind_devices=False,
     )
     # Engine output validity and target-machine readiness are independent.
@@ -457,6 +459,7 @@ def test_gpu_readiness_accepts_native_loader_inventory_without_vulkaninfo(
         manifest, tmp_path / "report",
         gpu_probe=lambda: gpu, engine_runner=_successful_runner,
         anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
         bind_devices=False,
     )
 
@@ -520,6 +523,7 @@ def test_one_engine_failure_is_not_reported_as_four_engine_success(tmp_path):
         manifest, tmp_path / "report",
         gpu_probe=_gpu, engine_runner=one_engine_fails,
         anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
     )
     assert not report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert not report["engine_matrix"]["waifu2x"]["both_cases_pass"]
@@ -577,6 +581,44 @@ def test_manifest_preflight_failure_cannot_be_overridden_by_fake_engine_success(
     assert report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"] is False
 
 
+def test_fake_anime_probe_cannot_bypass_independent_manifest_preflight(tmp_path):
+    manifest = tmp_path / "tampered-manifest.json"
+    manifest.write_text("tampered", encoding="utf-8")
+    runner_calls = []
+    probe_calls = []
+
+    def fake_success(*args, **kwargs):
+        runner_calls.append(args)
+        return _successful_runner(*args, **kwargs)
+
+    def fake_anime_probe(_manifest):
+        probe_calls.append(_manifest)
+        # A test hook or faulty inventory callback must not override the
+        # independently verified, repository-pinned four-engine manifest.
+        return {
+            "status": "ok",
+            "manifest_preflight_passed": True,
+            "processor_probe": {"success": True},
+            "device_probe": {"success": True},
+        }
+
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu,
+        engine_runner=fake_success,
+        anime4k_probe=fake_anime_probe,
+        bind_devices=False,
+    )
+
+    assert probe_calls == []
+    assert runner_calls == []
+    assert report["manifest_preflight_passed"] is False
+    assert report["cases"]["rgb_icc_dpi"]["failed_stage"] == "manifest_preflight"
+    assert report["cases"]["rgb_icc_dpi"]["failure_type"] == "ValueError"
+    assert report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"] is False
+    assert report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"] is False
+
+
 def test_timeout_bounds_are_validated(tmp_path):
     import pytest
 
@@ -610,6 +652,7 @@ def test_anime4k_failure_is_separate_from_three_ncnn_vulkan_engine_gate(tmp_path
         manifest, tmp_path / "report",
         gpu_probe=_gpu, engine_runner=anime4k_fails,
         anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
     )
 
     assert report["three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host"]
@@ -642,6 +685,7 @@ def test_ncnn_failure_blocks_three_engine_vulkan_host_gate(tmp_path):
         manifest, tmp_path / "report",
         gpu_probe=_gpu, engine_runner=ncnn_fails,
         anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
     )
 
     assert report["anime4k_cli_outputs_validated_on_both_synthetic_cases"]
