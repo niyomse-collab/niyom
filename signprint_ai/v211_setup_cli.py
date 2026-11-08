@@ -152,8 +152,10 @@ def _validate_four_ai_data_root(data_root: str | Path) -> Path:
         root,
     )
     for candidate in protected_ancestors:
-        if os.path.lexists(candidate) and _is_link_or_reparse_point(candidate):
-            raise ValueError("four-engine cache path contains a link or reparse point")
+        if os.path.lexists(candidate) and (
+            _is_link_or_reparse_point(candidate) or os.path.ismount(candidate)
+        ):
+            raise ValueError("four-engine cache path contains a link, reparse point, or mount")
     return root
 
 
@@ -201,7 +203,8 @@ def cleanup_four_engine_assets(
     root = _validate_four_ai_data_root(data_root)
     if not os.path.lexists(root):
         return {"status": "already_absent", "removed": False}
-    if _is_link_or_reparse_point(root) or not root.is_dir():
+    if (_is_link_or_reparse_point(root) or os.path.ismount(root)
+            or not root.is_dir()):
         raise ValueError("four-engine cache root is not a safe ordinary directory")
 
     removed = []
