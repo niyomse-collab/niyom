@@ -324,7 +324,7 @@ def test_uninstall_cache_cleanup_rejects_cache_root_symlink(tmp_path):
     except (OSError, NotImplementedError):
         pytest.skip("directory symlinks are unavailable on this runner")
 
-    with pytest.raises(ValueError, match="contains a link or reparse point"):
+    with pytest.raises(ValueError, match="contains a link, reparse point, or mount"):
         v211_setup_cli.cleanup_four_engine_assets(expected, confirmed=True)
 
     assert external.is_dir()
