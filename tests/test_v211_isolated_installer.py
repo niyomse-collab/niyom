@@ -321,7 +321,7 @@ def test_v2_build_script_guards_workspace_before_cleanup_and_reuses_verified_mod
     assert guard < venv < cleanup
     assert "function Ensure-VerifiedDownload" in ps
     assert "Existing $Label SHA256 differs from the pinned model; refusing to overwrite" in ps
-    assert "Reusing existing \${Label}" in ps
+    assert "Reusing existing " + chr(36) + "{Label}" in ps
     assert ps.count("Invoke-WebRequest -Uri $Url -OutFile $Path") == 1
     assert "Invoke-WebRequest -Uri $modelUrl -OutFile $modelPath" not in ps
     assert "Invoke-WebRequest -Uri $gfpganUrl -OutFile $gfpganPath" not in ps
