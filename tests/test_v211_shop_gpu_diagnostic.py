@@ -428,7 +428,7 @@ def test_full_bridge_fusion_integration_requires_all_four_pixel_effects_and_v2_s
         integration_runner=_successful_bridge_runner,
     )
     bridge = report["bridge_integration"]
-    assert bridge["passed"] is True
+    assert bridge["passed"] is True, bridge
     assert bridge["case"] == "rgba_alpha_icc_dpi"
     assert bridge["completed_engine_count"] == 4
     assert bridge["fusion_implemented"] is True
@@ -492,6 +492,7 @@ def test_bridge_integration_fails_if_accepted_v2_reference_changes(tmp_path):
             }
         changed.save(baseline, format="PNG", **metadata)
         changed.close()
+        baseline.write_bytes(b"deliberately-corrupted-v2-reference")
         return result
 
     report = diagnostic.run_diagnostic(
@@ -613,6 +614,7 @@ def test_cli_exit_code_requires_target_gpu_readiness(
     report = {
         "all_four_native_cli_outputs_validated_on_both_synthetic_cases": True,
         "four_engine_cli_passed_on_gtx1660ti_vulkan_host": target_gpu_ready,
+        "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host": target_gpu_ready,
     }
     calls = []
 
