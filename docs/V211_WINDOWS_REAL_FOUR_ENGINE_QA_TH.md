@@ -237,11 +237,11 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "ไม่พบ�
 
 ## GitHub Actions: shop-PC GPU evidence (optional)
 
-The manual evidence workflow is now intentionally **self-hosted only**. It must not run on `windows-latest`, because a hosted runner cannot prove the shop GTX 1660 Ti Vulkan path.
+The manual evidence workflow is prepared as a **self-hosted-only, post-merge workflow**. It must not run on `windows-latest`, because a hosted runner cannot prove the shop GTX 1660 Ti Vulkan path. GitHub exposes `workflow_dispatch` only when the workflow file exists on the repository default branch; this file is currently only in Draft PR #20, so it is not dispatchable yet. Because PR #20 must remain unmerged, use the local PowerShell diagnostic above for the current shop-PC test.
 
 - Register a dedicated Windows 11 shop-PC runner in the repository's **Settings → Actions → Runners** and add the custom label `niyom-shop-gpu`. Use a dedicated Windows account with only the permissions needed for this QA; do not expose unrelated secrets to a self-hosted runner.
 - In that same Windows account, install the current V2.1.1 Experimental candidate whose installed `BUILD_PROOF.txt` source commit matches the PR #20 branch HEAD, and complete the one-time consented installation of all four verified engine packages.
-- Dispatch `V2.1.1 shop GPU evidence gate (manual, self-hosted)` from `work/v211-four-engine-v2-bridge-20261103` and explicitly choose `yes`. The default is `no`; the job is skipped unless the branch and confirmation both match.
+- After the workflow file has been approved and is present on the repository default branch, dispatch `V2.1.1 shop GPU evidence gate (manual, self-hosted)` from `work/v211-four-engine-v2-bridge-20261103` and explicitly choose `yes`. The default is `no`; the job is skipped unless the branch and confirmation both match. Until then, run the local command above; do not merge PR #20 merely to enable this workflow.
 - The workflow resolves the per-user Inno Setup installation, checks the installed executable's build proof against the workflow commit, uses only `%LOCALAPPDATA%\\NiyomSilp\\V211-FourAI-QA\\manifest.json`, and invokes the packaged `--diagnose-v211-four-ai` command. It generates its own synthetic RGB/RGBA test inputs.
 - The uploaded artifact contains only `build_identity.json` and `shop_gpu_diagnostic.json`. Synthetic images, native executables, model weights, ZIP archives and customer artwork are not uploaded.
 - If a self-hosted runner is not registered, use the one-command local PowerShell diagnostic above instead; do not dispatch this job to a GitHub-hosted runner.
