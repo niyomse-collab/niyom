@@ -96,23 +96,6 @@ def test_archive_rejects_unsafe_windows_member_names(tmp_path, member):
     with pytest.raises(ValueError, match="unsafe Windows path"):
         audit_archive(path)
 
-class _IncompleteReadResponse(_FakeResponse):
-    """Simulate a server that closes an HTTP 200 response before Content-Length."""
-
-    def read(self, size):
-        if self.fail_after is not None and self.position >= self.fail_after:
-            raise http.client.IncompleteRead(
-                self.payload[:self.position],
-                len(self.payload) - self.position,
-            )
-        end = min(self.position + size, len(self.payload))
-        if self.fail_after is not None:
-            end = min(end, self.fail_after)
-        chunk = self.payload[self.position:end]
-        self.position = end
-        return chunk
-
-
 class _FakeResponse:
     def __init__(self, payload, *, fail_after=None, headers=None):
         self.payload = payload
@@ -129,6 +112,23 @@ class _FakeResponse:
     def read(self, size):
         if self.fail_after is not None and self.position >= self.fail_after:
             raise OSError("synthetic connection reset")
+        end = min(self.position + size, len(self.payload))
+        if self.fail_after is not None:
+            end = min(end, self.fail_after)
+        chunk = self.payload[self.position:end]
+        self.position = end
+        return chunk
+
+
+class _IncompleteReadResponse(_FakeResponse):
+    """Simulate a server that closes an HTTP 200 response before Content-Length."""
+
+    def read(self, size):
+        if self.fail_after is not None and self.position >= self.fail_after:
+            raise http.client.IncompleteRead(
+                self.payload[:self.position],
+                len(self.payload) - self.position,
+            )
         end = min(self.position + size, len(self.payload))
         if self.fail_after is not None:
             end = min(end, self.fail_after)
