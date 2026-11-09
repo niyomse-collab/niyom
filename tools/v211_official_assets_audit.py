@@ -181,7 +181,7 @@ def download_archive(
         url, headers={"User-Agent": "NiyomSilp-v211-asset-provenance-QA"}
     )
     transient_http_codes = {408, 425, 429, 500, 502, 503, 504}
-    max_attempts = 4
+    max_attempts = 5
     downloaded = 0
     try:
         for attempt in range(max_attempts):
@@ -222,7 +222,7 @@ def download_archive(
                     retry_after = float(exc.headers.get("Retry-After", ""))
                 except (AttributeError, TypeError, ValueError):
                     pass
-                delay = min(max(0.0, retry_after), 8.0) if retry_after is not None else min(2 ** attempt, 8)
+                delay = min(max(0.0, retry_after), 12.0) if retry_after is not None else min(2 ** attempt, 12)
                 exc.close()
                 temporary.unlink(missing_ok=True)
                 time.sleep(delay)
