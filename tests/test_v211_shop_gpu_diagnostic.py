@@ -447,6 +447,42 @@ def test_full_bridge_fusion_integration_requires_all_four_pixel_effects_and_v2_s
     assert str(tmp_path) not in payload
 
 
+
+def test_shop_gpu_gate_requires_native_rgb_rgba_and_bridge_fusion_together(tmp_path):
+    manifest = _write_manifest(tmp_path / "manifest.json")
+
+    def one_rgba_engine_fails(manifest_path, source, output, *, timeout_seconds):
+        result = _successful_runner(
+            manifest_path, source, output, timeout_seconds=timeout_seconds
+        )
+        with Image.open(source) as image:
+            rgba = image.mode == "RGBA"
+        if rgba:
+            result["real_inference_verified"] = False
+            result["completed_engine_count"] = 3
+            result["engines"]["anime4k"]["status"] = "failed"
+            result["failures"] = {
+                "anime4k": {
+                    "error_type": "RuntimeError",
+                    "error_class": "subprocess_or_candidate_failure",
+                }
+            }
+        return result
+
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu,
+        engine_runner=one_rgba_engine_fails,
+        anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
+        integration_runner=_successful_bridge_runner,
+    )
+    assert report["bridge_integration"]["passed"] is True
+    assert report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"] is False
+    assert report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"] is False
+
+
+
 def test_bridge_integration_fails_closed_when_anime4k_does_not_contribute(
     tmp_path,
 ):
