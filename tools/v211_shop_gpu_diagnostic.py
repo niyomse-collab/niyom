@@ -302,6 +302,25 @@ def _probe_vulkan_loader() -> bool:
         return False
 
 
+def probe_nvidia_smi_memory() -> dict:
+    """Read only NVIDIA-SMI VRAM data before each native process.
+
+    Avoids repeating Vulkan loader and Anime4KCPP device enumeration per tile.
+    """
+    executable = _find_tool("nvidia-smi")
+    report = _run_probe(
+        executable,
+        [
+            "--query-gpu=name,driver_version,memory.total,memory.free",
+            "--format=csv,noheader,nounits",
+        ],
+    )
+    devices = _parse_nvidia_smi_csv(report.pop("stdout", ""))
+    report.pop("stderr", None)
+    report["devices"] = devices
+    return {"nvidia_smi": report}
+
+
 def _parse_anime4k_device_inventory(value: str) -> dict:
     """Parse the official Anime4KCPP -l output by processor section."""
     inventory = {}

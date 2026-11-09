@@ -67,6 +67,20 @@ def _prepare_runtime_bound_manifest(manifest_path: Path, work_dir: Path) -> tupl
     return bound_path, selection
 
 
+def _prelaunch_vram_check(engine: str) -> dict:
+    """Recheck GTX 1660 Ti free VRAM immediately before each native process."""
+    from tools.v211_gpu_device_binding import validate_free_vram_report
+    from tools.v211_shop_gpu_diagnostic import probe_nvidia_smi_memory
+
+    try:
+        return validate_free_vram_report(probe_nvidia_smi_memory())
+    except GPUDeviceBindingError as exc:
+        raise GPUDeviceBindingError(
+            str(engine) + ": per-process free-VRAM check failed"
+        ) from exc
+
+
+
 def _oriented_size(image: Image.Image) -> tuple[int, int]:
     """Read EXIF-oriented dimensions from the header without decoding pixels."""
     width, height = image.size
@@ -386,7 +400,10 @@ def maybe_run_four_engine_assist(
             try:
                 result = run(
                     seed, work_dir, bound_manifest, padded_size,
-                    real_engines=True, v2_reference=reference, **run_options,
+                    real_engines=True,
+                    v2_reference=reference,
+                    pre_launch_check=_prelaunch_vram_check,
+                    **run_options,
                 )
             finally:
                 # The persistent installation manifest remains untouched and

@@ -128,6 +128,7 @@ def _safe_execution_record(record: dict | None) -> dict | None:
         "process_elapsed_ms", "elapsed_ms_total", "failure_type",
         "tile_count", "tile_process_count", "tile_process_elapsed_ms_total",
         "tile_seam_count", "tile_seam_max_channel_delta", "tile_process_scope",
+        "pre_launch_vram", "pre_launch_vram_checks", "pre_launch_vram_min_free_mib",
     )
     return {key: record[key] for key in allowed if key in record}
 
@@ -295,7 +296,7 @@ def _restore_candidate_rgba_from_v2(candidate_path: Path, v2_reference: Path) ->
         restored.close()
 
 
-def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None, protected_regions: tuple = (), preserve_all_v2_faces: bool = False, cancel: Callable[[], bool] | None = None, progress_callback: Callable[[int, str], None] | None = None) -> dict:
+def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None, protected_regions: tuple = (), preserve_all_v2_faces: bool = False, cancel: Callable[[], bool] | None = None, progress_callback: Callable[[int, str], None] | None = None, pre_launch_check: Callable[[str], dict] | None = None) -> dict:
     source = Path(source)
     output_dir = Path(output_dir)
     if (not isinstance(size, (tuple, list)) or len(size) != 2
@@ -362,7 +363,10 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             commands[name] = EngineCommand(tuple(argv))
     execution_records: dict[str, dict] = {}
     processors = make_processors(
-        commands, cancel_check=cancel, execution_records=execution_records
+        commands,
+        cancel_check=cancel,
+        pre_launch_check=pre_launch_check,
+        execution_records=execution_records,
     )
     if large_job:
         result = run_tiled_candidates(

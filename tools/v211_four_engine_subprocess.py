@@ -84,6 +84,7 @@ def make_processors(
     commands: Mapping[str, EngineCommand],
     *,
     cancel_check: Callable[[], bool] | None = None,
+    pre_launch_check: Callable[[str], dict] | None = None,
     execution_records: MutableMapping[str, dict] | None = None,
 ):
     """Make engine callbacks, failing closed when any engine is unconfigured.
@@ -104,12 +105,21 @@ def make_processors(
             _spec=spec,
             _engine=engine,
         ) -> None:
+            previous_record = execution_records.get(_engine, {}) if execution_records is not None else {}
+            previous_checks = previous_record.get("pre_launch_vram_checks", 0)
+            previous_minimum = previous_record.get("pre_launch_vram_min_free_mib")
             record = {
                 "status": "not_started",
                 "process_started": False,
                 "pid": None,
                 "exit_code": None,
+                "pre_launch_vram_checks": (
+                    previous_checks if isinstance(previous_checks, int)
+                    and not isinstance(previous_checks, bool) and previous_checks >= 0 else 0
+                ),
             }
+            if isinstance(previous_minimum, int) and not isinstance(previous_minimum, bool) and previous_minimum >= 0:
+                record["pre_launch_vram_min_free_mib"] = previous_minimum
             if execution_records is not None:
                 execution_records[_engine] = record
             total_started = time.monotonic()
@@ -143,6 +153,39 @@ def make_processors(
                     # A separate session lets cancellation terminate the whole
                     # native process group rather than leaving Vulkan children.
                     launch["start_new_session"] = True
+                if pre_launch_check is not None:
+                    record["pre_launch_vram_checks"] += 1
+                    record["status"] = "preflight_check"
+                    try:
+                        snapshot = pre_launch_check(_engine)
+                        if not isinstance(snapshot, dict) or snapshot.get("passed") is not True:
+                            raise RuntimeError("per-process VRAM preflight did not pass")
+                        total = snapshot.get("total_mib")
+                        free = snapshot.get("free_mib")
+                        minimum = snapshot.get("minimum_free_mib")
+                        if (
+                            isinstance(total, bool) or not isinstance(total, int) or total <= 0
+                            or isinstance(free, bool) or not isinstance(free, int)
+                            or free < 0 or free > total
+                            or isinstance(minimum, bool) or not isinstance(minimum, int)
+                            or minimum < 1 or free < minimum
+                        ):
+                            raise RuntimeError("per-process VRAM snapshot is invalid or below threshold")
+                    except Exception as exc:
+                        record["status"] = "preflight_failed"
+                        record["failure_type"] = type(exc).__name__
+                        raise
+                    record["pre_launch_vram"] = {
+                        "passed": True,
+                        "free_mib": free,
+                        "minimum_free_mib": minimum,
+                    }
+                    previous_minimum = record.get("pre_launch_vram_min_free_mib")
+                    record["pre_launch_vram_min_free_mib"] = (
+                        free if not isinstance(previous_minimum, int)
+                        else min(previous_minimum, free)
+                    )
+                    record["status"] = "preflight_passed"
                 process_started = time.monotonic()
                 process_handle = subprocess.Popen(argv, **launch)
                 record["process_started"] = True

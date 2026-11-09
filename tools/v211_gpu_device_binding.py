@@ -27,6 +27,44 @@ def _matches_target(value: Any, target_name: str = TARGET_GPU) -> bool:
     return isinstance(value, str) and target_name.casefold() in value.casefold()
 
 
+def validate_free_vram_report(
+    gpu_report: dict,
+    *,
+    target_name: str = TARGET_GPU,
+) -> dict:
+    """Validate a fresh NVIDIA-SMI snapshot for exactly one target adapter."""
+    nvidia = gpu_report.get("nvidia_smi") or {}
+    devices = nvidia.get("devices") or []
+    matches = [
+        item for item in devices
+        if isinstance(item, dict) and _matches_target(item.get("name"), target_name)
+    ]
+    if not nvidia.get("success") or len(matches) != 1:
+        raise GPUDeviceBindingError(
+            "NVIDIA-SMI must report exactly one " + target_name + " adapter"
+        )
+    device = matches[0]
+    total = device.get("memory_total_mib")
+    free = device.get("memory_free_mib")
+    if isinstance(total, bool) or not isinstance(total, int) or total <= 0:
+        raise GPUDeviceBindingError("NVIDIA-SMI must report a valid total VRAM capacity")
+    if isinstance(free, bool) or not isinstance(free, int) or free < 0:
+        raise GPUDeviceBindingError("NVIDIA-SMI must report a valid free VRAM reading")
+    if free > total:
+        raise GPUDeviceBindingError("NVIDIA-SMI free VRAM exceeds the reported total capacity")
+    if free < MIN_FREE_VRAM_MIB:
+        raise GPUDeviceBindingError(
+            f"insufficient free VRAM: {free} MiB available; "
+            f"at least {MIN_FREE_VRAM_MIB} MiB required"
+        )
+    return {
+        "total_mib": total,
+        "free_mib": free,
+        "minimum_free_mib": MIN_FREE_VRAM_MIB,
+        "passed": True,
+    }
+
+
 def resolve_device_selection(
     gpu_report: dict,
     anime4k_report: dict,
