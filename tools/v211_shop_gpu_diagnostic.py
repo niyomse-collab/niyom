@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import ctypes
+import hashlib
 from datetime import datetime, timezone
 import io
 import json
@@ -589,6 +590,255 @@ def _case_summary(value: dict) -> dict:
     }
 
 
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _create_synthetic_v2_reference(source: Path, destination: Path) -> None:
+    """Create a 2x synthetic accepted-V2 reference with identical metadata."""
+    with Image.open(source) as image:
+        image.load()
+        metadata = {
+            key: image.info[key]
+            for key in ("icc_profile", "dpi")
+            if key in image.info
+        }
+        scaled = image.resize(
+            (image.width * 2, image.height * 2),
+            Image.Resampling.LANCZOS,
+        )
+        try:
+            scaled.save(destination, format="PNG", **metadata)
+        finally:
+            scaled.close()
+
+
+def _dpi_equal(left, right) -> bool:
+    if left is None or right is None:
+        return left is right
+    try:
+        return (
+            len(left) == len(right)
+            and all(abs(float(a) - float(b)) <= 0.1 for a, b in zip(left, right))
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _run_bridge_integration_case(
+    manifest: Path,
+    work_root: Path,
+    integration_runner,
+    *,
+    timeout_seconds: int,
+) -> dict:
+    """Exercise the real bridge + four-engine fusion on synthetic RGBA only.
+
+    The accepted-V2 reference is synthetic and private. The function records
+    only booleans/counts; all temporary images, candidates and manifests are
+    removed before returning.
+    """
+    source = Path(work_root) / "bridge-rgba-source.png"
+    baseline = Path(work_root) / "bridge-rgba-v2-reference.png"
+    create_synthetic_png(source, rgba=True)
+    _create_synthetic_v2_reference(source, baseline)
+    source_hash_before = _file_sha256(source)
+    baseline_hash_before = _file_sha256(baseline)
+
+    try:
+        manifest_data = json.loads(Path(manifest).read_text(encoding="utf-8"))
+        if not isinstance(manifest_data, dict) or set(manifest_data) != set(ENGINES):
+            raise ValueError("manifest must contain exactly four engines")
+        for name in ENGINES:
+            item = manifest_data[name]
+            if not isinstance(item, dict):
+                raise ValueError("invalid engine manifest entry")
+            current_timeout = item.get("timeout_seconds", 1800)
+            if (
+                isinstance(current_timeout, bool)
+                or not isinstance(current_timeout, int)
+                or not 1 <= current_timeout <= 1800
+            ):
+                raise ValueError("invalid engine timeout in manifest")
+            item["timeout_seconds"] = min(current_timeout, int(timeout_seconds))
+        bounded_manifest = Path(work_root) / "bridge-integration-manifest.json"
+        bounded_manifest.write_text(
+            json.dumps(manifest_data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        return {
+            "case": "rgba_alpha_icc_dpi",
+            "status": "manifest_preflight_failed",
+            "error_type": type(exc).__name__,
+            "passed": False,
+            "quality_certified": False,
+            "images_retained": False,
+        }
+
+    environment_keys = (
+        "NIYOMSIL_V211_FOUR_AI",
+        "NIYOMSIL_V211_FOUR_AI_MANIFEST",
+        "NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR",
+    )
+    previous_environment = {key: os.environ.get(key) for key in environment_keys}
+    with tempfile.TemporaryDirectory(
+        prefix="v211-bridge-evidence-", dir=str(Path(work_root).resolve())
+    ) as evidence_name:
+        evidence_root = Path(evidence_name).resolve()
+        os.environ["NIYOMSIL_V211_FOUR_AI"] = "1"
+        os.environ["NIYOMSIL_V211_FOUR_AI_MANIFEST"] = str(bounded_manifest.resolve())
+        os.environ["NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR"] = str(evidence_root)
+        try:
+            result = integration_runner(
+                source.resolve(),
+                baseline.resolve(),
+                use_ai=True,
+                resize_mode="stretch",
+            )
+            if not isinstance(result, dict):
+                result = {"status": "invalid_bridge_result"}
+        except Exception as exc:
+            result = {
+                "status": "bridge_execution_failed",
+                "error_type": type(exc).__name__,
+            }
+        finally:
+            for key, value in previous_environment.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+        output_valid = False
+        metadata_checks = {
+            "png": False,
+            "dimensions": False,
+            "colour_mode": False,
+            "icc": False,
+            "dpi": False,
+            "alpha": False,
+        }
+        output_value = result.get("four_engine_fusion_output")
+        if output_value:
+            try:
+                output_path = Path(output_value).resolve(strict=True)
+                output_path.relative_to(evidence_root)
+                with Image.open(baseline) as reference, Image.open(output_path) as fused:
+                    reference.load()
+                    fused.load()
+                    metadata_checks["png"] = fused.format == "PNG"
+                    metadata_checks["dimensions"] = fused.size == reference.size
+                    metadata_checks["colour_mode"] = fused.mode == reference.mode
+                    metadata_checks["icc"] = (
+                        fused.info.get("icc_profile") == reference.info.get("icc_profile")
+                    )
+                    metadata_checks["dpi"] = _dpi_equal(
+                        fused.info.get("dpi"), reference.info.get("dpi")
+                    )
+                    if reference.mode == "RGBA" and fused.mode == "RGBA":
+                        metadata_checks["alpha"] = (
+                            fused.getchannel("A").tobytes()
+                            == reference.getchannel("A").tobytes()
+                        )
+                    elif reference.mode == "RGB" and fused.mode == "RGB":
+                        metadata_checks["alpha"] = True
+                    output_valid = all(metadata_checks.values())
+            except (OSError, ValueError, TypeError):
+                output_valid = False
+
+        report_path = None
+        if output_value:
+            try:
+                candidate = Path(output_value).resolve(strict=True)
+                candidate.relative_to(evidence_root)
+                report_path = candidate.parent / "four_engine_report.json"
+            except (OSError, ValueError):
+                report_path = None
+        engine_report = _read_local_report(report_path) if report_path else {}
+        execution = engine_report.get("engine_execution") or {}
+        prelaunch = {}
+        for name in ENGINES:
+            process = ((execution.get(name) or {}).get("process") or {})
+            checks = process.get("pre_launch_vram_checks", 0)
+            minimum = process.get("pre_launch_vram_min_free_mib")
+            if isinstance(checks, bool) or not isinstance(checks, int) or checks < 0:
+                checks = 0
+            if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 0:
+                minimum = None
+            prelaunch[name] = {
+                "checks": checks,
+                "minimum_free_mib": minimum,
+                "passed": checks >= 1 and minimum is not None and minimum >= 2048,
+            }
+
+        effects_raw = result.get("engine_pixel_effect_verified")
+        effects = {
+            name: bool(isinstance(effects_raw, dict) and effects_raw.get(name) is True)
+            for name in ENGINES
+        }
+        pixels_raw = result.get("engine_pixel_effect_pixels")
+        effect_pixels = {}
+        for name in ENGINES:
+            value = pixels_raw.get(name) if isinstance(pixels_raw, dict) else None
+            effect_pixels[name] = (
+                value if isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                else None
+            )
+        binding = result.get("device_binding") or {}
+        binding_configured = binding.get("binding_configured") is True
+        source_unchanged = _file_sha256(source) == source_hash_before
+        baseline_unchanged = _file_sha256(baseline) == baseline_hash_before
+        all_prelaunch_passed = all(item["passed"] for item in prelaunch.values())
+        all_effects_verified = all(effects.values())
+        completed_count = result.get("completed_engine_count", 0)
+        if isinstance(completed_count, bool) or not isinstance(completed_count, int):
+            completed_count = 0
+        fusion_passed = bool(
+            result.get("status") == "four_engine_fusion_preview_ready"
+            and completed_count == len(ENGINES)
+            and result.get("fusion_implemented") is True
+            and result.get("all_four_engine_pixels_contributed") is True
+            and all_effects_verified
+            and output_valid
+            and source_unchanged
+            and baseline_unchanged
+            and binding_configured
+            and all_prelaunch_passed
+        )
+        return {
+            "case": "rgba_alpha_icc_dpi",
+            "status": str(result.get("status") or "unknown")[:80],
+            "passed": fusion_passed,
+            "completed_engine_count": completed_count,
+            "fusion_implemented": result.get("fusion_implemented") is True,
+            "all_four_engine_pixels_contributed": (
+                result.get("all_four_engine_pixels_contributed") is True
+            ),
+            "engine_pixel_effect_verified": effects,
+            "engine_pixel_effect_pixels": effect_pixels,
+            "output_metadata": metadata_checks,
+            "source_unchanged": source_unchanged,
+            "v2_baseline_unchanged": baseline_unchanged,
+            "device_binding_configured": binding_configured,
+            "pre_launch_vram": prelaunch,
+            "pre_launch_vram_checks_passed": all_prelaunch_passed,
+            "runtime_device_use_verified": False,
+            "quality_certified": False,
+            "print_quality_certified": False,
+            "customer_artwork_used": False,
+            "network_accessed": False,
+            "uploads_performed": False,
+            "images_retained": False,
+            "error_type": result.get("error_type"),
+        }
+
+
 def run_diagnostic(
     manifest: Path,
     output_dir: Path,
@@ -599,6 +849,7 @@ def run_diagnostic(
     manifest_loader=load_real_engine_manifest,
     timeout_seconds: int = 180,
     bind_devices: bool = True,
+    integration_runner=None,
 ) -> dict:
     """Run all four verified native CLIs on RGB and RGBA synthetic images."""
     manifest = Path(manifest)
@@ -695,6 +946,30 @@ def run_diagnostic(
                         }
             cases[case_name] = _case_summary(result)
 
+        bridge_integration = {
+            "case": "rgba_alpha_icc_dpi",
+            "status": "not_run",
+            "passed": False,
+            "quality_certified": False,
+            "images_retained": False,
+        }
+        if integration_runner is not None:
+            if not manifest_preflight_ok:
+                bridge_integration = {
+                    **bridge_integration,
+                    "status": "manifest_preflight_failed",
+                }
+            elif binding_error is not None or not bind_devices or device_binding is None:
+                bridge_integration = {
+                    **bridge_integration,
+                    "status": "gpu_binding_failed",
+                }
+            else:
+                bridge_integration = _run_bridge_integration_case(
+                    manifest, work_root, integration_runner,
+                    timeout_seconds=timeout_seconds,
+                )
+
     engine_matrix = {
         name: {
             "rgb_pass": cases["rgb_icc_dpi"]["engines"][name]["status"]
@@ -732,7 +1007,7 @@ def run_diagnostic(
     )
     device_binding_applied = bool(bind_devices and device_binding and binding_error is None)
     report = {
-        "schema_version": 4,
+        "schema_version": 5,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "manifest_present": manifest.is_file(),
         "manifest_preflight_passed": manifest_preflight_passed,
@@ -778,6 +1053,10 @@ def run_diagnostic(
         ),
         "anime4k_cli_outputs_validated_on_both_synthetic_cases": anime4k_cli_pass,
         "cases": cases,
+        "bridge_integration": bridge_integration,
+        "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host": bool(
+            bridge_integration.get("passed") and gpu_ready and device_binding_applied
+        ),
         "all_four_native_cli_outputs_validated_on_both_synthetic_cases": all_four,
         "gtx_1660_ti_and_vulkan_environment_detected": gpu_ready,
         "all_four_cli_validated_on_gtx1660ti_vulkan_equipped_host": bool(
@@ -800,6 +1079,8 @@ def run_diagnostic(
             "Shop GPU readiness requires GTX 1660 Ti visibility in NVIDIA-SMI and Vulkan physical-device inventory (from vulkaninfo or direct loader enumeration), the Vulkan loader, and the expected 6 GiB VRAM budget; this still does not prove which adapter each CLI selected.",
             "When bind_devices is enabled, a private per-run manifest explicitly configures the unique Vulkan index with -g for all three NCNN engines and the unique Anime4KCPP CUDA/OpenCL backend/device with -p/-d. The installed manifest is never modified.",
             "Device binding proves the selected CLI arguments were configured from local inventories; runtime telemetry is still required before claiming that each native process actually used the selected adapter.",
+            "The end-to-end bridge case runs the actual V2.1.1 bridge and four-engine fusion on a generated RGBA/ICC/300-DPI image; it checks four pixel contributions, per-process VRAM preflight records, exact V2-reference preservation and output metadata.",
+            "A passing bridge case still does not prove which physical adapter each native process used or certify visual/print quality; compare real owner-approved images separately.",
         ],
     }
     report_path = output_dir / "shop_gpu_diagnostic.json"
@@ -824,12 +1105,16 @@ def main(argv: list[str] | None = None) -> int:
         output_dir = qa_root() / "diagnostics" / stamp
     else:
         output_dir = args.output_dir
+    from signprint_ai.v211_four_engine_bridge import maybe_run_four_engine_assist
+
     report = run_diagnostic(
-        args.manifest, output_dir, timeout_seconds=args.timeout_seconds
+        args.manifest, output_dir,
+        timeout_seconds=args.timeout_seconds,
+        integration_runner=maybe_run_four_engine_assist,
     )
     print(json.dumps(report, indent=2, ensure_ascii=False))
     print("Report saved: " + str(output_dir / "shop_gpu_diagnostic.json"))
-    return 0 if report["four_engine_cli_passed_on_gtx1660ti_vulkan_host"] else 1
+    return 0 if report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"] else 1
 
 
 if __name__ == "__main__":
