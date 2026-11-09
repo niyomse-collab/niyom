@@ -1,5 +1,6 @@
 """Offline tests for official model-archive audit. No external programs run."""
 import hashlib
+import http.client
 import io
 import zipfile
 
@@ -94,6 +95,23 @@ def test_archive_rejects_unsafe_windows_member_names(tmp_path, member):
         archive.writestr(member, b"not safe on Windows")
     with pytest.raises(ValueError, match="unsafe Windows path"):
         audit_archive(path)
+
+class _IncompleteReadResponse(_FakeResponse):
+    """Simulate a server that closes an HTTP 200 response before Content-Length."""
+
+    def read(self, size):
+        if self.fail_after is not None and self.position >= self.fail_after:
+            raise http.client.IncompleteRead(
+                self.payload[:self.position],
+                len(self.payload) - self.position,
+            )
+        end = min(self.position + size, len(self.payload))
+        if self.fail_after is not None:
+            end = min(end, self.fail_after)
+        chunk = self.payload[self.position:end]
+        self.position = end
+        return chunk
+
 
 class _FakeResponse:
     def __init__(self, payload, *, fail_after=None, headers=None):
@@ -310,6 +328,40 @@ def test_official_archive_download_retries_transient_gateway_errors(tmp_path, mo
     assert len(calls) == 4
     assert target.read_bytes() == payload
     assert result["release_digest_verified"] is True
+    assert list(tmp_path.glob(".*.part")) == []
+
+
+def test_official_archive_download_retries_incomplete_http_body(tmp_path, monkeypatch):
+    payload = _valid_zip_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    target = tmp_path / "engine.zip"
+    previous = b"previous verified archive"
+    target.write_bytes(previous)
+    calls = []
+
+    def flaky_urlopen(request, timeout=90):
+        calls.append((request.full_url, timeout))
+        if len(calls) == 1:
+            return _IncompleteReadResponse(
+                payload,
+                fail_after=7,
+                headers={"Content-Length": str(len(payload))},
+            )
+        return _FakeResponse(
+            payload, headers={"Content-Length": str(len(payload))}
+        )
+
+    monkeypatch.setattr(assets.urllib.request, "urlopen", flaky_urlopen)
+    monkeypatch.setattr(assets.time, "sleep", lambda _delay: None)
+
+    result = assets.download_archive(
+        "https://example.invalid/engine.zip", target, expected_sha256=digest
+    )
+
+    assert len(calls) == 2
+    assert target.read_bytes() == payload
+    assert result["release_digest_verified"] is True
+    assert audit_archive(target)["archive_member_audit_passed"] is True
     assert list(tmp_path.glob(".*.part")) == []
 
 
