@@ -212,3 +212,24 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "ไม่พบ�
 - ก่อนเรียก Native subprocess ระบบตรวจ NVIDIA-SMI และ Vulkan physical-device inventory แล้วสร้าง manifest ชั่วคราวสำหรับ run นั้น: Real-ESRGAN, Waifu2x และ Real-CUGAN รับ `-g` จาก Vulkan index; Anime4KCPP แยกตรวจ `--lp/-l` แล้วกำหนด `-p/-d` เป็น CUDA หรือ OpenCL device ที่ตรงกับ GTX 1660 Ti.
 - Manifest ที่ติดตั้งไว้ไม่ถูกแก้ไข; runtime-bound manifest ถูกลบหลังเรียก runner. หาก inventory หายหรือกำกวม ระบบหยุด Four-Engine assist และคง V2.
 - `binding_configured=true` หมายถึง CLI flags ถูกกำหนดจาก inventory เท่านั้น; `runtime_device_use_verified=false` ยังคงบังคับ เพราะยังไม่มี per-process telemetry ยืนยันว่า Native process ใช้ adapter ที่ระบุจริง.
+
+
+## 9 พฤศจิกายน 2569 — เพิ่ม End-to-end Four-Engine Bridge/Fusion ในคำสั่งตรวจเครื่องร้าน
+
+ปรับ --diagnose-v211-four-ai ให้ตรวจมากกว่าการเรียก Native CLI แยกตัว:
+
+- ยังคงรัน Native CLI ทั้งสี่กับภาพสังเคราะห์ RGB และ RGBA ที่มี sRGB ICC / 300 DPI
+- เพิ่มการเรียก maybe_run_four_engine_assist ของ V2.1.1 จริงบนภาพสังเคราะห์ RGBA อีกหนึ่งกรณี โดยใช้ V2 reference สังเคราะห์ที่ขยาย 2x
+- ตรวจว่า Bridge เรียกครบ 4 Engine, Fusion ทำงาน, และ engine_pixel_effect_verified เป็น true ครบทั้งสี่ ไม่ใช่เพียงสร้าง candidate ได้ครบ
+- อ่านรายงานชั่วคราวเพื่อตรวจว่าทุก Native Process ผ่าน per-process VRAM preflight อย่างน้อยหนึ่งครั้ง และค่าต่ำสุดที่บันทึกได้ไม่น้อยกว่า 2,048 MiB
+- ตรวจ SHA256 ของ source และ V2 reference ก่อน/หลัง เพื่อยืนยันว่า Bridge ไม่แก้ไขไฟล์ต้นฉบับหรือ V2 baseline
+- ตรวจ PNG, ขนาด, RGB/RGBA, ICC, DPI และ Alpha ของ Fusion Output เทียบกับ V2 reference
+- ลบ source/reference/candidates/manifest ชั่วคราวทั้งหมด เหลือเฉพาะ shop_gpu_diagnostic.json; ไม่ใช้ภาพลูกค้า ไม่เข้าถึงเครือข่าย และไม่อัปโหลดภาพ
+
+รายงานเปลี่ยนเป็น schema 5 และเพิ่ม bridge_integration กับ four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host.
+
+**Exit code 0** จะเกิดเมื่อ Native CLI ทั้งสี่ผ่าน RGB/RGBA และ Full Bridge/Fusion RGBA ผ่านครบสี่ pixel contributions, metadata, V2-preservation, device binding และ per-process VRAM checks บนเครื่องที่ตรวจพบ GTX 1660 Ti + Vulkan เท่านั้น หาก Engine ใดไม่เปลี่ยนพิกเซลจริง หรือ Fusion ไม่ผ่าน ระบบจะคืน exit code 1 และยังคง V2 เดิม
+
+การตรวจนี้เพิ่ม Native Process อีก 4 ครั้งจากเดิม 8 ครั้ง; ค่า timeout เริ่มต้น 180 วินาทีต่อ Process จึงอาจใช้เวลาหลายนาทีตามเครื่องและโมเดล
+
+**ข้อจำกัดยังเหมือนเดิม:** device_binding_configured และการผ่าน Native CLI ไม่ใช่ telemetry ยืนยันว่าแต่ละ Process ใช้ physical adapter ที่เลือกจริง; runtime_device_use_verified, quality_improvement_verified, visual_quality_certified และ print_quality_certified ยังคงเป็น false. การทดสอบนี้เป็น Synthetic End-to-end Integration QA ไม่ใช่ A/B ภาพคน/สัตว์/งานป้ายจริง และไม่รับรองคุณภาพเหนือ V2.
