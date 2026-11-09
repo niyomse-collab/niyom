@@ -321,9 +321,69 @@ def test_v2_build_script_guards_workspace_before_cleanup_and_reuses_verified_mod
     assert guard < venv < cleanup
     assert "function Ensure-VerifiedDownload" in ps
     assert "Existing $Label SHA256 differs from the pinned model; refusing to overwrite" in ps
-    assert "Reusing existing " + chr(36) + "{Label}" in ps
+    assert "Reusing existing verified " + chr(36) + "{Label}" in ps
     assert ps.count("Invoke-WebRequest -Uri $Url -OutFile $Path") == 1
     assert "Invoke-WebRequest -Uri $modelUrl -OutFile $modelPath" not in ps
     assert "Invoke-WebRequest -Uri $gfpganUrl -OutFile $gfpganPath" not in ps
     assert "Invoke-WebRequest -Uri $retinaUrl -OutFile $retinaPath" not in ps
     assert ps.index("Normalize the legacy V2 default") < guard
+
+
+def test_official_archive_download_retries_transient_gateway_errors(tmp_path, monkeypatch):
+    import urllib.error
+
+    payload = _valid_zip_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    target = tmp_path / "engine.zip"
+    calls = []
+
+    def flaky_urlopen(request, timeout=90):
+        calls.append((request.full_url, timeout))
+        if len(calls) == 1:
+            raise urllib.error.HTTPError(
+                request.full_url, 504, "Gateway Time-out", None, io.BytesIO(b"retry")
+            )
+        return _FakeResponse(
+            payload, headers={"Content-Length": str(len(payload))}
+        )
+
+    monkeypatch.setattr(assets.urllib.request, "urlopen", flaky_urlopen)
+    monkeypatch.setattr(assets.time, "sleep", lambda _delay: None)
+
+    result = assets.download_archive(
+        "https://example.invalid/engine.zip", target, expected_sha256=digest
+    )
+
+    assert len(calls) == 2
+    assert target.read_bytes() == payload
+    assert result["release_digest_verified"] is True
+    assert list(tmp_path.glob(".*.part")) == []
+
+
+def test_official_archive_download_does_not_retry_permanent_http_errors(tmp_path, monkeypatch):
+    import urllib.error
+
+    target = tmp_path / "engine.zip"
+    previous = b"previous verified archive"
+    target.write_bytes(previous)
+    calls = []
+
+    def missing_urlopen(request, timeout=90):
+        calls.append(request.full_url)
+        raise urllib.error.HTTPError(
+            request.full_url, 404, "Not Found", None, io.BytesIO(b"missing")
+        )
+
+    monkeypatch.setattr(assets.urllib.request, "urlopen", missing_urlopen)
+    monkeypatch.setattr(assets.time, "sleep", lambda _delay: pytest.fail("404 must not retry"))
+
+    with pytest.raises(urllib.error.HTTPError):
+        assets.download_archive(
+            "https://example.invalid/missing.zip",
+            target,
+            expected_sha256="0" * 64,
+        )
+
+    assert len(calls) == 1
+    assert target.read_bytes() == previous
+    assert list(tmp_path.glob(".*.part")) == []
