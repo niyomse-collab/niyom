@@ -215,3 +215,114 @@ def test_manual_gpu_diagnostic_resolves_the_per_user_installer_path():
     assert "--diagnose-v211-four-ai" in doc
     assert "$env:ProgramFiles\\NiyomSilpDesignV211Experimental" not in doc
     assert "2,048 MiB" in doc
+
+
+def _write_v211_candidate_workspace(root: Path, version="2.1.1-beta.469", commit="a" * 40):
+    import json
+
+    (root / "build").mkdir(parents=True)
+    app = root / "dist" / "NiyomsilAIEnhancer"
+    app.mkdir(parents=True)
+    release = root / "release"
+    release.mkdir(parents=True)
+    (root / "build_info.json").write_text(json.dumps({
+        "channel": "v2", "version": version, "source_commit": commit,
+    }), encoding="utf-8")
+    (app / "BUILD_PROOF.txt").write_text(
+        "NIYOMSIL DESIGN v2 - VERIFIED INSTALLER BUILD PROOF\\n"
+        f"Version: {version}\\n"
+        f"Source commit: {commit}\\n",
+        encoding="utf-8",
+    )
+    (release / "NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe").write_bytes(b"candidate")
+    (release / "SHA256SUMS.txt").write_text("candidate hashes only", encoding="ascii")
+
+
+def test_v211_build_workspace_guard_allows_a_clean_checkout_and_same_candidate_family(tmp_path):
+    from tools.v211_build_workspace_guard import validate_v211_build_workspace
+
+    assert validate_v211_build_workspace(
+        tmp_path, "2.1.1-beta.470"
+    )["status"] == "clean_workspace"
+
+    _write_v211_candidate_workspace(tmp_path)
+    report = validate_v211_build_workspace(tmp_path, "2.1.1-beta.470")
+    assert report["status"] == "verified_previous_v211_candidate"
+    assert report["stable_v2_files_preserved"] is True
+    assert report["v1_files_preserved"] is True
+
+
+def test_v211_build_workspace_guard_refuses_accepted_v2_stable_outputs(tmp_path):
+    import json
+    import pytest
+    from tools.v211_build_workspace_guard import (
+        BuildWorkspaceError, validate_v211_build_workspace,
+    )
+
+    (tmp_path / "build_info.json").write_text(json.dumps({
+        "channel": "v2", "version": "2.0.0-beta.1", "source_commit": "b" * 40,
+    }), encoding="utf-8")
+    release = tmp_path / "release"
+    release.mkdir()
+    stable = release / "NiyomSilp-Design-v2-Setup.exe"
+    stable.write_bytes(b"accepted-v2-installer")
+
+    with pytest.raises(BuildWorkspaceError, match="accepted V2 stable"):
+        validate_v211_build_workspace(tmp_path, "2.1.1-beta.470")
+    assert stable.read_bytes() == b"accepted-v2-installer"
+
+
+def test_v211_build_workspace_guard_refuses_partial_or_unverifiable_outputs(tmp_path):
+    import pytest
+    from tools.v211_build_workspace_guard import (
+        BuildWorkspaceError, validate_v211_build_workspace,
+    )
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    sentinel = dist / "stable-output-do-not-delete.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+
+    with pytest.raises(BuildWorkspaceError, match="no V2.1.1 build_info"):
+        validate_v211_build_workspace(tmp_path, "2.1.1-beta.470")
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+
+
+def test_v211_build_workspace_guard_refuses_mismatched_proof_and_unknown_release_files(tmp_path):
+    import pytest
+    from tools.v211_build_workspace_guard import (
+        BuildWorkspaceError, validate_v211_build_workspace,
+    )
+
+    _write_v211_candidate_workspace(tmp_path)
+    proof = tmp_path / "dist" / "NiyomsilAIEnhancer" / "BUILD_PROOF.txt"
+    proof.write_text(
+        "NIYOMSIL DESIGN v2 - VERIFIED INSTALLER BUILD PROOF\\n"
+        "Version: 2.1.1-beta.468\\n"
+        f"Source commit: {'a' * 40}\\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(BuildWorkspaceError, match="matching V2.1.1 BUILD_PROOF"):
+        validate_v211_build_workspace(tmp_path, "2.1.1-beta.470")
+
+    _write_v211_candidate_workspace(tmp_path)
+    unknown = tmp_path / "release" / "customer-artwork.png"
+    unknown.write_bytes(b"never delete")
+    with pytest.raises(BuildWorkspaceError, match="unverified file"):
+        validate_v211_build_workspace(tmp_path, "2.1.1-beta.470")
+    assert unknown.read_bytes() == b"never delete"
+
+
+def test_v2_build_script_guards_workspace_before_cleanup_and_reuses_verified_models():
+    ps = (ROOT / "build_windows.ps1").read_text(encoding="utf-8")
+    guard = ps.index("v211_build_workspace_guard.py")
+    venv = ps.index("& $python -m venv .venv-build")
+    cleanup = ps.index("Remove-Item build, dist, release")
+    assert guard < venv < cleanup
+    assert "function Ensure-VerifiedDownload" in ps
+    assert "Existing $Label SHA256 differs from the pinned model; refusing to overwrite" in ps
+    assert "Reusing existing verified $Label" in ps
+    assert ps.count("Invoke-WebRequest -Uri $Url -OutFile $Path") == 1
+    assert "Invoke-WebRequest -Uri $modelUrl -OutFile $modelPath" not in ps
+    assert "Invoke-WebRequest -Uri $gfpganUrl -OutFile $gfpganPath" not in ps
+    assert "Invoke-WebRequest -Uri $retinaUrl -OutFile $retinaPath" not in ps
