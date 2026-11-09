@@ -37,7 +37,7 @@ def test_lightweight_probe_uses_only_nvidia_smi_and_drops_raw_output(monkeypatch
         calls.append((executable, args, timeout))
         return {
             "available": True, "success": True, "status": "ok", "return_code": 0,
-            "stdout": "NVIDIA GeForce GTX 1660 Ti, 32.0.16.1742, 6144, 4096\\n",
+            "stdout": "NVIDIA GeForce GTX 1660 Ti, 32.0.16.1742, 6144, 4096\n",
             "stderr": "private raw diagnostic",
         }
     monkeypatch.setattr(diagnostic, "_find_tool", lambda _name: "nvidia-smi.exe")

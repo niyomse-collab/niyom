@@ -715,7 +715,7 @@ def test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_ru
     monkeypatch.setattr(
         runner,
         "make_processors",
-        lambda _commands, cancel_check=None, execution_records=None: processors,
+        lambda _commands, cancel_check=None, pre_launch_check=None, execution_records=None: processors,
     )
 
     streamed_prepare_calls = []
