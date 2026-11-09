@@ -327,3 +327,26 @@ def test_v2_build_script_guards_workspace_before_cleanup_and_reuses_verified_mod
     assert "Invoke-WebRequest -Uri $gfpganUrl -OutFile $gfpganPath" not in ps
     assert "Invoke-WebRequest -Uri $retinaUrl -OutFile $retinaPath" not in ps
     assert ps.index("Normalize the legacy V2 default") < guard
+
+
+
+def test_v211_verified_download_retries_only_transient_errors_and_publishes_atomically():
+    ps = (ROOT / "build_windows.ps1").read_text(encoding="utf-8")
+    assert "if (-not $experimentalV211)" in ps
+    assert "$maxAttempts = 5" in ps
+    assert "Invoke-WebRequest -Uri $Url -OutFile $temporaryPath -TimeoutSec 90" in ps
+    assert "$statusCode -in @(408, 425, 429, 500, 502, 503, 504)" in ps
+    assert "[System.IO.File]::Move($temporaryPath, $Path)" in ps
+    assert "Start-Sleep -Seconds $delaySeconds" in ps
+    assert "Download retries exhausted for $Label." in ps
+    # V1 and stable V2 keep their legacy direct-download path unchanged.
+    assert ps.count("Invoke-WebRequest -Uri $Url -OutFile $Path") == 1
+
+
+def test_cli_smoke_classifies_provisioning_block_without_fabricating_engine_reports():
+    workflow = (ROOT / ".github" / "workflows" /
+                "v211-four-engine-real-cli-smoke.yml").read_text(encoding="utf-8")
+    assert "id: provision" in workflow
+    assert "steps.provision.outcome == 'success'" in workflow
+    assert "PROVISIONING_BLOCKED: official archives were not verified" in workflow
+    assert "native inference was not attempted" in workflow
