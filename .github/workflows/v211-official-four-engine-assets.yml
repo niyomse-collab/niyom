@@ -30,7 +30,7 @@ jobs:
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.ref == 'work/v211-four-engine-v2-bridge-20261103'
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
