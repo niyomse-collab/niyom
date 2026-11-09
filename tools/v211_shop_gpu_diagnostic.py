@@ -791,9 +791,17 @@ def _run_bridge_integration_case(
                 else None
             )
         binding = result.get("device_binding") or {}
+        if not isinstance(binding, dict):
+            binding = {}
         binding_configured = binding.get("binding_configured") is True
-        source_unchanged = _file_sha256(source) == source_hash_before
-        baseline_unchanged = _file_sha256(baseline) == baseline_hash_before
+        try:
+            source_unchanged = _file_sha256(source) == source_hash_before
+        except OSError:
+            source_unchanged = False
+        try:
+            baseline_unchanged = _file_sha256(baseline) == baseline_hash_before
+        except OSError:
+            baseline_unchanged = False
         all_prelaunch_passed = all(item["passed"] for item in prelaunch.values())
         all_effects_verified = all(effects.values())
         completed_count = result.get("completed_engine_count", 0)
@@ -1055,7 +1063,10 @@ def run_diagnostic(
         "cases": cases,
         "bridge_integration": bridge_integration,
         "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host": bool(
-            bridge_integration.get("passed") and gpu_ready and device_binding_applied
+            bridge_integration.get("passed")
+            and all_four
+            and gpu_ready
+            and device_binding_applied
         ),
         "all_four_native_cli_outputs_validated_on_both_synthetic_cases": all_four,
         "gtx_1660_ti_and_vulkan_environment_detected": gpu_ready,
