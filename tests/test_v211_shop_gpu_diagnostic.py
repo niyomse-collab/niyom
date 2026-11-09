@@ -956,7 +956,7 @@ def test_manual_shop_gpu_evidence_workflow_is_self_hosted_and_fail_closed():
     assert "pre_launch_vram_checks_passed" in workflow
     assert "customer_artwork_used" in workflow
     assert "quality_improvement_verified" in workflow
-    assert "runtime physical-adapter telemetry" in workflow
+    assert "Runtime physical-adapter telemetry" in workflow
 
     upload_block = workflow.split("path: |", 1)[1].split("if-no-files-found:", 1)[0]
     assert "build_identity.json" in upload_block
