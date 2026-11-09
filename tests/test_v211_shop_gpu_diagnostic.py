@@ -441,6 +441,16 @@ def test_full_bridge_fusion_integration_requires_all_four_pixel_effects_and_v2_s
     assert all(bridge["output_metadata"].values())
     assert report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"]
     assert bridge["runtime_device_use_verified"] is False
+    assert all(
+        value is False
+        for value in bridge["per_engine_runtime_device_use_verified"].values()
+    )
+    assert report["runtime_device_use_verified"] is False
+    assert all(
+        value is False
+        for value in report["per_engine_runtime_device_use_verified"].values()
+    )
+    assert report["shop_gpu_acceptance_passed"] is False
     assert bridge["quality_certified"] is False
     assert bridge["images_retained"] is False
     payload = json.dumps(report)
@@ -561,6 +571,12 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
     assert report["device_binding"]["anime4k"]["backend"] == "cuda"
     assert all(item["both_cases_pass"] for item in report["engine_matrix"].values())
     assert report["quality_improvement_verified"] is False
+    assert report["runtime_device_use_verified"] is False
+    assert report["shop_gpu_acceptance_passed"] is False
+    assert all(
+        value is False
+        for value in report["per_engine_runtime_device_use_verified"].values()
+    )
     assert report["customer_artwork_used"] is False
     assert report["network_accessed"] is False
     assert report["uploads_performed"] is False
@@ -644,22 +660,24 @@ def test_gpu_readiness_accepts_native_loader_inventory_without_vulkaninfo(
     assert report["gtx_1660_ti_and_vulkan_environment_detected"] is True
 
 
-@pytest.mark.parametrize(("target_gpu_ready", "expected_exit"), [(False, 1), (True, 0)])
-def test_cli_exit_code_requires_target_gpu_readiness(
-    monkeypatch, tmp_path, target_gpu_ready, expected_exit
+@pytest.mark.parametrize(
+    ("target_gpu_ready", "runtime_device_use_verified", "expected_exit"),
+    [(False, False, 1), (True, False, 1), (True, True, 0)],
+)
+def test_cli_exit_code_requires_runtime_gpu_acceptance(
+    monkeypatch, tmp_path, target_gpu_ready, runtime_device_use_verified, expected_exit
 ):
     report = {
-        "all_four_native_cli_outputs_validated_on_both_synthetic_cases": True,
-        "four_engine_cli_passed_on_gtx1660ti_vulkan_host": target_gpu_ready,
-        "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host": target_gpu_ready,
+        "shop_gpu_acceptance_passed": bool(
+            target_gpu_ready and runtime_device_use_verified
+        ),
     }
     calls = []
 
     def fake_run(manifest, output_dir, *, timeout_seconds, integration_runner):
         calls.append((manifest, output_dir, timeout_seconds, callable(integration_runner)))
         return {
-            "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host":
-                report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"]
+            "shop_gpu_acceptance_passed": report["shop_gpu_acceptance_passed"]
         }
 
     monkeypatch.setattr(diagnostic, "run_diagnostic", fake_run)
@@ -683,7 +701,7 @@ def test_windowed_frozen_diagnostic_does_not_require_stdout(monkeypatch, tmp_pat
     def fake_run(manifest, output_dir, *, timeout_seconds, integration_runner):
         calls.append((manifest, output_dir, timeout_seconds, callable(integration_runner)))
         return {
-            "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host": True
+            "shop_gpu_acceptance_passed": True
         }
 
     monkeypatch.setattr(diagnostic, "run_diagnostic", fake_run)

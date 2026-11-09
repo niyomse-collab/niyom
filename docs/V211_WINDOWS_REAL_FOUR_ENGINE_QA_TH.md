@@ -228,11 +228,13 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "ไม่พบ�
 
 รายงานเปลี่ยนเป็น schema 5 และเพิ่ม bridge_integration กับ four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host.
 
-**Exit code 0** จะเกิดเมื่อ Native CLI ทั้งสี่ผ่าน RGB/RGBA และ Full Bridge/Fusion RGBA ผ่านครบสี่ pixel contributions, metadata, V2-preservation, device binding และ per-process VRAM checks บนเครื่องที่ตรวจพบ GTX 1660 Ti + Vulkan เท่านั้น หาก Engine ใดไม่เปลี่ยนพิกเซลจริง หรือ Fusion ไม่ผ่าน ระบบจะคืน exit code 1 และยังคง V2 เดิม
+**Exit code 0** จะเกิดได้ต่อเมื่อ Native CLI ทั้งสี่ผ่าน RGB/RGBA, Full Bridge/Fusion RGBA ผ่าน metadata/V2-preservation/VRAM checks และมี per-process physical-adapter telemetry ยืนยันว่า Native Process ทั้งสี่ใช้ GTX 1660 Ti ที่เลือกจริงเท่านั้น
+
+**สถานะปัจจุบัน: ยังไม่ผ่าน Runtime GPU Acceptance.** Diagnostic ปัจจุบันตั้ง `runtime_device_use_verified=false` และ `per_engine_runtime_device_use_verified=false` ครบทั้งสี่โดยเจตนา เพราะยังไม่มี telemetry ที่พิสูจน์การใช้ physical adapter ของแต่ละ process ดังนั้นแม้ CLI/Fusion/Device Binding จะผ่าน ก็ต้องคืน exit code 1 และคง V2 เดิมไว้ รายงาน JSON ยังถูกสร้างเพื่อใช้ตรวจสอบขั้นตอนที่ผ่านและจุดที่ขาด
 
 การตรวจนี้เพิ่ม Native Process อีก 4 ครั้งจากเดิม 8 ครั้ง; ค่า timeout เริ่มต้น 180 วินาทีต่อ Process จึงอาจใช้เวลาหลายนาทีตามเครื่องและโมเดล
 
-**ข้อจำกัดยังเหมือนเดิม:** device_binding_configured และการผ่าน Native CLI ไม่ใช่ telemetry ยืนยันว่าแต่ละ Process ใช้ physical adapter ที่เลือกจริง; runtime_device_use_verified, quality_improvement_verified, visual_quality_certified และ print_quality_certified ยังคงเป็น false. การทดสอบนี้เป็น Synthetic End-to-end Integration QA ไม่ใช่ A/B ภาพคน/สัตว์/งานป้ายจริง และไม่รับรองคุณภาพเหนือ V2.
+เมื่อเพิ่ม telemetry จริงแล้ว ต้องทดสอบทั้งกรณีพบ process บน GTX 1660 Ti และกรณีไม่พบ/อ่านไม่ได้ โดยกรณีหลังต้อง fail-closed. แม้ Runtime GPU Acceptance ผ่าน ก็ยังไม่ใช่ A/B ภาพคน/สัตว์/งานป้ายจริง และไม่รับรองคุณภาพเหนือ V2; `quality_improvement_verified`, `visual_quality_certified` และ `print_quality_certified` ยังคงเป็น false.
 
 
 ## GitHub Actions: shop-PC GPU evidence (optional)
@@ -246,4 +248,4 @@ The manual evidence workflow is prepared as a **self-hosted-only, post-merge wor
 - The uploaded artifact contains only `build_identity.json` and `shop_gpu_diagnostic.json`. Synthetic images, native executables, model weights, ZIP archives and customer artwork are not uploaded.
 - If a self-hosted runner is not registered, use the one-command local PowerShell diagnostic above instead; do not dispatch this job to a GitHub-hosted runner.
 
-Even a passing report validates native CLI output, explicit device-index configuration, the end-to-end QA fusion and per-process VRAM preflight only. It still reports physical adapter use as unverified and never certifies visual improvement, face identity or print quality.
+The workflow additionally requires top-level and per-engine `runtime_device_use_verified=true` plus `shop_gpu_acceptance_passed=true`. The current diagnostic deliberately reports these as false until reliable per-process physical-adapter telemetry is implemented, so the shop evidence gate must fail closed even when CLI output, configured indexes and fusion pass. No synthetic report certifies visual improvement, face identity or print quality.

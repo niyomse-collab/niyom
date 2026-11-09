@@ -49,3 +49,8 @@ def test_synthetic_shop_gpu_evidence_never_certifies_visual_or_print_quality():
     assert "network_accessed -ne $false" in workflow
     assert "uploads_performed -ne $false" in workflow
     assert "images_retained -ne $false" in workflow
+    assert "'runtime_device_use_verified'" in workflow
+    assert "'shop_gpu_acceptance_passed'" in workflow
+    assert "per_engine_runtime_device_use_verified" in workflow
+    assert "$engineEvidence.Value -ne $true" in workflow
+    assert "bridge_integration.runtime_device_use_verified -ne $true" in workflow

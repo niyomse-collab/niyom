@@ -838,6 +838,9 @@ def _run_bridge_integration_case(
             "pre_launch_vram": prelaunch,
             "pre_launch_vram_checks_passed": all_prelaunch_passed,
             "runtime_device_use_verified": False,
+            "per_engine_runtime_device_use_verified": {
+                name: False for name in ENGINES
+            },
             "quality_certified": False,
             "print_quality_certified": False,
             "customer_artwork_used": False,
@@ -1015,6 +1018,17 @@ def run_diagnostic(
         and gpu.get("vram_budget_6gb_detected")
     )
     device_binding_applied = bool(bind_devices and device_binding and binding_error is None)
+    runtime_by_engine = bridge_integration.get("per_engine_runtime_device_use_verified")
+    if not isinstance(runtime_by_engine, dict):
+        runtime_by_engine = {name: False for name in ENGINES}
+    else:
+        runtime_by_engine = {
+            name: runtime_by_engine.get(name) is True for name in ENGINES
+        }
+    runtime_device_use_verified = bool(
+        bridge_integration.get("runtime_device_use_verified") is True
+        and all(runtime_by_engine.values())
+    )
     report = {
         "schema_version": 5,
         "created_utc": datetime.now(timezone.utc).isoformat(),
@@ -1063,6 +1077,15 @@ def run_diagnostic(
         "anime4k_cli_outputs_validated_on_both_synthetic_cases": anime4k_cli_pass,
         "cases": cases,
         "bridge_integration": bridge_integration,
+        "runtime_device_use_verified": runtime_device_use_verified,
+        "per_engine_runtime_device_use_verified": runtime_by_engine,
+        "shop_gpu_acceptance_passed": bool(
+            bridge_integration.get("passed")
+            and all_four
+            and gpu_ready
+            and device_binding_applied
+            and runtime_device_use_verified
+        ),
         "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host": bool(
             bridge_integration.get("passed")
             and all_four
@@ -1090,7 +1113,8 @@ def run_diagnostic(
             "It does not prove visual improvement, face identity, CMYK/RIP quality or print acceptance.",
             "Shop GPU readiness requires GTX 1660 Ti visibility in NVIDIA-SMI and Vulkan physical-device inventory (from vulkaninfo or direct loader enumeration), the Vulkan loader, and the expected 6 GiB VRAM budget; this still does not prove which adapter each CLI selected.",
             "When bind_devices is enabled, a private per-run manifest explicitly configures the unique Vulkan index with -g for all three NCNN engines and the unique Anime4KCPP CUDA/OpenCL backend/device with -p/-d. The installed manifest is never modified.",
-            "Device binding proves the selected CLI arguments were configured from local inventories; runtime telemetry is still required before claiming that each native process actually used the selected adapter.",
+            "Device binding proves the selected CLI arguments were configured from local inventories; this diagnostic intentionally keeps runtime_device_use_verified false until per-process physical-adapter telemetry exists.",
+            "Shop GPU acceptance and a zero CLI exit code require positive runtime-adapter telemetry for all four native processes on the selected GTX 1660 Ti.",
             "The end-to-end bridge case runs the actual V2.1.1 bridge and four-engine fusion on a generated RGBA/ICC/300-DPI image; it checks four pixel contributions, per-process VRAM preflight records, exact V2-reference preservation and output metadata.",
             "A passing bridge case still does not prove which physical adapter each native process used or certify visual/print quality; compare real owner-approved images separately.",
         ],
@@ -1129,7 +1153,7 @@ def main(argv: list[str] | None = None) -> int:
     if sys.stdout is not None:
         print(json.dumps(report, indent=2, ensure_ascii=False))
         print("Report saved: " + str(output_dir / "shop_gpu_diagnostic.json"))
-    return 0 if report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"] else 1
+    return 0 if report.get("shop_gpu_acceptance_passed") is True else 1
 
 
 if __name__ == "__main__":

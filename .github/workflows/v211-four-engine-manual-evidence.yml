@@ -98,10 +98,22 @@ jobs:
             'manifest_preflight_passed',
             'device_binding_applied',
             'all_four_native_cli_outputs_validated_on_both_synthetic_cases',
-            'four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host'
+            'four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host',
+            'runtime_device_use_verified',
+            'shop_gpu_acceptance_passed'
           )
           foreach ($field in $requiredTrue) {
             if ($report.$field -ne $true) { throw ('Required QA field did not pass: ' + $field) }
+          }
+          $perEngine = $report.per_engine_runtime_device_use_verified
+          foreach ($engine in @('real_esrgan', 'waifu2x', 'real_cugan', 'anime4k')) {
+            $engineEvidence = if ($null -ne $perEngine) { $perEngine.PSObject.Properties[$engine] } else { $null }
+            if ($null -eq $engineEvidence -or $engineEvidence.Value -ne $true) {
+              throw ('Physical adapter use is not verified for engine: ' + $engine)
+            }
+          }
+          if ($report.bridge_integration.runtime_device_use_verified -ne $true) {
+            throw 'End-to-end bridge did not verify runtime physical-adapter use.'
           }
           if ($report.customer_artwork_used -ne $false -or $report.network_accessed -ne $false -or $report.uploads_performed -ne $false -or $report.images_retained -ne $false) {
             throw 'Privacy invariant failed: customer imagery, network, upload or retained test images were reported.'
@@ -112,7 +124,7 @@ jobs:
           if ($report.bridge_integration.passed -ne $true -or $report.bridge_integration.device_binding_configured -ne $true -or $report.bridge_integration.pre_launch_vram_checks_passed -ne $true) {
             throw 'End-to-end bridge/fusion, device binding or per-process VRAM preflight did not pass.'
           }
-          Write-Warning 'PASS means native CLI outputs and configured device indexes passed on the shop host. Runtime physical-adapter telemetry and visual/print quality remain unverified.'
+          Write-Output 'PASS: all four native processes have per-engine physical-adapter telemetry on the selected GTX 1660 Ti. Synthetic evidence still does not certify visual or print quality.'
 
       - name: Upload JSON evidence only
         if: always()
