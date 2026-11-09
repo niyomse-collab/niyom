@@ -292,7 +292,7 @@ def test_official_archive_download_retries_transient_gateway_errors(tmp_path, mo
 
     def flaky_urlopen(request, timeout=90):
         calls.append((request.full_url, timeout))
-        if len(calls) == 1:
+        if len(calls) <= 3:
             raise urllib.error.HTTPError(
                 request.full_url, 504, "Gateway Time-out", None, io.BytesIO(b"retry")
             )
@@ -307,9 +307,38 @@ def test_official_archive_download_retries_transient_gateway_errors(tmp_path, mo
         "https://example.invalid/engine.zip", target, expected_sha256=digest
     )
 
-    assert len(calls) == 2
+    assert len(calls) == 4
     assert target.read_bytes() == payload
     assert result["release_digest_verified"] is True
+    assert list(tmp_path.glob(".*.part")) == []
+
+
+def test_official_archive_download_stops_after_bounded_transient_retries(tmp_path, monkeypatch):
+    import urllib.error
+
+    target = tmp_path / "engine.zip"
+    previous = b"previous verified archive"
+    target.write_bytes(previous)
+    calls = []
+
+    def unavailable_urlopen(request, timeout=90):
+        calls.append(request.full_url)
+        raise urllib.error.HTTPError(
+            request.full_url, 504, "Gateway Time-out", None, io.BytesIO(b"retry")
+        )
+
+    monkeypatch.setattr(assets.urllib.request, "urlopen", unavailable_urlopen)
+    monkeypatch.setattr(assets.time, "sleep", lambda _delay: None)
+
+    with pytest.raises(urllib.error.HTTPError):
+        assets.download_archive(
+            "https://example.invalid/engine.zip",
+            target,
+            expected_sha256="0" * 64,
+        )
+
+    assert len(calls) == 5
+    assert target.read_bytes() == previous
     assert list(tmp_path.glob(".*.part")) == []
 
 
