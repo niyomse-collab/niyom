@@ -930,3 +930,38 @@ def test_windows_candidate_smokes_frozen_diagnostic_dispatch_without_running_gpu
     assert "$process.ExitCode" in workflow
     assert "$LASTEXITCODE" not in workflow
     assert "Packaged diagnostic help failed with exit code" in workflow
+
+
+def test_manual_shop_gpu_evidence_workflow_is_self_hosted_and_fail_closed():
+    """Manual GPU evidence must run on the shop PC, never a hosted runner."""
+    root = Path(__file__).resolve().parents[1]
+    workflow = (
+        root / ".github" / "workflows" / "v211-four-engine-manual-evidence.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in workflow
+    assert "confirm_shop_gpu:" in workflow
+    assert "default: 'no'" in workflow
+    assert "inputs.confirm_shop_gpu == 'yes'" in workflow
+    assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" in workflow
+    assert "windows-latest" not in workflow
+    assert "V211_VERIFIED_MANIFEST" not in workflow
+    assert "V211_QA_SOURCE" not in workflow
+    assert "$env:LOCALAPPDATA" in workflow
+    assert "V211-FourAI-QA\\manifest.json" in workflow
+    assert "Source commit:" in workflow
+    assert "$env:GITHUB_SHA" in workflow
+    assert "--diagnose-v211-four-ai" in workflow
+    assert "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host" in workflow
+    assert "pre_launch_vram_checks_passed" in workflow
+    assert "customer_artwork_used" in workflow
+    assert "quality_improvement_verified" in workflow
+    assert "runtime physical-adapter telemetry" in workflow
+
+    upload_block = workflow.split("path: |", 1)[1].split("if-no-files-found:", 1)[0]
+    assert "build_identity.json" in upload_block
+    assert "shop_gpu_diagnostic.json" in upload_block
+    assert ".png" not in upload_block.lower()
+    assert ".zip" not in upload_block.lower()
+    assert ".bin" not in upload_block.lower()
+    assert ".pth" not in upload_block.lower()
