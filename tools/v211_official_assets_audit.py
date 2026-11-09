@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -226,7 +227,7 @@ def download_archive(
                 exc.close()
                 temporary.unlink(missing_ok=True)
                 time.sleep(delay)
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as exc:
                 if attempt + 1 >= max_attempts:
                     raise
                 temporary.unlink(missing_ok=True)
