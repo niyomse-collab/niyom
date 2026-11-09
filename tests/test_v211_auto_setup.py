@@ -159,6 +159,7 @@ def test_editor_offers_one_consent_for_all_four_without_direct_download_code():
                   "signprint_ai" / "app_v2.py").read_text(encoding="utf-8")
     assert "self.after(500, self._offer_v211_four_ai_setup)" in app_source
     assert "messagebox.askyesno(" in app_source
+    assert "default=messagebox.NO" in app_source
     assert "record_consent_declined()" in app_source
     assert "install_for_offline_use()" in app_source
     assert "four_ai_setup_done" in app_source
