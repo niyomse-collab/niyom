@@ -103,23 +103,80 @@ function Ensure-VerifiedDownload {
         return $existingHash
     }
 
-    try {
-        Invoke-WebRequest -Uri $Url -OutFile $Path
-        $actualHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actualHash -ne $ExpectedHash.ToLowerInvariant()) {
-            Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-            throw "Downloaded $Label SHA256 mismatch: $actualHash"
+    # Keep the legacy V1 and stable-V2 download path unchanged. The bounded
+    # retry/atomic-publish behavior below is scoped to the isolated V2.1.1
+    # experimental candidate only.
+    if (-not $experimentalV211) {
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $Path
+            $actualHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $ExpectedHash.ToLowerInvariant()) {
+                Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+                throw "Downloaded $Label SHA256 mismatch: $actualHash"
+            }
+            Write-Host "Downloaded and verified ${Label}: $actualHash"
+            return $actualHash
+        } catch {
+            if (Test-Path -LiteralPath $Path -PathType Leaf) {
+                Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+            }
+            throw
         }
-        Write-Host "Downloaded and verified ${Label}: $actualHash"
-        return $actualHash
-    } catch {
-        # Only a newly-created partial download can be removed here. Existing
-        # files are checked and rejected before entering this block.
-        if (Test-Path -LiteralPath $Path -PathType Leaf) {
-            Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-        }
-        throw
     }
+
+    # V2.1.1 only: retry transient gateway/network failures into a same-folder
+    # temporary file, verify SHA256, then atomically publish. Existing files
+    # are never truncated or replaced by a partial/invalid download.
+    $maxAttempts = 5
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $temporaryPath = Join-Path $parent (
+            "." + [System.IO.Path]::GetFileName($Path) + "." +
+            [guid]::NewGuid().ToString("N") + ".part"
+        )
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $temporaryPath -TimeoutSec 90
+            if (-not (Test-Path -LiteralPath $temporaryPath -PathType Leaf)) {
+                throw "Download did not create a regular temporary file for $Label."
+            }
+            $actualHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $ExpectedHash.ToLowerInvariant()) {
+                throw "Downloaded $Label SHA256 mismatch: $actualHash"
+            }
+            if (Test-Path -LiteralPath $Path) {
+                throw "Destination appeared during $Label download; refusing to overwrite it."
+            }
+            [System.IO.File]::Move($temporaryPath, $Path)
+            Write-Host "Downloaded and verified ${Label}: $actualHash"
+            return $actualHash
+        } catch {
+            $downloadError = $_
+            if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+                Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+            }
+            $statusCode = 0
+            try { $statusCode = [int]$downloadError.Exception.Response.StatusCode } catch { }
+            $webException = $downloadError.Exception -as [System.Net.WebException]
+            $transientNetwork = $false
+            if ($null -ne $webException) {
+                $transientNetwork = $webException.Status -in @(
+                    [System.Net.WebExceptionStatus]::Timeout,
+                    [System.Net.WebExceptionStatus]::ConnectFailure,
+                    [System.Net.WebExceptionStatus]::ReceiveFailure,
+                    [System.Net.WebExceptionStatus]::ConnectionClosed
+                )
+            }
+            $transientHttp = $statusCode -in @(408, 425, 429, 500, 502, 503, 504)
+            if (-not ($transientHttp -or $transientNetwork) -or $attempt -ge $maxAttempts) {
+                throw
+            }
+            $delaySeconds = [int][Math]::Min(2 * [Math]::Pow(2, $attempt - 1), 12)
+            Write-Warning ("Transient download failure for " + $Label +
+                " (HTTP " + $statusCode + "); retry " + ($attempt + 1) +
+                "/" + $maxAttempts + " in " + $delaySeconds + " seconds.")
+            Start-Sleep -Seconds $delaySeconds
+        }
+    }
+    throw "Download retries exhausted for $Label."
 }
 
 & $py -m pip install --upgrade pip
