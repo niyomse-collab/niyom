@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import tempfile
+import time
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -161,6 +163,7 @@ def download_archive(
 ) -> dict:
     """Download, verify and audit an archive before atomically publishing it.
 
+    Transient upstream gateway/rate-limit failures receive bounded retries.
     Bytes are streamed to a same-directory temporary file. A failed network
     transfer, digest check or ZIP audit never truncates a previously verified
     archive at the target path. The temporary file is removed on every exit.
@@ -177,34 +180,60 @@ def download_archive(
     request = urllib.request.Request(
         url, headers={"User-Agent": "NiyomSilp-v211-asset-provenance-QA"}
     )
+    transient_http_codes = {408, 425, 429, 500, 502, 503, 504}
+    max_attempts = 4
     downloaded = 0
     try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            raw_length = getattr(response, "headers", {}).get("Content-Length")
-            expected_length = None
-            if raw_length:
+        for attempt in range(max_attempts):
+            downloaded = 0
+            try:
+                with urllib.request.urlopen(request, timeout=90) as response:
+                    raw_length = getattr(response, "headers", {}).get("Content-Length")
+                    expected_length = None
+                    if raw_length:
+                        try:
+                            expected_length = int(raw_length)
+                        except (TypeError, ValueError):
+                            raise ValueError("invalid archive Content-Length")
+                        if expected_length < 0 or expected_length > MAX_ARCHIVE_BYTES:
+                            raise ValueError("archive exceeds download limit")
+                    with temporary.open("wb") as out:
+                        while True:
+                            chunk = response.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            downloaded += len(chunk)
+                            if downloaded > MAX_ARCHIVE_BYTES:
+                                raise ValueError("archive exceeded download limit")
+                            out.write(chunk)
+                        out.flush()
+                        os.fsync(out.fileno())
+
+                if downloaded == 0:
+                    raise ValueError("empty official archive")
+                if expected_length is not None and downloaded != expected_length:
+                    raise ValueError("incomplete archive download")
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code not in transient_http_codes or attempt + 1 >= max_attempts:
+                    raise
+                retry_after = None
                 try:
-                    expected_length = int(raw_length)
-                except (TypeError, ValueError):
-                    raise ValueError("invalid archive Content-Length")
-                if expected_length < 0 or expected_length > MAX_ARCHIVE_BYTES:
-                    raise ValueError("archive exceeds download limit")
-            with temporary.open("wb") as out:
-                while True:
-                    chunk = response.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    downloaded += len(chunk)
-                    if downloaded > MAX_ARCHIVE_BYTES:
-                        raise ValueError("archive exceeded download limit")
-                    out.write(chunk)
-                out.flush()
-                os.fsync(out.fileno())
+                    retry_after = float(exc.headers.get("Retry-After", ""))
+                except (AttributeError, TypeError, ValueError):
+                    pass
+                delay = min(max(0.0, retry_after), 8.0) if retry_after is not None else min(2 ** attempt, 8)
+                exc.close()
+                temporary.unlink(missing_ok=True)
+                time.sleep(delay)
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                if attempt + 1 >= max_attempts:
+                    raise
+                temporary.unlink(missing_ok=True)
+                time.sleep(min(2 ** attempt, 8))
 
         if downloaded == 0:
             raise ValueError("empty official archive")
-        if expected_length is not None and downloaded != expected_length:
-            raise ValueError("incomplete archive download")
         if not zipfile.is_zipfile(temporary):
             raise ValueError("downloaded archive is not a ZIP archive")
 
@@ -218,7 +247,6 @@ def download_archive(
         return digest
     finally:
         temporary.unlink(missing_ok=True)
-
 
 def audit_official_releases(destination: Path, report_path: Path) -> dict:
     destination.mkdir(parents=True, exist_ok=True)
