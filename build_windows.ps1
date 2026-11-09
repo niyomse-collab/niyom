@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 # Normalize the legacy V2 default before validating the workspace.
+if ($Channel -eq "v2" -and $Version -eq "1.0.1") { $Version = "2.0.0-beta.1" }
 
 # Never clean or replace files from a previously built/approved V1 checkout.
 # V2 should be built in an independent clean workspace. Check BEFORE venv,
@@ -64,7 +65,6 @@ if ($LASTEXITCODE -ne 0) { throw "Could not create build venv" }
 
 $py = ".\.venv-build\Scripts\python.exe"
 
-if ($Channel -eq "v2" -and $Version -eq "1.0.1") { $Version = "2.0.0-beta.1" }
 $sourceCommit = (& git rev-parse HEAD).Trim()
 @{ channel = $Channel; version = $Version; source_commit = $sourceCommit } |
     ConvertTo-Json | Set-Content ".\build_info.json" -Encoding utf8
@@ -99,7 +99,7 @@ function Ensure-VerifiedDownload {
         if ($existingHash -ne $ExpectedHash.ToLowerInvariant()) {
             throw "Existing $Label SHA256 differs from the pinned model; refusing to overwrite the existing file."
         }
-        Write-Host "Reusing existing verified $Label: $existingHash"
+        Write-Host "Reusing existing verified ${Label}: $existingHash"
         return $existingHash
     }
 
@@ -110,7 +110,7 @@ function Ensure-VerifiedDownload {
             Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
             throw "Downloaded $Label SHA256 mismatch: $actualHash"
         }
-        Write-Host "Downloaded and verified $Label: $actualHash"
+        Write-Host "Downloaded and verified ${Label}: $actualHash"
         return $actualHash
     } catch {
         # Only a newly-created partial download can be removed here. Existing
