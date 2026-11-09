@@ -233,3 +233,17 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "ไม่พบ�
 การตรวจนี้เพิ่ม Native Process อีก 4 ครั้งจากเดิม 8 ครั้ง; ค่า timeout เริ่มต้น 180 วินาทีต่อ Process จึงอาจใช้เวลาหลายนาทีตามเครื่องและโมเดล
 
 **ข้อจำกัดยังเหมือนเดิม:** device_binding_configured และการผ่าน Native CLI ไม่ใช่ telemetry ยืนยันว่าแต่ละ Process ใช้ physical adapter ที่เลือกจริง; runtime_device_use_verified, quality_improvement_verified, visual_quality_certified และ print_quality_certified ยังคงเป็น false. การทดสอบนี้เป็น Synthetic End-to-end Integration QA ไม่ใช่ A/B ภาพคน/สัตว์/งานป้ายจริง และไม่รับรองคุณภาพเหนือ V2.
+
+
+## GitHub Actions: shop-PC GPU evidence (optional)
+
+The manual evidence workflow is now intentionally **self-hosted only**. It must not run on `windows-latest`, because a hosted runner cannot prove the shop GTX 1660 Ti Vulkan path.
+
+- Register a dedicated Windows 11 shop-PC runner in the repository's **Settings → Actions → Runners** and add the custom label `niyom-shop-gpu`. Use a dedicated Windows account with only the permissions needed for this QA; do not expose unrelated secrets to a self-hosted runner.
+- In that same Windows account, install the current V2.1.1 Experimental candidate whose installed `BUILD_PROOF.txt` source commit matches the PR #20 branch HEAD, and complete the one-time consented installation of all four verified engine packages.
+- Dispatch `V2.1.1 shop GPU evidence gate (manual, self-hosted)` from `work/v211-four-engine-v2-bridge-20261103` and explicitly choose `yes`. The default is `no`; the job is skipped unless the branch and confirmation both match.
+- The workflow resolves the per-user Inno Setup installation, checks the installed executable's build proof against the workflow commit, uses only `%LOCALAPPDATA%\\NiyomSilp\\V211-FourAI-QA\\manifest.json`, and invokes the packaged `--diagnose-v211-four-ai` command. It generates its own synthetic RGB/RGBA test inputs.
+- The uploaded artifact contains only `build_identity.json` and `shop_gpu_diagnostic.json`. Synthetic images, native executables, model weights, ZIP archives and customer artwork are not uploaded.
+- If a self-hosted runner is not registered, use the one-command local PowerShell diagnostic above instead; do not dispatch this job to a GitHub-hosted runner.
+
+Even a passing report validates native CLI output, explicit device-index configuration, the end-to-end QA fusion and per-process VRAM preflight only. It still reports physical adapter use as unverified and never certifies visual improvement, face identity or print quality.
