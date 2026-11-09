@@ -20,6 +20,7 @@ import re
 import shutil
 import subprocess
 import struct
+import sys
 import tempfile
 
 from PIL import Image, ImageCms, ImageDraw
@@ -1123,8 +1124,11 @@ def main(argv: list[str] | None = None) -> int:
         timeout_seconds=args.timeout_seconds,
         integration_runner=maybe_run_four_engine_assist,
     )
-    print(json.dumps(report, indent=2, ensure_ascii=False))
-    print("Report saved: " + str(output_dir / "shop_gpu_diagnostic.json"))
+    # The frozen installer is a windowed EXE; PyInstaller may set stdout=None.
+    # The JSON report is always written to disk, so console output is optional.
+    if sys.stdout is not None:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        print("Report saved: " + str(output_dir / "shop_gpu_diagnostic.json"))
     return 0 if report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"] else 1
 
 
