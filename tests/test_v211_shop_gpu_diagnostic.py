@@ -112,6 +112,49 @@ def _successful_runner(manifest, source, output, *, timeout_seconds):
     }
 
 
+
+def _successful_bridge_runner(source, baseline, *, use_ai, resize_mode):
+    assert use_ai is True
+    assert resize_mode == "stretch"
+    evidence = Path(os.environ["NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR"])
+    run_dir = evidence / "synthetic-bridge"
+    run_dir.mkdir(parents=True)
+    output = run_dir / "fused.png"
+    with Image.open(baseline) as image:
+        image.load()
+        metadata = {
+            key: image.info[key]
+            for key in ("icc_profile", "dpi")
+            if key in image.info
+        }
+        image.save(output, format="PNG", **metadata)
+    (run_dir / "four_engine_report.json").write_text(
+        json.dumps({
+            "engine_execution": {
+                name: {
+                    "process": {
+                        "pre_launch_vram_checks": 1,
+                        "pre_launch_vram_min_free_mib": 4096,
+                    }
+                }
+                for name in ENGINES
+            }
+        }),
+        encoding="utf-8",
+    )
+    return {
+        "status": "four_engine_fusion_preview_ready",
+        "completed_engine_count": 4,
+        "four_engine_fusion_output": str(output),
+        "fusion_implemented": True,
+        "all_four_engine_pixels_contributed": True,
+        "engine_pixel_effect_pixels": {name: 12 for name in ENGINES},
+        "engine_pixel_effect_verified": {name: True for name in ENGINES},
+        "device_binding": {"binding_configured": True},
+        "quality_certified": False,
+    }
+
+
 def test_anime4k_probe_reports_processors_and_devices_without_claiming_selection(
     tmp_path, monkeypatch
 ):
@@ -370,6 +413,100 @@ def test_synthetic_pngs_include_rgb_rgba_icc_and_300dpi(tmp_path):
         assert image.getchannel("A").getextrema()[0] == 0
 
 
+
+
+def test_full_bridge_fusion_integration_requires_all_four_pixel_effects_and_v2_safety(
+    tmp_path,
+):
+    manifest = _write_manifest(tmp_path / "manifest.json")
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu,
+        engine_runner=_successful_runner,
+        anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
+        integration_runner=_successful_bridge_runner,
+    )
+    bridge = report["bridge_integration"]
+    assert bridge["passed"] is True
+    assert bridge["case"] == "rgba_alpha_icc_dpi"
+    assert bridge["completed_engine_count"] == 4
+    assert bridge["fusion_implemented"] is True
+    assert bridge["all_four_engine_pixels_contributed"] is True
+    assert all(bridge["engine_pixel_effect_verified"].values())
+    assert all(bridge["pre_launch_vram_checks_passed"] for _ in [0])
+    assert bridge["v2_baseline_unchanged"] is True
+    assert bridge["source_unchanged"] is True
+    assert all(bridge["output_metadata"].values())
+    assert report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"]
+    assert bridge["runtime_device_use_verified"] is False
+    assert bridge["quality_certified"] is False
+    assert bridge["images_retained"] is False
+    payload = json.dumps(report)
+    assert str(tmp_path) not in payload
+
+
+def test_bridge_integration_fails_closed_when_anime4k_does_not_contribute(
+    tmp_path,
+):
+    manifest = _write_manifest(tmp_path / "manifest.json")
+
+    def missing_anime4k(source, baseline, *, use_ai, resize_mode):
+        result = _successful_bridge_runner(
+            source, baseline, use_ai=use_ai, resize_mode=resize_mode
+        )
+        result["status"] = "four_engine_fusion_contribution_incomplete"
+        result["all_four_engine_pixels_contributed"] = False
+        result["engine_pixel_effect_verified"]["anime4k"] = False
+        result["engine_pixel_effect_pixels"]["anime4k"] = 0
+        return result
+
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu,
+        engine_runner=_successful_runner,
+        anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
+        integration_runner=missing_anime4k,
+    )
+    assert report["bridge_integration"]["passed"] is False
+    assert report["bridge_integration"]["engine_pixel_effect_verified"]["anime4k"] is False
+    assert report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"] is False
+
+
+def test_bridge_integration_fails_if_accepted_v2_reference_changes(tmp_path):
+    manifest = _write_manifest(tmp_path / "manifest.json")
+
+    def mutates_baseline(source, baseline, *, use_ai, resize_mode):
+        result = _successful_bridge_runner(
+            source, baseline, use_ai=use_ai, resize_mode=resize_mode
+        )
+        with Image.open(baseline) as image:
+            image.load()
+            changed = image.copy()
+            changed.putpixel((0, 0), (0, 0, 0, 0))
+            metadata = {
+                key: image.info[key]
+                for key in ("icc_profile", "dpi")
+                if key in image.info
+            }
+        changed.save(baseline, format="PNG", **metadata)
+        changed.close()
+        return result
+
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu,
+        engine_runner=_successful_runner,
+        anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
+        integration_runner=mutates_baseline,
+    )
+    assert report["bridge_integration"]["v2_baseline_unchanged"] is False
+    assert report["bridge_integration"]["passed"] is False
+    assert report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"] is False
+
+
 def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
     manifest = _write_manifest(tmp_path / "manifest.json")
     report = diagnostic.run_diagnostic(
@@ -398,7 +535,7 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
     )
     assert saved["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert saved["anime4k_backend_inventory"]["status"] == "ok"
-    assert saved["schema_version"] == 4
+    assert saved["schema_version"] == 5
     assert saved["vulkaninfo_succeeded"] is True
     assert saved["vulkan_device_inventory_succeeded"] is True
     assert saved["vulkan_inventory_source"] == "vulkaninfo"
@@ -479,9 +616,12 @@ def test_cli_exit_code_requires_target_gpu_readiness(
     }
     calls = []
 
-    def fake_run(manifest, output_dir, *, timeout_seconds):
-        calls.append((manifest, output_dir, timeout_seconds))
-        return report
+    def fake_run(manifest, output_dir, *, timeout_seconds, integration_runner):
+        calls.append((manifest, output_dir, timeout_seconds, callable(integration_runner)))
+        return {
+            "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host":
+                report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"]
+        }
 
     monkeypatch.setattr(diagnostic, "run_diagnostic", fake_run)
     assert diagnostic.main([
@@ -493,6 +633,7 @@ def test_cli_exit_code_requires_target_gpu_readiness(
         tmp_path / "manifest.json",
         tmp_path / "report",
         123,
+        True,
     )]
 
 
