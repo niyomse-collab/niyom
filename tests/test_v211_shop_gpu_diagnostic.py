@@ -434,7 +434,7 @@ def test_full_bridge_fusion_integration_requires_all_four_pixel_effects_and_v2_s
     assert bridge["fusion_implemented"] is True
     assert bridge["all_four_engine_pixels_contributed"] is True
     assert all(bridge["engine_pixel_effect_verified"].values())
-    assert all(bridge["pre_launch_vram_checks_passed"] for _ in [0])
+    assert bridge["pre_launch_vram_checks_passed"] is True
     assert bridge["v2_baseline_unchanged"] is True
     assert bridge["source_unchanged"] is True
     assert all(bridge["output_metadata"].values())
