@@ -676,6 +676,32 @@ def test_cli_exit_code_requires_target_gpu_readiness(
     )]
 
 
+
+def test_windowed_frozen_diagnostic_does_not_require_stdout(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(manifest, output_dir, *, timeout_seconds, integration_runner):
+        calls.append((manifest, output_dir, timeout_seconds, callable(integration_runner)))
+        return {
+            "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host": True
+        }
+
+    monkeypatch.setattr(diagnostic, "run_diagnostic", fake_run)
+    monkeypatch.setattr(diagnostic.sys, "stdout", None)
+    assert diagnostic.main([
+        "--manifest", str(tmp_path / "manifest.json"),
+        "--output-dir", str(tmp_path / "report"),
+        "--timeout-seconds", "90",
+    ]) == 0
+    assert calls == [(
+        tmp_path / "manifest.json",
+        tmp_path / "report",
+        90,
+        True,
+    )]
+
+
+
 def test_cli_help_lists_all_supported_options(capsys):
     with pytest.raises(SystemExit) as exc:
         diagnostic.main(["--help"])
