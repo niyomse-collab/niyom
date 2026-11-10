@@ -561,6 +561,34 @@ def _read_local_report(path: Path) -> dict:
         return {}
 
 
+def _runtime_device_evidence_verified(flag: object, telemetry: object) -> bool:
+    """Validate the evidence fields instead of trusting a single PASS boolean."""
+    if flag is not True or not isinstance(telemetry, dict):
+        return False
+    process_count = telemetry.get("runtime_device_process_count")
+    verified_count = telemetry.get("runtime_device_verified_process_count")
+    sample_count = telemetry.get("runtime_device_sample_count")
+    adapter_index = telemetry.get("runtime_adapter_index")
+    adapter_name = telemetry.get("runtime_adapter_name")
+    backend_apis = telemetry.get("runtime_adapter_backend_apis")
+    return bool(
+        telemetry.get("runtime_device_all_processes_verified") is True
+        and telemetry.get("runtime_device_probe_status") == "verified"
+        and isinstance(process_count, int) and not isinstance(process_count, bool)
+        and process_count >= 1
+        and isinstance(verified_count, int) and not isinstance(verified_count, bool)
+        and verified_count == process_count
+        and isinstance(sample_count, int) and not isinstance(sample_count, bool)
+        and sample_count >= process_count
+        and isinstance(adapter_index, int) and not isinstance(adapter_index, bool)
+        and adapter_index >= 0
+        and isinstance(adapter_name, str)
+        and "gtx 1660 ti" in adapter_name.casefold()
+        and isinstance(backend_apis, list) and bool(backend_apis)
+        and all(item in ("graphics", "compute") for item in backend_apis)
+    )
+
+
 def _case_summary(value: dict) -> dict:
     engine_data = value.get("engines") or {}
     failures = value.get("failures") or {}
@@ -576,7 +604,10 @@ def _case_summary(value: dict) -> dict:
             "alpha_pixels_match_source": item.get("alpha_pixels_match_source", False),
             "icc_preserved": item.get("icc_preserved", False),
             "dpi_preserved": item.get("dpi_preserved", False),
-            "runtime_device_use_verified": item.get("runtime_device_use_verified") is True,
+            "runtime_device_use_verified": _runtime_device_evidence_verified(
+                item.get("runtime_device_use_verified"),
+                item.get("runtime_device_telemetry"),
+            ),
             "runtime_device_telemetry": (
                 item.get("runtime_device_telemetry")
                 if isinstance(item.get("runtime_device_telemetry"), dict) else {}
@@ -777,16 +808,20 @@ def _run_bridge_integration_case(
         runtime_process_evidence = {}
         for name in ENGINES:
             process = ((execution.get(name) or {}).get("process") or {})
-            runtime_by_engine[name] = process.get("runtime_device_use_verified") is True
             runtime_process_evidence[name] = {
-                "process_count": process.get("runtime_device_process_count", 0),
-                "verified_process_count": process.get("runtime_device_verified_process_count", 0),
-                "sample_count": process.get("runtime_device_sample_count", 0),
-                "probe_status": process.get("runtime_device_probe_status"),
-                "adapter_name": process.get("runtime_adapter_name"),
-                "adapter_index": process.get("runtime_adapter_index"),
-                "backend_apis": process.get("runtime_adapter_backend_apis", []),
+                "runtime_device_process_count": process.get("runtime_device_process_count", 0),
+                "runtime_device_verified_process_count": process.get("runtime_device_verified_process_count", 0),
+                "runtime_device_all_processes_verified": process.get("runtime_device_all_processes_verified") is True,
+                "runtime_device_sample_count": process.get("runtime_device_sample_count", 0),
+                "runtime_device_probe_status": process.get("runtime_device_probe_status"),
+                "runtime_adapter_name": process.get("runtime_adapter_name"),
+                "runtime_adapter_index": process.get("runtime_adapter_index"),
+                "runtime_adapter_backend_apis": process.get("runtime_adapter_backend_apis", []),
             }
+            runtime_by_engine[name] = _runtime_device_evidence_verified(
+                process.get("runtime_device_use_verified"),
+                runtime_process_evidence[name],
+            )
             checks = process.get("pre_launch_vram_checks", 0)
             minimum = process.get("pre_launch_vram_min_free_mib")
             if isinstance(checks, bool) or not isinstance(checks, int) or checks < 0:
@@ -841,13 +876,7 @@ def _run_bridge_integration_case(
             and binding_configured
             and all_prelaunch_passed
         )
-        runtime_verified = all(runtime_by_engine.values()) and all(
-            isinstance(runtime_process_evidence[name].get("process_count"), int)
-            and runtime_process_evidence[name]["process_count"] >= 1
-            and runtime_process_evidence[name].get("verified_process_count")
-                == runtime_process_evidence[name].get("process_count")
-            for name in ENGINES
-        )
+        runtime_verified = all(runtime_by_engine.values())
         return {
             "case": "rgba_alpha_icc_dpi",
             "status": str(result.get("status") or "unknown")[:80],
