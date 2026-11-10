@@ -69,3 +69,15 @@ def test_synthetic_shop_gpu_evidence_never_certifies_visual_or_print_quality():
     assert "0x[0-9a-fA-F]{8}_0x[0-9a-fA-F]{8}" in workflow
     assert "nvml_pid_plus_windows_gpu_engine_pdh" in workflow
     assert "bridge_integration.runtime_device_use_verified -ne $true" in workflow
+
+def test_premerge_push_gate_is_branch_scoped_and_candidate_pinned():
+    workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
+
+    assert "branches:\\n      - work/v211-four-engine-v2-bridge-20261103" in workflow
+    assert "'.github/workflows/v211-four-engine-manual-evidence.yml'" in workflow
+    assert "'docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md'" in workflow
+    assert r"\[shop-gpu-evidence\s+yes\s+candidate=([0-9a-fA-F]{40})\]" in workflow
+    assert "git cat-file -e" in workflow
+    assert "Candidate source SHA must be exactly 40 hexadecimal characters." in workflow
+    assert "$unexpectedFiles.Count -gt 0" in workflow
+    assert "Where-Object { $_ -ne 'docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md' }" in workflow
