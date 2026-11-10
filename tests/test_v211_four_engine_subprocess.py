@@ -179,3 +179,91 @@ def test_cancel_terminates_active_native_process_and_removes_partial_output(tmp_
     assert records["real_esrgan"]["status"] == "cancelled"
     assert records["real_esrgan"]["process_started"] is True
     assert not destination.exists()
+
+
+
+def test_runtime_adapter_probe_is_sampled_while_process_runs_and_recorded(tmp_path):
+    from PIL import Image
+
+    source = tmp_path / "source.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    script = (
+        "import pathlib,sys,time; "
+        "pathlib.Path(sys.argv[2]).write_bytes(pathlib.Path(sys.argv[1]).read_bytes()); "
+        "time.sleep(0.15)"
+    )
+    commands = {
+        engine: EngineCommand((sys.executable, "-c", script, "{input}", "{output}"))
+        for engine in ENGINES
+    }
+    calls = []
+
+    def verified_probe(pid, engine):
+        calls.append((pid, engine))
+        return {
+            "available": True,
+            "verified": True,
+            "status": "verified",
+            "adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+            "adapter_index": 0,
+            "backend_apis": ["graphics"],
+            "used_gpu_memory_bytes": 1024 * 1024,
+        }
+
+    records = {}
+    processor = make_processors(
+        commands,
+        execution_records=records,
+        runtime_device_probe=verified_probe,
+    )["real_esrgan"]
+    processor(source, tmp_path / "verified.png")
+
+    record = records["real_esrgan"]
+    assert calls
+    assert all(pid > 0 and engine == "real_esrgan" for pid, engine in calls)
+    assert record["runtime_device_use_verified"] is True
+    assert record["runtime_device_all_processes_verified"] is True
+    assert record["runtime_device_process_count"] == 1
+    assert record["runtime_device_verified_process_count"] == 1
+    assert record["runtime_device_sample_count"] >= 1
+    assert record["runtime_adapter_name"] == "NVIDIA GeForce GTX 1660 Ti"
+    assert record["runtime_adapter_index"] == 0
+    assert record["runtime_adapter_backend_apis"] == ["graphics"]
+
+
+def test_runtime_adapter_acceptance_fails_closed_when_any_tile_process_is_unverified(tmp_path):
+    from PIL import Image
+
+    source = tmp_path / "source.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    script = (
+        "import pathlib,sys; "
+        "pathlib.Path(sys.argv[2]).write_bytes(pathlib.Path(sys.argv[1]).read_bytes())"
+    )
+    commands = {
+        engine: EngineCommand((sys.executable, "-c", script, "{input}", "{output}"))
+        for engine in ENGINES
+    }
+    probe_results = iter([
+        {"verified": True, "status": "verified", "adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+         "adapter_index": 0, "backend_apis": ["compute"]},
+        {"verified": False, "status": "pid_not_observed"},
+    ])
+
+    def alternating_probe(pid, engine):
+        return next(probe_results)
+
+    records = {}
+    processor = make_processors(
+        commands,
+        execution_records=records,
+        runtime_device_probe=alternating_probe,
+    )["real_esrgan"]
+    processor(source, tmp_path / "first.png")
+    processor(source, tmp_path / "second.png")
+
+    record = records["real_esrgan"]
+    assert record["runtime_device_process_count"] == 2
+    assert record["runtime_device_verified_process_count"] == 1
+    assert record["runtime_device_all_processes_verified"] is False
+    assert record["runtime_device_use_verified"] is False
