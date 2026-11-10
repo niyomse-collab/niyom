@@ -113,18 +113,51 @@ def make_processors(
             previous_runtime_process_count = previous_record.get("runtime_device_process_count", 0)
             previous_runtime_verified_count = previous_record.get("runtime_device_verified_process_count", 0)
             previous_runtime_sample_count = previous_record.get("runtime_device_sample_count", 0)
+            previous_nvml_memory_count = previous_record.get(
+                "runtime_device_nvml_memory_verified_process_count", 0
+            )
+            previous_wddm_pdh_count = previous_record.get(
+                "runtime_device_wddm_pdh_verified_process_count", 0
+            )
+            previous_gpu_min_samples = previous_record.get("runtime_gpu_engine_min_sample_count")
+            previous_gpu_min_active = previous_record.get("runtime_gpu_engine_min_active_sample_count")
+            previous_gpu_max_utilization = previous_record.get("runtime_gpu_engine_max_utilization_percent")
             for value_name, value in (
                 ("runtime_device_process_count", previous_runtime_process_count),
                 ("runtime_device_verified_process_count", previous_runtime_verified_count),
                 ("runtime_device_sample_count", previous_runtime_sample_count),
+                ("runtime_device_nvml_memory_verified_process_count", previous_nvml_memory_count),
+                ("runtime_device_wddm_pdh_verified_process_count", previous_wddm_pdh_count),
             ):
                 if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                     if value_name == "runtime_device_process_count":
                         previous_runtime_process_count = 0
                     elif value_name == "runtime_device_verified_process_count":
                         previous_runtime_verified_count = 0
-                    else:
+                    elif value_name == "runtime_device_sample_count":
                         previous_runtime_sample_count = 0
+                    elif value_name == "runtime_device_nvml_memory_verified_process_count":
+                        previous_nvml_memory_count = 0
+                    else:
+                        previous_wddm_pdh_count = 0
+            if (
+                isinstance(previous_gpu_min_samples, bool)
+                or not isinstance(previous_gpu_min_samples, int)
+                or previous_gpu_min_samples < 2
+            ):
+                previous_gpu_min_samples = None
+            if (
+                isinstance(previous_gpu_min_active, bool)
+                or not isinstance(previous_gpu_min_active, int)
+                or previous_gpu_min_active < 1
+            ):
+                previous_gpu_min_active = None
+            if (
+                isinstance(previous_gpu_max_utilization, bool)
+                or not isinstance(previous_gpu_max_utilization, (int, float))
+                or previous_gpu_max_utilization <= 0
+            ):
+                previous_gpu_max_utilization = None
             previous_runtime_all_verified = previous_record.get(
                 "runtime_device_all_processes_verified",
                 previous_runtime_process_count == 0,
@@ -145,6 +178,17 @@ def make_processors(
                 "runtime_device_verified_process_count": previous_runtime_verified_count,
                 "runtime_device_all_processes_verified": previous_runtime_all_verified,
                 "runtime_device_sample_count": previous_runtime_sample_count,
+                "runtime_device_nvml_memory_verified_process_count": previous_nvml_memory_count,
+                "runtime_device_wddm_pdh_verified_process_count": previous_wddm_pdh_count,
+                "runtime_device_evidence_source": (
+                    "mixed" if previous_nvml_memory_count and previous_wddm_pdh_count
+                    else "nvml_process_memory" if previous_nvml_memory_count
+                    else "nvml_pid_plus_windows_gpu_engine_pdh" if previous_wddm_pdh_count
+                    else None
+                ),
+                "runtime_gpu_engine_min_sample_count": previous_gpu_min_samples,
+                "runtime_gpu_engine_min_active_sample_count": previous_gpu_min_active,
+                "runtime_gpu_engine_max_utilization_percent": previous_gpu_max_utilization,
                 "runtime_device_probe_status": (
                     "not_configured" if runtime_device_probe is None else "not_observed"
                 ),
@@ -160,9 +204,17 @@ def make_processors(
             runtime_verified_this_process = False
             runtime_probe_conflict = False
             runtime_sample_count_this_process = 0
+            runtime_evidence_source_this_process = None
+            runtime_gpu_engine_samples_this_process = 0
+            runtime_gpu_engine_active_this_process = 0
+            runtime_gpu_engine_max_this_process = 0.0
 
             def sample_runtime_device():
                 nonlocal runtime_verified_this_process, runtime_probe_conflict, runtime_sample_count_this_process
+                nonlocal runtime_evidence_source_this_process
+                nonlocal runtime_gpu_engine_samples_this_process
+                nonlocal runtime_gpu_engine_active_this_process
+                nonlocal runtime_gpu_engine_max_this_process
                 if runtime_device_probe is None:
                     return
                 pid = record.get("pid")
@@ -200,6 +252,30 @@ def make_processors(
                             str(item)[:24] for item in backend_apis[:4]
                             if isinstance(item, str)
                         ]
+                    evidence_source = evidence.get("evidence_source")
+                    if evidence_source in (
+                        "nvml_process_memory",
+                        "nvml_pid_plus_windows_gpu_engine_pdh",
+                    ):
+                        runtime_evidence_source_this_process = evidence_source
+                    gpu_samples = evidence.get("gpu_engine_sample_count")
+                    gpu_active = evidence.get("gpu_engine_active_sample_count")
+                    gpu_max = evidence.get("gpu_engine_max_utilization_percent")
+                    if (
+                        isinstance(gpu_samples, int) and not isinstance(gpu_samples, bool)
+                        and gpu_samples >= 2
+                    ):
+                        runtime_gpu_engine_samples_this_process = gpu_samples
+                    if (
+                        isinstance(gpu_active, int) and not isinstance(gpu_active, bool)
+                        and gpu_active >= 1
+                    ):
+                        runtime_gpu_engine_active_this_process = gpu_active
+                    if (
+                        isinstance(gpu_max, (int, float)) and not isinstance(gpu_max, bool)
+                        and gpu_max > 0
+                    ):
+                        runtime_gpu_engine_max_this_process = float(gpu_max)
                 elif status in (
                     "pid_seen_on_wrong_adapter",
                     "pid_seen_on_multiple_adapters",
@@ -429,6 +505,35 @@ def make_processors(
                         record["runtime_device_process_count"] > 0
                         and all_runtime_processes_verified
                     )
+                    if runtime_verified_this_process:
+                        if runtime_evidence_source_this_process == "nvml_process_memory":
+                            record["runtime_device_nvml_memory_verified_process_count"] += 1
+                        elif runtime_evidence_source_this_process == "nvml_pid_plus_windows_gpu_engine_pdh":
+                            record["runtime_device_wddm_pdh_verified_process_count"] += 1
+                            old_min_samples = record.get("runtime_gpu_engine_min_sample_count")
+                            old_min_active = record.get("runtime_gpu_engine_min_active_sample_count")
+                            record["runtime_gpu_engine_min_sample_count"] = (
+                                runtime_gpu_engine_samples_this_process
+                                if old_min_samples is None
+                                else min(old_min_samples, runtime_gpu_engine_samples_this_process)
+                            )
+                            record["runtime_gpu_engine_min_active_sample_count"] = (
+                                runtime_gpu_engine_active_this_process
+                                if old_min_active is None
+                                else min(old_min_active, runtime_gpu_engine_active_this_process)
+                            )
+                            old_max = record.get("runtime_gpu_engine_max_utilization_percent")
+                            record["runtime_gpu_engine_max_utilization_percent"] = max(
+                                float(old_max or 0.0), runtime_gpu_engine_max_this_process
+                            )
+                    memory_count = record["runtime_device_nvml_memory_verified_process_count"]
+                    wddm_count = record["runtime_device_wddm_pdh_verified_process_count"]
+                    record["runtime_device_evidence_source"] = (
+                        "mixed" if memory_count and wddm_count
+                        else "nvml_process_memory" if memory_count
+                        else "nvml_pid_plus_windows_gpu_engine_pdh" if wddm_count
+                        else None
+                    )
                     if runtime_device_probe is None:
                         record["runtime_device_probe_status"] = "not_configured"
                     elif not runtime_verified_this_process and record.get(
@@ -438,6 +543,13 @@ def make_processors(
                 record["elapsed_ms_total"] = int(
                     (time.monotonic() - total_started) * 1000
                 )
+                if process_handle is not None and runtime_device_probe is not None:
+                    close_pid = getattr(runtime_device_probe, "close_pid", None)
+                    if callable(close_pid):
+                        try:
+                            close_pid(record.get("pid"))
+                        except Exception:
+                            pass
 
         processors[engine] = process
     return processors
