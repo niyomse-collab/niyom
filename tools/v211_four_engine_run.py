@@ -133,7 +133,8 @@ def _safe_execution_record(record: dict | None) -> dict | None:
         "runtime_device_use_verified", "runtime_device_process_count",
         "runtime_device_verified_process_count", "runtime_device_all_processes_verified",
         "runtime_device_sample_count", "runtime_device_probe_status",
-        "runtime_device_probe_error_type", "runtime_adapter_name",
+        "runtime_device_probe_error_type", "runtime_device_probe_conflict",
+        "runtime_adapter_name",
         "runtime_adapter_index", "runtime_adapter_backend_apis",
     )
     return {key: record[key] for key in allowed if key in record}
