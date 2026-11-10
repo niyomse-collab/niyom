@@ -17,6 +17,7 @@ import inspect
 from PIL import Image
 
 from tools.v211_four_engine_subprocess import ENGINES, make_processors
+from tools.v211_gpu_process_telemetry import NvmlProcessProbe
 
 NCNN_VULKAN_ENGINES = ("real_esrgan", "waifu2x", "real_cugan")
 from tools.v211_real_engine_manifest import load_real_engine_manifest
@@ -104,23 +105,33 @@ def _safe_process_record(value: dict | None) -> dict | None:
     allowed = (
         "status", "process_started", "pid", "exit_code",
         "process_elapsed_ms", "elapsed_ms_total", "failure_type",
+        "runtime_device_use_verified", "runtime_device_process_count",
+        "runtime_device_verified_process_count", "runtime_device_all_processes_verified",
+        "runtime_device_sample_count", "runtime_device_probe_status",
+        "runtime_device_probe_error_type", "runtime_adapter_name",
+        "runtime_adapter_index", "runtime_adapter_backend_apis",
     )
     return {key: value[key] for key in allowed if key in value}
 
 
-def _make_processors_with_telemetry(commands, execution_records: dict) -> dict:
-    """Pass telemetry to the production runner; tolerate legacy test doubles."""
+def _make_processors_with_telemetry(
+    commands, execution_records: dict, runtime_device_probe=None
+) -> dict:
+    """Pass lifecycle and NVML PID telemetry; tolerate legacy test doubles."""
     try:
         parameters = inspect.signature(make_processors).parameters
-        supports_records = (
-            "execution_records" in parameters
-            or any(item.kind == inspect.Parameter.VAR_KEYWORD for item in parameters.values())
+        accepts_kwargs = any(
+            item.kind == inspect.Parameter.VAR_KEYWORD
+            for item in parameters.values()
         )
+        kwargs = {}
+        if "execution_records" in parameters or accepts_kwargs:
+            kwargs["execution_records"] = execution_records
+        if "runtime_device_probe" in parameters or accepts_kwargs:
+            kwargs["runtime_device_probe"] = runtime_device_probe
+        return make_processors(commands, **kwargs)
     except (TypeError, ValueError):
-        supports_records = False
-    if supports_records:
-        return make_processors(commands, execution_records=execution_records)
-    return make_processors(commands)
+        return make_processors(commands)
 
 
 
@@ -131,6 +142,7 @@ def run(
     # Do not create output images or invoke any executable until all hashes pass.
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "real_inference_report.json"
+    runtime_probe = NvmlProcessProbe(target_name="gtx 1660 ti")
     try:
         commands = load_real_engine_manifest(manifest)
         if timeout_seconds is not None:
@@ -141,8 +153,11 @@ def run(
                 for name, command in commands.items()
             }
         process_telemetry = {}
-        processors = _make_processors_with_telemetry(commands, process_telemetry)
+        processors = _make_processors_with_telemetry(
+            commands, process_telemetry, runtime_device_probe=runtime_probe
+        )
     except Exception as exc:
+        runtime_probe.close()
         report_path.write_text(json.dumps({
             "real_inference_verified": False,
             "quality_improvement_verified": False,
@@ -180,6 +195,7 @@ def run(
             "failed_stage": "source_preflight",
             "failure_type": type(exc).__name__,
         })
+        runtime_probe.close()
         report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         raise
     # Always attempt all four independent executables. One missing Vulkan
@@ -218,7 +234,22 @@ def run(
                     "device_configuration": _configured_device_selection(
                         engine, commands.get(engine)
                     ) if isinstance(commands, dict) else None,
-                    "runtime_device_use_verified": False,
+                    "runtime_device_use_verified": bool(
+                        process_record and process_record.get("runtime_device_use_verified") is True
+                    ),
+                    "runtime_device_telemetry": {
+                        key: process_record.get(key)
+                        for key in (
+                            "runtime_device_probe_status",
+                            "runtime_device_process_count",
+                            "runtime_device_verified_process_count",
+                            "runtime_device_sample_count",
+                            "runtime_adapter_name",
+                            "runtime_adapter_index",
+                            "runtime_adapter_backend_apis",
+                        )
+                        if process_record and key in process_record
+                    },
                     "sha256": sha256(destination),
                     "size": list(image.size),
                     "mode": image.mode,
@@ -240,7 +271,22 @@ def run(
                 "device_configuration": _configured_device_selection(
                     engine, commands.get(engine)
                 ) if isinstance(commands, dict) else None,
-                "runtime_device_use_verified": False,
+                "runtime_device_use_verified": bool(
+                    process_telemetry.get(engine, {}).get("runtime_device_use_verified") is True
+                ),
+                "runtime_device_telemetry": {
+                    key: process_telemetry.get(engine, {}).get(key)
+                    for key in (
+                        "runtime_device_probe_status",
+                        "runtime_device_process_count",
+                        "runtime_device_verified_process_count",
+                        "runtime_device_sample_count",
+                        "runtime_adapter_name",
+                        "runtime_adapter_index",
+                        "runtime_adapter_backend_apis",
+                    )
+                    if key in process_telemetry.get(engine, {})
+                },
             }
             if retry_on_vulkan_host:
                 failure["retry_on_vulkan_capable_host"] = True
@@ -251,6 +297,20 @@ def run(
                 failure["synthetic_test_diagnostic"] = str(exc)[-600:]
             report["failures"][engine] = failure
     report["real_inference_verified"] = report["completed_engine_count"] == len(ENGINES)
+    report["per_engine_runtime_device_use_verified"] = {
+        name: bool(
+            (report.get("engines", {}).get(name) or {}).get("runtime_device_use_verified") is True
+        )
+        for name in ENGINES
+    }
+    report["runtime_device_use_verified"] = all(
+        report["per_engine_runtime_device_use_verified"].values()
+    )
+    report["execution_evidence_scope"] = (
+        "native process launch/exit, output invariants, and live NVML PID-to-adapter "
+        "visibility with non-zero GPU memory; this is not a visual-quality or print certification"
+    )
+    runtime_probe.close()
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return report
 
