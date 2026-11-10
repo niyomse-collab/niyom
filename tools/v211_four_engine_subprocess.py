@@ -147,6 +147,7 @@ def make_processors(
                 "runtime_device_probe_status": (
                     "not_configured" if runtime_device_probe is None else "not_observed"
                 ),
+                "runtime_device_probe_conflict": False,
             }
             if isinstance(previous_minimum, int) and not isinstance(previous_minimum, bool) and previous_minimum >= 0:
                 record["pre_launch_vram_min_free_mib"] = previous_minimum
@@ -156,6 +157,7 @@ def make_processors(
             process_started = None
             process_handle = None
             runtime_verified_this_process = False
+            runtime_probe_conflict = False
             runtime_sample_count_this_process = 0
 
             def sample_runtime_device():
@@ -177,11 +179,10 @@ def make_processors(
                 runtime_sample_count_this_process += 1
                 record["runtime_device_sample_count"] += 1
                 status = evidence.get("status")
-                record["runtime_device_probe_status"] = (
-                    status[:48] if isinstance(status, str) else "unclassified"
-                )
-                if evidence.get("verified") is True:
+                status = status[:48] if isinstance(status, str) else "unclassified"
+                if evidence.get("verified") is True and not runtime_probe_conflict:
                     runtime_verified_this_process = True
+                    record["runtime_device_probe_status"] = "verified"
                     record["runtime_adapter_name"] = str(
                         evidence.get("adapter_name") or ""
                     )[:160]
@@ -198,6 +199,18 @@ def make_processors(
                             str(item)[:24] for item in backend_apis[:4]
                             if isinstance(item, str)
                         ]
+                elif status in (
+                    "pid_seen_on_wrong_adapter",
+                    "pid_seen_on_multiple_adapters",
+                    "target_adapter_ambiguous",
+                    "target_adapter_missing",
+                ):
+                    runtime_probe_conflict = True
+                    runtime_verified_this_process = False
+                    record["runtime_device_probe_conflict"] = True
+                    record["runtime_device_probe_status"] = status
+                elif not runtime_verified_this_process:
+                    record["runtime_device_probe_status"] = status
 
             source = Path(source).resolve(strict=True)
             destination = Path(destination).resolve()
@@ -404,7 +417,9 @@ def make_processors(
                         previous_runtime_verified_count + int(runtime_verified_this_process)
                     )
                     all_runtime_processes_verified = (
-                        previous_runtime_all_verified and runtime_verified_this_process
+                        previous_runtime_all_verified
+                        and runtime_verified_this_process
+                        and not runtime_probe_conflict
                     )
                     record["runtime_device_all_processes_verified"] = (
                         all_runtime_processes_verified
