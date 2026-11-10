@@ -249,3 +249,15 @@ The manual evidence workflow is prepared as a **self-hosted-only, post-merge wor
 - If a self-hosted runner is not registered, use the one-command local PowerShell diagnostic above instead; do not dispatch this job to a GitHub-hosted runner.
 
 The workflow additionally requires top-level and per-engine `runtime_device_use_verified=true` plus `shop_gpu_acceptance_passed=true`. The current diagnostic deliberately reports these as false until reliable per-process physical-adapter telemetry is implemented, so the shop evidence gate must fail closed even when CLI output, configured indexes and fusion pass. No synthetic report certifies visual improvement, face identity or print quality.
+
+
+## 10 พฤศจิกายน 2569 — live NVML PID-to-adapter telemetry (fail-closed)
+
+- เพิ่ม `tools/v211_gpu_process_telemetry.py` ใช้ NVIDIA Management Library (NVML) อ่าน process lists ของทั้ง Graphics และ Compute ขณะ native child process ยังทำงาน โดยรองรับ process API v3 และ fallback v2/v1 เมื่อ symbol มีให้ใช้
+- Native subprocess sampler เรียก probe ทันทีหลัง launch และทุกช่วงไม่เกิน 50 ms ระหว่างรอ process; บันทึกเฉพาะสถานะ, จำนวน sample/process, adapter name/index และ API family ไม่บันทึก command line, local path, stdout/stderr หรือภาพ
+- การยืนยันต่อ process ต้องพบ PID เดียวกันใน NVML process list ของ GTX 1660 Ti ที่ระบุได้เพียงตัวเดียว และ NVML ต้องรายงาน GPU memory ของ PID นั้นมากกว่า 0; การพบ PID บน adapter อื่น, หลาย adapter, memory unavailable/zero, NVML API ใช้ไม่ได้ หรือ process จบก่อนถูก sample จะไม่ผ่าน
+- สำหรับงาน tiled ต้องยืนยันทุก native child process ของแต่ละ engine ไม่ใช่เพียง tile ใด tile หนึ่ง; process ที่ไม่มี telemetry จะทำให้ aggregate ของ engine นั้น fail-closed
+- Shop GPU acceptance รวมหลักฐานจาก synthetic RGB, RGBA และ end-to-end bridge/fusion run ทั้งสี่ engine; การตั้งค่า CLI `-g` หรือ `-p/-d` เพียงอย่างเดียวไม่ถือเป็น runtime evidence
+- ข้อจำกัด: NVML PID + non-zero memory เป็นหลักฐานว่า process มี GPU allocation บน adapter ที่รายงาน ไม่ใช่หลักฐานว่า GPU ทำทุก instruction หรือคุณภาพภาพดีขึ้น. WDDM/driver บางรุ่นอาจไม่เปิด process accounting หรือ inference สั้นเกินช่วง sample; กรณีเหล่านี้จะรายงาน unverified ไม่ลดเกณฑ์
+- เพิ่ม Regression สำหรับ target mismatch, adapter ambiguity, memory unavailable, PID ไม่ปรากฏ และ tiled child process ที่มีเพียงบาง process ผ่าน. Frozen spec และ Windows Candidate CI รวม module/test ใหม่แล้ว
+- ไม่มีการแก้ V1, V2 Stable, GFPGAN, accepted V2 output, installer model payload หรือ model weights; ไม่เพิ่ม network access และไม่อัปโหลดภาพ
