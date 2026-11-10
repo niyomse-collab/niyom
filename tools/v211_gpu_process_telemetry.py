@@ -8,7 +8,10 @@ Unavailable/unsupported NVML process accounting remains unverified.
 from __future__ import annotations
 
 import ctypes
+import math
 import os
+import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,30 @@ NVML_SUCCESS = 0
 NVML_ERROR_INSUFFICIENT_SIZE = 7
 NVML_ERROR_NOT_SUPPORTED = 3
 NVML_VALUE_NOT_AVAILABLE = (1 << 64) - 1
+
+PDH_SUCCESS = 0
+PDH_MORE_DATA = 0x800007D2
+PDH_FMT_DOUBLE = 0x00000200
+PDH_CSTATUS_VALID_DATA = 0
+PDH_CSTATUS_NEW_DATA = 1
+PERF_DETAIL_WIZARD = 400
+
+
+class _PdhValueUnion(ctypes.Union):
+    _fields_ = [
+        ("doubleValue", ctypes.c_double),
+        ("longValue", ctypes.c_long),
+        ("largeValue", ctypes.c_longlong),
+        ("ansiStringValue", ctypes.c_char_p),
+        ("wideStringValue", ctypes.c_wchar_p),
+    ]
+
+
+class _PdhFormattedCounterValue(ctypes.Structure):
+    _fields_ = [
+        ("CStatus", ctypes.c_uint),
+        ("value", _PdhValueUnion),
+    ]
 
 
 class _ProcessInfoV1(ctypes.Structure):
@@ -34,12 +61,35 @@ class _ProcessInfoV3(ctypes.Structure):
     ]
 
 
+def _valid_wddm_gpu_activity(pid: int, activity: object) -> bool:
+    """Validate a two-sample Windows GPU Engine activity observation."""
+    if not isinstance(activity, dict):
+        return False
+    samples = activity.get("sample_count")
+    active_samples = activity.get("active_sample_count")
+    counters = activity.get("counter_count")
+    observed_pid = activity.get("pid")
+    utilization = activity.get("max_utilization_percent")
+    return bool(
+        activity.get("available") is True
+        and activity.get("verified") is True
+        and activity.get("source") == "windows_gpu_engine_pdh"
+        and observed_pid == pid
+        and isinstance(samples, int) and not isinstance(samples, bool) and samples >= 2
+        and isinstance(active_samples, int) and not isinstance(active_samples, bool) and active_samples >= 1
+        and isinstance(counters, int) and not isinstance(counters, bool) and counters >= 1
+        and isinstance(utilization, (int, float)) and not isinstance(utilization, bool)
+        and math.isfinite(float(utilization)) and float(utilization) > 0.0
+    )
+
+
 def evaluate_pid_observations(
     pid: int,
     target_name: str,
     devices: list[dict[str, Any]],
     *,
     process_api_available: bool,
+    gpu_activity: object = None,
 ) -> dict[str, Any]:
     """Classify sampled NVML process lists without trusting caller booleans."""
     if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
@@ -112,18 +162,40 @@ def evaluate_pid_observations(
             "adapter_index": match["index"],
         }
     if not match["memory_values"]:
+        if _valid_wddm_gpu_activity(pid, gpu_activity):
+            return {
+                "available": True,
+                "verified": True,
+                "status": "verified",
+                "evidence_source": "nvml_pid_plus_windows_gpu_engine_pdh",
+                "adapter_name": match["name"],
+                "adapter_index": match["index"],
+                "backend_apis": sorted(match["apis"]),
+                "gpu_engine_sample_count": int(gpu_activity["sample_count"]),
+                "gpu_engine_active_sample_count": int(gpu_activity["active_sample_count"]),
+                "gpu_engine_max_utilization_percent": float(
+                    gpu_activity["max_utilization_percent"]
+                ),
+                "gpu_engine_counter_count": int(gpu_activity["counter_count"]),
+            }
         return {
             "available": True,
             "verified": False,
             "status": "gpu_memory_not_confirmed",
+            "evidence_source": "nvml_pid_memory_unavailable",
             "adapter_name": match["name"],
             "adapter_index": match["index"],
             "backend_apis": sorted(match["apis"]),
+            "gpu_activity_status": (
+                gpu_activity.get("status")
+                if isinstance(gpu_activity, dict) else "not_sampled"
+            ),
         }
     return {
         "available": True,
         "verified": True,
         "status": "verified",
+        "evidence_source": "nvml_process_memory",
         "adapter_name": match["name"],
         "adapter_index": match["index"],
         "backend_apis": sorted(match["apis"]),
@@ -140,6 +212,11 @@ class NvmlProcessProbe:
         self._initialized = False
         self._devices: list[dict[str, Any]] = []
         self._process_functions: dict[str, list[tuple[str, Any, type]]] = {}
+        self._pdh_library = None
+        self._pdh_functions: dict[str, Any] = {}
+        self._pdh_sessions: dict[int, dict[str, Any]] = {}
+        self._pdh_name_cache: dict[str, str] = {}
+        self._pdh_status = "not_initialized"
         self.status = "not_initialized"
         self._initialize()
 
@@ -317,11 +394,277 @@ class NvmlProcessProbe:
             pid, self.target_name, inventory,
             process_api_available=any_api_available,
         )
+        if (
+            os.name == "nt"
+            and result.get("status") == "gpu_memory_not_confirmed"
+            and result.get("evidence_source") == "nvml_pid_memory_unavailable"
+        ):
+            activity = self._sample_windows_gpu_engine_activity(pid)
+            if activity.get("verified") is True:
+                result = evaluate_pid_observations(
+                    pid, self.target_name, inventory,
+                    process_api_available=any_api_available,
+                    gpu_activity=activity,
+                )
+            else:
+                result["gpu_activity_status"] = str(activity.get("status") or "unavailable")[:64]
         if engine:
             result["engine"] = str(engine)[:32]
         return result
 
+    def _load_pdh(self):
+        if self._pdh_library is not None:
+            return self._pdh_library
+        if self._pdh_status not in ("not_initialized", "ready"):
+            return None
+        if os.name != "nt":
+            self._pdh_status = "windows_only"
+            return None
+        try:
+            loader = getattr(ctypes, "WinDLL", ctypes.CDLL)
+            library = loader("pdh.dll")
+            signatures = {
+                "PdhOpenQueryW": (
+                    [ctypes.c_wchar_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p)],
+                    ctypes.c_uint,
+                ),
+                "PdhCloseQuery": ([ctypes.c_void_p], ctypes.c_uint),
+                "PdhAddCounterW": (
+                    [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_size_t,
+                     ctypes.POINTER(ctypes.c_void_p)],
+                    ctypes.c_uint,
+                ),
+                "PdhCollectQueryData": ([ctypes.c_void_p], ctypes.c_uint),
+                "PdhGetFormattedCounterValue": (
+                    [ctypes.c_void_p, ctypes.c_uint, ctypes.POINTER(ctypes.c_uint),
+                     ctypes.POINTER(_PdhFormattedCounterValue)],
+                    ctypes.c_uint,
+                ),
+                "PdhEnumObjectItemsW": (
+                    [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
+                     ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_uint),
+                     ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_uint),
+                     ctypes.c_uint, ctypes.c_uint],
+                    ctypes.c_uint,
+                ),
+                "PdhLookupPerfNameByIndexW": (
+                    [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_wchar_p,
+                     ctypes.POINTER(ctypes.c_uint)],
+                    ctypes.c_uint,
+                ),
+            }
+            for name, (argtypes, restype) in signatures.items():
+                function = getattr(library, name)
+                function.argtypes = argtypes
+                function.restype = restype
+                self._pdh_functions[name] = function
+            self._pdh_library = library
+            self._pdh_status = "ready"
+            return library
+        except (AttributeError, OSError, TypeError):
+            self._pdh_status = "pdh_library_or_api_unavailable"
+            self._pdh_functions.clear()
+            return None
+
+    def _localized_pdh_name(self, english_name: str) -> str:
+        cached = self._pdh_name_cache.get(english_name)
+        if cached:
+            return cached
+        fallback = english_name
+        try:
+            import winreg
+            key_path = (
+                r"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Perflib\\009"
+            )
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE, key_path, 0,
+                winreg.KEY_READ | getattr(winreg, "KEY_WOW64_64KEY", 0),
+            ) as key:
+                pairs, _kind = winreg.QueryValueEx(key, "Counter")
+            index = None
+            for offset in range(0, len(pairs) - 1, 2):
+                if str(pairs[offset + 1]).casefold() == english_name.casefold():
+                    index = int(pairs[offset])
+                    break
+            if index is not None:
+                lookup = self._pdh_functions["PdhLookupPerfNameByIndexW"]
+                size = ctypes.c_uint(0)
+                status = int(lookup(None, index, None, ctypes.byref(size)))
+                if status in (PDH_MORE_DATA, PDH_SUCCESS) and size.value > 0:
+                    buffer = ctypes.create_unicode_buffer(size.value)
+                    status = int(lookup(None, index, buffer, ctypes.byref(size)))
+                    if status == PDH_SUCCESS and buffer.value:
+                        fallback = buffer.value
+        except (ImportError, OSError, ValueError, TypeError, KeyError):
+            pass
+        self._pdh_name_cache[english_name] = fallback
+        return fallback
+
+    def _enumerate_pdh_instances(self, object_name: str) -> list[str]:
+        enum_items = self._pdh_functions["PdhEnumObjectItemsW"]
+        counter_size = ctypes.c_uint(0)
+        instance_size = ctypes.c_uint(0)
+        status = int(enum_items(
+            None, None, object_name, None, ctypes.byref(counter_size),
+            None, ctypes.byref(instance_size), PERF_DETAIL_WIZARD, 0,
+        ))
+        if status not in (PDH_MORE_DATA, PDH_SUCCESS) or instance_size.value < 2:
+            return []
+        for _attempt in range(2):
+            counter_buffer = ctypes.create_unicode_buffer(max(1, counter_size.value))
+            instance_buffer = ctypes.create_unicode_buffer(max(1, instance_size.value))
+            status = int(enum_items(
+                None, None, object_name, counter_buffer, ctypes.byref(counter_size),
+                instance_buffer, ctypes.byref(instance_size), PERF_DETAIL_WIZARD, 0,
+            ))
+            if status == PDH_SUCCESS:
+                raw = ctypes.wstring_at(
+                    ctypes.addressof(instance_buffer), max(1, instance_size.value)
+                )
+                return [item for item in raw.split("\\0") if item]
+            if status != PDH_MORE_DATA:
+                return []
+        return []
+
+    @staticmethod
+    def _instance_matches_pid(instance: str, pid: int) -> bool:
+        match = re.search(r"(?:^|_)pid_(\\d+)(?:_|$)", str(instance), re.IGNORECASE)
+        return bool(match and int(match.group(1)) == pid)
+
+    def _create_pdh_session(self, pid: int) -> dict[str, Any] | None:
+        if self._load_pdh() is None:
+            return None
+        object_names = (
+            self._localized_pdh_name("GPU Engine"),
+            self._localized_pdh_name("GPU Process"),
+        )
+        counter_name = self._localized_pdh_name("Utilization Percentage")
+        paths = []
+        instances = []
+        for object_name in dict.fromkeys(object_names):
+            for instance in self._enumerate_pdh_instances(object_name):
+                if self._instance_matches_pid(instance, pid):
+                    paths.append(f"\\\\{object_name}({instance})\\\\{counter_name}")
+                    instances.append(instance)
+        if not paths:
+            return None
+        query = ctypes.c_void_p()
+        open_query = self._pdh_functions["PdhOpenQueryW"]
+        if int(open_query(None, 0, ctypes.byref(query))) != PDH_SUCCESS:
+            return None
+        counters = []
+        add_counter = self._pdh_functions["PdhAddCounterW"]
+        for path, instance in zip(paths, instances):
+            counter = ctypes.c_void_p()
+            if int(add_counter(query, path, 0, ctypes.byref(counter))) == PDH_SUCCESS:
+                counters.append((counter, instance))
+        if not counters:
+            self._pdh_functions["PdhCloseQuery"](query)
+            return None
+        collect = self._pdh_functions["PdhCollectQueryData"]
+        if int(collect(query)) != PDH_SUCCESS:
+            self._pdh_functions["PdhCloseQuery"](query)
+            return None
+        return {
+            "query": query,
+            "counters": counters,
+            "sample_count": 1,
+            "counter_count": len(counters),
+        }
+
+    def _sample_windows_gpu_engine_activity(self, pid: int) -> dict[str, Any]:
+        """Use WDDM GPU Engine counters when NVML exposes PID but not memory.
+
+        NVIDIA documents usedGpuMemory as NVML_VALUE_NOT_AVAILABLE under WDDM.
+        The fallback therefore requires both NVML's per-device PID attribution
+        and live per-process GPU Engine utilization observed over two PDH samples.
+        """
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+            return {"available": False, "verified": False, "status": "invalid_pid"}
+        session = self._pdh_sessions.get(pid)
+        if session is None:
+            session = self._create_pdh_session(pid)
+            if session is None:
+                return {
+                    "available": self._pdh_status == "ready",
+                    "verified": False,
+                    "status": (
+                        "pid_gpu_engine_counters_not_found"
+                        if self._pdh_status == "ready" else self._pdh_status
+                    ),
+                }
+            self._pdh_sessions[pid] = session
+            return {
+                "available": True,
+                "verified": False,
+                "status": "gpu_engine_sampling",
+                "source": "windows_gpu_engine_pdh",
+                "pid": pid,
+                "sample_count": 1,
+                "counter_count": session["counter_count"],
+                "active_sample_count": 0,
+                "max_utilization_percent": 0.0,
+            }
+        collect = self._pdh_functions["PdhCollectQueryData"]
+        if int(collect(session["query"])) != PDH_SUCCESS:
+            return {
+                "available": True, "verified": False,
+                "status": "gpu_engine_collect_failed",
+            }
+        session["sample_count"] += 1
+        get_value = self._pdh_functions["PdhGetFormattedCounterValue"]
+        maximum = 0.0
+        active = 0
+        for counter, _instance in session["counters"]:
+            value = _PdhFormattedCounterValue()
+            status = int(get_value(
+                counter, PDH_FMT_DOUBLE, None, ctypes.byref(value)
+            ))
+            if status != PDH_SUCCESS:
+                continue
+            if value.CStatus not in (PDH_CSTATUS_VALID_DATA, PDH_CSTATUS_NEW_DATA):
+                continue
+            utilization = float(value.value.doubleValue)
+            if math.isfinite(utilization) and utilization > 0.0:
+                active += 1
+                maximum = max(maximum, utilization)
+        if active:
+            return {
+                "available": True,
+                "verified": True,
+                "status": "gpu_engine_activity_observed",
+                "source": "windows_gpu_engine_pdh",
+                "pid": pid,
+                "sample_count": session["sample_count"],
+                "counter_count": session["counter_count"],
+                "active_sample_count": active,
+                "max_utilization_percent": maximum,
+            }
+        return {
+            "available": True,
+            "verified": False,
+            "status": "gpu_engine_activity_not_observed",
+            "source": "windows_gpu_engine_pdh",
+            "pid": pid,
+            "sample_count": session["sample_count"],
+            "counter_count": session["counter_count"],
+            "active_sample_count": 0,
+            "max_utilization_percent": 0.0,
+        }
+
+    def close_pid(self, pid: int | None) -> None:
+        if isinstance(pid, bool) or not isinstance(pid, int):
+            return
+        session = self._pdh_sessions.pop(pid, None)
+        if session is not None:
+            try:
+                self._pdh_functions["PdhCloseQuery"](session["query"])
+            except (KeyError, OSError, TypeError):
+                pass
+
     def close(self) -> None:
+        for pid in tuple(self._pdh_sessions):
+            self.close_pid(pid)
         if not self._initialized or self._library is None:
             return
         shutdown = self._function(self._library, ("nvmlShutdown",), [])
