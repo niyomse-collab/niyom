@@ -15,7 +15,7 @@ from tools.v211_four_engine_run import (
     run, _privacy_safe_report, _safe_error_summary,
 )
 from tools.v211_four_engine_coordinator import run_candidates
-from tools.v211_four_engine_subprocess import ENGINES
+from tools.v211_four_engine_subprocess import ENGINES, EngineCommand
 from tools import v211_four_engine_run as runner
 
 
@@ -566,9 +566,9 @@ def test_real_engine_runner_withholds_fusion_without_runtime_gpu_proof(
     Image.new("RGB", (16, 16), (20, 80, 120)).save(reference)
 
     commands = {
-        name: __import__(
-            "tools.v211_four_engine_subprocess", fromlist=["EngineCommand"]
-        ).EngineCommand(("fake-" + name,))
+        name: EngineCommand((
+            "fake-" + name, "-i", "{input}", "-o", "{output}",
+        ))
         for name in ENGINES
     }
     monkeypatch.setattr(runner, "load_real_engine_manifest", lambda _path: commands)

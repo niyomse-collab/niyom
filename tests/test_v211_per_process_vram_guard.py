@@ -154,6 +154,8 @@ def test_application_bridge_supplies_per_process_vram_guard(tmp_path, monkeypatc
             image.save(fused)
         return {
             "ready_for_fusion_research": True, "completed_engine_count": 4,
+            "runtime_device_use_verified": True,
+            "per_engine_runtime_device_use_verified": {name: True for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")},
             "failures": {},
             "four_engine_fusion": {
                 "fusion_implemented": True,

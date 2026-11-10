@@ -148,6 +148,8 @@ def test_custom_four_x_target_runs_native_two_x_on_half_target_seed(tmp_path, mo
         return {
             "ready_for_fusion_research": True,
             "completed_engine_count": 4,
+            "runtime_device_use_verified": True,
+            "per_engine_runtime_device_use_verified": {name: True for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")},
             "failures": {},
             "four_engine_fusion": {"fusion_implemented": True, "all_four_engine_pixels_contributed": True, "output": str(fusion)},
         }

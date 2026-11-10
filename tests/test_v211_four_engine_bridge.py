@@ -237,6 +237,8 @@ def test_rgb_tiff_v2_output_gets_local_png_qa_without_modifying_tiff(tmp_path, m
         return {
             "ready_for_fusion_research": True,
             "completed_engine_count": 4,
+            "runtime_device_use_verified": True,
+            "per_engine_runtime_device_use_verified": {name: True for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")},
             "failures": {},
             "four_engine_fusion": {"fusion_implemented": True, "all_four_engine_pixels_contributed": True, "output": str(fused)},
         }
@@ -267,6 +269,8 @@ def test_fusion_with_missing_engine_pixel_effect_is_not_reported_ready(tmp_path,
         return {
             "ready_for_fusion_research": True,
             "completed_engine_count": 4,
+            "runtime_device_use_verified": True,
+            "per_engine_runtime_device_use_verified": {name: True for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")},
             "failures": {},
             "four_engine_fusion": {
                 "fusion_implemented": True,
@@ -365,6 +369,8 @@ def test_late_cancel_after_sidecar_copy_removes_qa_file_and_keeps_v2(tmp_path, m
         return {
             "ready_for_fusion_research": True,
             "completed_engine_count": 4,
+            "runtime_device_use_verified": True,
+            "per_engine_runtime_device_use_verified": {name: True for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")},
             "failures": {},
             "four_engine_fusion": {
                 "fusion_implemented": True,

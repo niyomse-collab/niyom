@@ -66,6 +66,7 @@ def _gpu_runtime_unverified_result(result: dict) -> dict:
         "status": "gpu_runtime_unverified",
         "reason": "all_four_native_processes_must_be_verified_on_the_selected_gtx_1660_ti",
         "completed_engine_count": result.get("completed_engine_count", 0),
+        "four_engine_fusion_output": None,
         "runtime_device_use_verified": False,
         "per_engine_runtime_device_use_verified": per_engine,
         "device_binding": binding,
