@@ -1,4 +1,5 @@
 name: V2.1.1 actual engine CLI smoke on Windows (non-certifying)
+run-name: V2.1.1 native CLI smoke - ${{ github.sha }}
 # 2026-11-09: rerun the current official CLI smoke after manifest/device-binding hardening; hosted Vulkan limitations remain non-certifying.
 on:
   pull_request:
