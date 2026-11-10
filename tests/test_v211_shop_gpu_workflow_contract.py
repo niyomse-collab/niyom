@@ -37,7 +37,7 @@ def test_no_consent_path_is_a_successful_noop_without_shop_runner():
 
     sha_input = workflow.split("      candidate_source_sha:", 1)[1].split("\n\npermissions:", 1)[0]
     assert "required: false" in sha_input
-    assert "inputs.candidate_source_sha != ''" in workflow
+    assert "github.event.inputs.candidate_source_sha != ''" in workflow
     assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" in workflow
 
 
@@ -52,6 +52,18 @@ def test_hosted_consent_status_job_never_schedules_shop_hardware():
     assert "DISPATCH_CONFIRM" in status_job
     assert "DISPATCH_SOURCE_SHA" in status_job
 
+
+
+def test_hosted_consent_status_job_always_reports_without_shop_access():
+    workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
+    status_job = workflow.split("  gate-status:", 1)[1].split("  evidence:", 1)[0]
+
+    assert "if: github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103'" in status_job
+    assert "runs-on: ubuntu-latest" in status_job
+    assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" not in status_job
+    assert "No explicit consent marker; self-hosted shop GPU runner will not be scheduled." in status_job
+    assert "DISPATCH_CONFIRM" in status_job
+    assert "DISPATCH_SOURCE_SHA" in status_job
 
 def test_candidate_regression_includes_the_shop_gpu_workflow_contract():
     workflow = _read(".github/workflows/v211-four-engine-bridge-windows.yml")
