@@ -135,6 +135,12 @@ def _safe_execution_record(record: dict | None) -> dict | None:
         "runtime_device_verified_process_count", "runtime_device_all_processes_verified",
         "runtime_device_sample_count", "runtime_device_probe_status",
         "runtime_device_probe_error_type", "runtime_device_probe_conflict",
+        "runtime_device_evidence_source",
+        "runtime_device_nvml_memory_verified_process_count",
+        "runtime_device_wddm_pdh_verified_process_count",
+        "runtime_gpu_engine_min_sample_count",
+        "runtime_gpu_engine_min_active_sample_count",
+        "runtime_gpu_engine_max_utilization_percent",
         "runtime_adapter_name",
         "runtime_adapter_index", "runtime_adapter_backend_apis",
     )
@@ -432,7 +438,8 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         },
         "execution_evidence_scope": (
             "native process lifecycle and output validation; physical adapter use is "
-            "evidenced only by live NVML PID-to-adapter visibility with non-zero GPU memory; "
+            "evidenced by live NVML PID-to-adapter visibility plus either non-zero NVML "
+            "process memory or, under WDDM, matching per-process Windows GPU Engine activity; "
             "visual quality remains unverified"
         ),
         "engine_execution": {
