@@ -141,6 +141,8 @@ def _safe_execution_record(record: dict | None) -> dict | None:
         "runtime_gpu_engine_min_sample_count",
         "runtime_gpu_engine_min_active_sample_count",
         "runtime_gpu_engine_max_utilization_percent",
+        "runtime_gpu_engine_adapter_luid_match",
+        "runtime_gpu_engine_adapter_luid",
         "runtime_adapter_name",
         "runtime_adapter_index", "runtime_adapter_backend_apis",
     )
