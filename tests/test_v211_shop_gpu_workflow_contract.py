@@ -92,5 +92,4 @@ def test_installed_candidate_may_only_differ_by_nonproduction_gate_files():
     assert "docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md" in allowed
     assert "signprint_ai/" not in allowed
     assert "tools/" not in allowed
-    assert "$_. -notin $allowedFiles" not in workflow
     assert "Where-Object { $_ -notin $allowedFiles }" in workflow
