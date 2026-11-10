@@ -149,3 +149,17 @@ def test_fails_closed_when_nvml_process_accounting_is_unavailable():
 
     assert result["verified"] is False
     assert result["status"] == "process_api_unavailable"
+
+
+
+def test_frozen_candidate_and_windows_ci_include_runtime_telemetry():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    spec = (root / "NiyomsilV2ArmCore.spec").read_text(encoding="utf-8")
+    workflow = (
+        root / ".github" / "workflows" / "v211-four-engine-bridge-windows.yml"
+    ).read_text(encoding="utf-8")
+
+    assert '"tools.v211_gpu_process_telemetry"' in spec
+    assert "tests/test_v211_gpu_process_telemetry.py" in workflow
