@@ -12,8 +12,16 @@ def test_shop_gpu_evidence_requires_explicit_yes_and_dedicated_runner():
     workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
 
     assert "workflow_dispatch:" in workflow
+    assert "push:" in workflow
     assert "default: 'no'" in workflow
     assert "inputs.confirm_shop_gpu == 'yes'" in workflow
+    assert "candidate_source_sha:" in workflow
+    assert "inputs.candidate_source_sha != ''" in workflow
+    assert "contains(github.event.head_commit.message, '[shop-gpu-evidence yes candidate=')" in workflow
+    assert "git merge-base --is-ancestor" in workflow
+    assert "git diff --name-only" in workflow
+    assert "fetch-depth: 0" in workflow
+    assert "docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md" in workflow
     assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" in workflow
     assert "runs-on: windows-latest" not in workflow
 
