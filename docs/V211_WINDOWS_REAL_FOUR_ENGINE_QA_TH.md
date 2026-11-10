@@ -204,7 +204,7 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "ไม่พบ�
 
 - งาน PNG RGB/RGBA ที่เกิน 18 MP รองรับ source-to-V2 แบบ 2x หรือ 4x ผ่าน disk-backed seed/tile path เมื่อผ่าน pixel, row-buffer, disk-space และ minimum-tile checks.
 - ทั้ง 2x และ 4x ใช้ Native Engine 2x เพียงหนึ่ง pass บน seed ครึ่ง target; กรณี source-to-V2 4x seed จะมีขนาด 2x ของ source ก่อนเข้า Native 2x. ห้ามเรียกสิ่งนี้ว่า Native 4x หรือ multi-pass AI.
-- 8x, 3x, custom, anisotropic และ large non-PNG ยังใช้ V2-only. การเปิด 4x เป็นการขยาย orchestration route ที่ใช้ tile เดิม ไม่ได้ยืนยันว่า 6 GB VRAM, ความเร็ว, seam หรือคุณภาพภาพจริงผ่านแล้ว.
+- 3x, custom, anisotropic และ large non-PNG ยังใช้ V2-only. สำหรับ PNG RGB/RGBA งานใหญ่ 8x ถูกอนุญาตให้เข้า streamed seed/tiled candidate path ในเชิงวิจัย โดยสร้าง seed 4x แล้วให้ Native Engine ทำ 2x เพียงหนึ่ง pass (ไม่ใช่ Native 8x หรือ multi-pass). Regression `test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_runner` ใช้ fake processors เท่านั้น; fixture 8x ปัจจุบันตั้งใจ fail-closed ที่ Anime4K contribution gate และไม่เผยแพร่ QA sidecar. จึงยังไม่ถือว่า 8x ได้ภาพ Fusion ผ่านหรือผ่าน GPU/VRAM/คุณภาพจริง.
 - CI ใช้ synthetic processors เพื่อทดสอบเส้นทางไฟล์/geometry; ต้องทดสอบ Native CLI ทั้งสี่และ A/B ภาพจริงบน GTX 1660 Ti ก่อนรับรอง.
 
 ## 9 พฤศจิกายน 2569 — runtime GPU binding update
