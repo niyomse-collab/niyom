@@ -162,7 +162,7 @@ def make_processors(
             runtime_sample_count_this_process = 0
 
             def sample_runtime_device():
-                nonlocal runtime_verified_this_process, runtime_sample_count_this_process
+                nonlocal runtime_verified_this_process, runtime_probe_conflict, runtime_sample_count_this_process
                 if runtime_device_probe is None:
                     return
                 pid = record.get("pid")
