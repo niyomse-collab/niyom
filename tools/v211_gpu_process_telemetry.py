@@ -26,7 +26,6 @@ PDH_FMT_DOUBLE = 0x00000200
 PDH_CSTATUS_VALID_DATA = 0
 PDH_CSTATUS_NEW_DATA = 1
 PERF_DETAIL_WIZARD = 400
-PDH_REFRESHCOUNTERS = 0x00000001
 
 
 class _PdhValueUnion(ctypes.Union):
@@ -579,6 +578,11 @@ class NvmlProcessProbe:
                      ctypes.c_uint, ctypes.c_uint],
                     ctypes.c_uint,
                 ),
+                "PdhEnumObjectsW": (
+                    [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_wchar),
+                     ctypes.POINTER(ctypes.c_uint), ctypes.c_uint, ctypes.c_int],
+                    ctypes.c_uint,
+                ),
                 "PdhLookupPerfNameByIndexW": (
                     [ctypes.c_wchar_p, ctypes.c_uint, ctypes.POINTER(ctypes.c_wchar),
                      ctypes.POINTER(ctypes.c_uint)],
@@ -632,13 +636,28 @@ class NvmlProcessProbe:
         self._pdh_name_cache[english_name] = fallback
         return fallback
 
+    def _refresh_pdh_object_cache(self) -> bool:
+        """Refresh PDH's object cache using PdhEnumObjectsW's documented bRefresh."""
+        enum_objects = self._pdh_functions["PdhEnumObjectsW"]
+        size = ctypes.c_uint(0)
+        status = int(enum_objects(
+            None, None, None, ctypes.byref(size), PERF_DETAIL_WIZARD, 1
+        ))
+        if status not in (PDH_MORE_DATA, PDH_SUCCESS) or size.value < 2:
+            return False
+        buffer = ctypes.create_unicode_buffer(size.value)
+        status = int(enum_objects(
+            None, None, buffer, ctypes.byref(size), PERF_DETAIL_WIZARD, 0
+        ))
+        return status == PDH_SUCCESS
+
     def _enumerate_pdh_instances(self, object_name: str) -> list[str]:
         enum_items = self._pdh_functions["PdhEnumObjectItemsW"]
         counter_size = ctypes.c_uint(0)
         instance_size = ctypes.c_uint(0)
         status = int(enum_items(
             None, None, object_name, None, ctypes.byref(counter_size),
-            None, ctypes.byref(instance_size), PERF_DETAIL_WIZARD, PDH_REFRESHCOUNTERS,
+            None, ctypes.byref(instance_size), PERF_DETAIL_WIZARD, 0,
         ))
         if status not in (PDH_MORE_DATA, PDH_SUCCESS) or instance_size.value < 2:
             return []
@@ -647,7 +666,7 @@ class NvmlProcessProbe:
             instance_buffer = ctypes.create_unicode_buffer(max(1, instance_size.value))
             status = int(enum_items(
                 None, None, object_name, counter_buffer, ctypes.byref(counter_size),
-                instance_buffer, ctypes.byref(instance_size), PERF_DETAIL_WIZARD, PDH_REFRESHCOUNTERS,
+                instance_buffer, ctypes.byref(instance_size), PERF_DETAIL_WIZARD, 0,
             ))
             if status == PDH_SUCCESS:
                 raw = ctypes.wstring_at(
@@ -695,6 +714,8 @@ class NvmlProcessProbe:
         if target_luid is None:
             return None
         target_luid_text = f"0x{target_luid[0]:08x}_0x{target_luid[1]:08x}"
+        if not self._refresh_pdh_object_cache():
+            return None
         object_names = (
             self._localized_pdh_name("GPU Engine"),
             self._localized_pdh_name("GPU Process"),
