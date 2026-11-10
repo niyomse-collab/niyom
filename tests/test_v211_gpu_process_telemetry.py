@@ -246,6 +246,8 @@ def test_wddm_gpu_engine_activity_must_match_pid_and_have_positive_utilization()
         "counter_count": 1,
         "active_sample_count": 1,
         "max_utilization_percent": 1.0,
+        "adapter_luid": "0x00000000_0x0000e7f7",
+        "target_adapter_luid": "0x00000000_0x0000e7f7",
     }
     devices = [
         _device(
