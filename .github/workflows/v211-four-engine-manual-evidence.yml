@@ -19,8 +19,8 @@ on:
           - 'yes'
         default: 'no'
       candidate_source_sha:
-        description: Full 40-character source commit recorded in the installed candidate BUILD_PROOF.txt.
-        required: true
+        description: Full 40-character source commit recorded in the installed candidate BUILD_PROOF.txt; required only when consent is yes.
+        required: false
         type: string
 
 permissions:
@@ -30,6 +30,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A missing/negative consent choice is a successful no-op. This job uses a hosted
+  # runner only to report that the dedicated shop PC was deliberately not scheduled.
+  no-consent:
+    if: >-
+      github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103' &&
+      (
+        (github.event_name == 'workflow_dispatch' &&
+         (inputs.confirm_shop_gpu != 'yes' || inputs.candidate_source_sha == '')) ||
+        (github.event_name == 'push' &&
+         !contains(github.event.head_commit.message, '[shop-gpu-evidence yes candidate='))
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record that shop GPU consent was not granted
+        run: |
+          echo "No explicit shop GPU consent and/or candidate source SHA was supplied."
+          echo "No self-hosted shop GPU runner was scheduled."
+
   evidence:
     if: >-
       github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103' &&

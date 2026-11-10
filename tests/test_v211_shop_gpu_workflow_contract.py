@@ -26,6 +26,21 @@ def test_shop_gpu_evidence_requires_explicit_yes_and_dedicated_runner():
     assert "runs-on: windows-latest" not in workflow
 
 
+def test_no_consent_path_is_a_successful_noop_without_shop_runner():
+    workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
+
+    no_consent = workflow.split("  no-consent:", 1)[1].split("  evidence:", 1)[0]
+    assert "runs-on: ubuntu-latest" in no_consent
+    assert "No self-hosted shop GPU runner was scheduled." in no_consent
+    assert "inputs.confirm_shop_gpu != 'yes' || inputs.candidate_source_sha == ''" in no_consent
+    assert "!contains(github.event.head_commit.message, '[shop-gpu-evidence yes candidate=')" in no_consent
+
+    sha_input = workflow.split("      candidate_source_sha:", 1)[1].split("\n\npermissions:", 1)[0]
+    assert "required: false" in sha_input
+    assert "inputs.candidate_source_sha != ''" in workflow
+    assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" in workflow
+
+
 def test_candidate_regression_includes_the_shop_gpu_workflow_contract():
     workflow = _read(".github/workflows/v211-four-engine-bridge-windows.yml")
 
