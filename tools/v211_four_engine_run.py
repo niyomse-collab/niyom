@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import hashlib
+import inspect
 import os
 import tempfile
 import warnings
@@ -370,13 +371,25 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             commands[name] = EngineCommand(tuple(argv))
     execution_records: dict[str, dict] = {}
     runtime_probe = NvmlProcessProbe(target_name="gtx 1660 ti")
-    processors = make_processors(
-        commands,
-        cancel_check=cancel,
-        pre_launch_check=pre_launch_check,
-        execution_records=execution_records,
-        runtime_device_probe=runtime_probe,
-    )
+    processor_kwargs = {
+        "cancel_check": cancel,
+        "pre_launch_check": pre_launch_check,
+        "execution_records": execution_records,
+    }
+    try:
+        processor_parameters = inspect.signature(make_processors).parameters
+        accepts_processor_kwargs = any(
+            item.kind == inspect.Parameter.VAR_KEYWORD
+            for item in processor_parameters.values()
+        )
+        supports_runtime_probe = (
+            "runtime_device_probe" in processor_parameters or accepts_processor_kwargs
+        )
+    except (TypeError, ValueError):
+        supports_runtime_probe = False
+    if supports_runtime_probe:
+        processor_kwargs["runtime_device_probe"] = runtime_probe
+    processors = make_processors(commands, **processor_kwargs)
     try:
         if large_job:
             result = run_tiled_candidates(
