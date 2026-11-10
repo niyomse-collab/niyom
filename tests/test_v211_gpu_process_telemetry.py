@@ -163,3 +163,109 @@ def test_frozen_candidate_and_windows_ci_include_runtime_telemetry():
 
     assert '"tools.v211_gpu_process_telemetry"' in spec
     assert "tests/test_v211_gpu_process_telemetry.py" in workflow
+
+
+def test_wddm_pid_with_unavailable_nvml_memory_requires_live_gpu_engine_activity():
+    from tools.v211_gpu_process_telemetry import evaluate_pid_observations
+
+    activity = {
+        "available": True,
+        "verified": True,
+        "status": "gpu_engine_activity_observed",
+        "source": "windows_gpu_engine_pdh",
+        "pid": 4321,
+        "sample_count": 2,
+        "counter_count": 3,
+        "active_sample_count": 1,
+        "max_utilization_percent": 4.25,
+    }
+    result = evaluate_pid_observations(
+        4321,
+        "gtx 1660 ti",
+        [
+            _device(
+                0,
+                "NVIDIA GeForce GTX 1660 Ti",
+                graphics=[{"pid": 4321, "used_gpu_memory_bytes": None}],
+            )
+        ],
+        process_api_available=True,
+        gpu_activity=activity,
+    )
+
+    assert result["verified"] is True
+    assert result["status"] == "verified"
+    assert result["evidence_source"] == "nvml_pid_plus_windows_gpu_engine_pdh"
+    assert result["adapter_index"] == 0
+    assert result["gpu_engine_sample_count"] == 2
+    assert result["gpu_engine_active_sample_count"] == 1
+    assert result["gpu_engine_max_utilization_percent"] == 4.25
+
+
+def test_wddm_pid_without_active_gpu_engine_sample_fails_closed():
+    result = evaluate_pid_observations(
+        4321,
+        "gtx 1660 ti",
+        [
+            _device(
+                0,
+                "NVIDIA GeForce GTX 1660 Ti",
+                graphics=[{"pid": 4321, "used_gpu_memory_bytes": None}],
+            )
+        ],
+        process_api_available=True,
+        gpu_activity={
+            "available": True,
+            "verified": False,
+            "status": "gpu_engine_activity_not_observed",
+            "source": "windows_gpu_engine_pdh",
+            "pid": 4321,
+            "sample_count": 2,
+            "counter_count": 2,
+            "active_sample_count": 0,
+            "max_utilization_percent": 0.0,
+        },
+    )
+
+    assert result["verified"] is False
+    assert result["status"] == "gpu_memory_not_confirmed"
+
+
+def test_wddm_gpu_engine_activity_must_match_pid_and_have_positive_utilization():
+    base = {
+        "available": True,
+        "verified": True,
+        "status": "gpu_engine_activity_observed",
+        "source": "windows_gpu_engine_pdh",
+        "pid": 9999,
+        "sample_count": 2,
+        "counter_count": 1,
+        "active_sample_count": 1,
+        "max_utilization_percent": 1.0,
+    }
+    devices = [
+        _device(
+            0,
+            "NVIDIA GeForce GTX 1660 Ti",
+            compute=[{"pid": 4321, "used_gpu_memory_bytes": None}],
+        )
+    ]
+    wrong_pid = evaluate_pid_observations(
+        4321, "gtx 1660 ti", devices,
+        process_api_available=True, gpu_activity=base,
+    )
+    assert wrong_pid["verified"] is False
+
+    zero_activity = dict(base, pid=4321, max_utilization_percent=0.0)
+    no_work = evaluate_pid_observations(
+        4321, "gtx 1660 ti", devices,
+        process_api_available=True, gpu_activity=zero_activity,
+    )
+    assert no_work["verified"] is False
+
+    one_sample = dict(base, pid=4321, sample_count=1)
+    insufficient_samples = evaluate_pid_observations(
+        4321, "gtx 1660 ti", devices,
+        process_api_available=True, gpu_activity=one_sample,
+    )
+    assert insufficient_samples["verified"] is False
