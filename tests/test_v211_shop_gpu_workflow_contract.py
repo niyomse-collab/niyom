@@ -104,7 +104,7 @@ def test_premerge_push_gate_is_branch_scoped_and_candidate_pinned():
 
 def test_installed_candidate_may_only_differ_by_nonproduction_gate_files():
     workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
-    allowed = workflow.split("$allowedFiles = @(\", 1)[1].split(")", 1)[0]
+    allowed = workflow.split("$allowedFiles = @(", 1)[1].split(")", 1)[0]
 
     assert ".github/workflows/v211-four-engine-manual-evidence.yml" in allowed
     assert "tests/test_v211_shop_gpu_workflow_contract.py" in allowed
