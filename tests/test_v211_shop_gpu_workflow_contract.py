@@ -82,3 +82,15 @@ def test_premerge_push_gate_is_branch_scoped_and_candidate_pinned():
     assert "Candidate source SHA must be exactly 40 hexadecimal characters." in workflow
     assert "$unexpectedFiles.Count -gt 0" in workflow
     assert "Where-Object { $_ -ne 'docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md' }" in workflow
+
+def test_installed_candidate_may_only_differ_by_nonproduction_gate_files():
+    workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
+    allowed = workflow.split("$allowedFiles = @(", 1)[1].split(")", 1)[0]
+
+    assert ".github/workflows/v211-four-engine-manual-evidence.yml" in allowed
+    assert "tests/test_v211_shop_gpu_workflow_contract.py" in allowed
+    assert "docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md" in allowed
+    assert "signprint_ai/" not in allowed
+    assert "tools/" not in allowed
+    assert "$_. -notin $allowedFiles" not in workflow
+    assert "Where-Object { $_ -notin $allowedFiles }" in workflow
