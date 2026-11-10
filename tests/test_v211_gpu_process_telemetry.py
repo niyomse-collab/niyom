@@ -280,3 +280,16 @@ def test_windows_gpu_engine_instance_parser_matches_exact_pid_tokens():
     assert NvmlProcessProbe._instance_matches_pid("pid_4321_engtype_Compute_0", 4321)
     assert not NvmlProcessProbe._instance_matches_pid("pid_14321_engtype_3D_0", 4321)
     assert not NvmlProcessProbe._instance_matches_pid("pid_43210_engtype_3D_0", 4321)
+
+
+def test_nvml_process_info_v1_v2_v3_use_version_correct_struct_sizes():
+    import ctypes
+    from tools.v211_gpu_process_telemetry import (
+        _ProcessInfoV1,
+        _ProcessInfoV2,
+        _ProcessInfoV3,
+    )
+
+    assert ctypes.sizeof(_ProcessInfoV1) == 16
+    assert ctypes.sizeof(_ProcessInfoV2) == 24
+    assert ctypes.sizeof(_ProcessInfoV3) == 24
