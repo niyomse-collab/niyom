@@ -16,6 +16,8 @@ def test_shop_gpu_evidence_requires_explicit_yes_and_dedicated_runner():
     assert "default: 'no'" in workflow
     assert "github.event.inputs.confirm_shop_gpu == 'yes'" in workflow
     assert "candidate_source_sha:" in workflow
+    sha_input = workflow.split("      candidate_source_sha:", 1)[1].split("\n\npermissions:", 1)[0]
+    assert "required: false" in sha_input
     assert "github.event.inputs.candidate_source_sha != ''" in workflow
     assert "contains(github.event.head_commit.message, '[shop-gpu-evidence yes candidate=')" in workflow
     assert "git merge-base --is-ancestor" in workflow
@@ -26,42 +28,20 @@ def test_shop_gpu_evidence_requires_explicit_yes_and_dedicated_runner():
     assert "runs-on: windows-latest" not in workflow
 
 
-def test_no_consent_path_is_a_successful_noop_without_shop_runner():
-    workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
-
-    no_consent = workflow.split("  no-consent:", 1)[1].split("  evidence:", 1)[0]
-    assert "runs-on: ubuntu-latest" in no_consent
-    assert "No self-hosted shop GPU runner was scheduled." in no_consent
-    assert "inputs.confirm_shop_gpu != 'yes' || inputs.candidate_source_sha == ''" in no_consent
-    assert "!contains(github.event.head_commit.message, '[shop-gpu-evidence yes candidate=')" in no_consent
-
-    sha_input = workflow.split("      candidate_source_sha:", 1)[1].split("\n\npermissions:", 1)[0]
-    assert "required: false" in sha_input
-    assert "github.event.inputs.candidate_source_sha != ''" in workflow
-    assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" in workflow
-
-
-def test_hosted_consent_status_job_never_schedules_shop_hardware():
-    workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
-    status_job = workflow.split("  gate-status:", 1)[1].split("  evidence:", 1)[0]
-
-    assert "if: github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103'" in status_job
-    assert "runs-on: ubuntu-latest" in status_job
-    assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" not in status_job
-    assert "No explicit consent marker; self-hosted shop GPU runner will not be scheduled." in status_job
-    assert "DISPATCH_CONFIRM" in status_job
-    assert "DISPATCH_SOURCE_SHA" in status_job
-
-
-
-def test_hosted_consent_status_job_always_reports_without_shop_access():
+def test_no_consent_path_has_hosted_status_and_cannot_schedule_shop_pc():
     workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
     status_job = workflow.split("  gate_status:", 1)[1].split("  evidence:", 1)[0]
+    evidence_job = workflow.split("  evidence:", 1)[1]
 
     assert "runs-on: ubuntu-latest" in status_job
+    assert "if:" not in status_job
     assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" not in status_job
     assert "This hosted job only reports workflow status." in status_job
     assert "only by the evidence job after explicit consent and candidate SHA validation" in status_job
+    assert "github.event.inputs.confirm_shop_gpu == 'yes'" in evidence_job
+    assert "github.event.inputs.candidate_source_sha != ''" in evidence_job
+    assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" in evidence_job
+
 
 def test_candidate_regression_includes_the_shop_gpu_workflow_contract():
     workflow = _read(".github/workflows/v211-four-engine-bridge-windows.yml")
@@ -107,6 +87,7 @@ def test_synthetic_shop_gpu_evidence_never_certifies_visual_or_print_quality():
     assert "nvml_pid_plus_windows_gpu_engine_pdh" in workflow
     assert "bridge_integration.runtime_device_use_verified -ne $true" in workflow
 
+
 def test_premerge_push_gate_is_branch_scoped_and_candidate_pinned():
     workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
 
@@ -118,11 +99,12 @@ def test_premerge_push_gate_is_branch_scoped_and_candidate_pinned():
     assert "git cat-file -e" in workflow
     assert "Candidate source SHA must be exactly 40 hexadecimal characters." in workflow
     assert "$unexpectedFiles.Count -gt 0" in workflow
-    assert "Where-Object { $_ -ne 'docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md' }" in workflow
+    assert "Where-Object { $_ -notin $allowedFiles }" in workflow
+
 
 def test_installed_candidate_may_only_differ_by_nonproduction_gate_files():
     workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
-    allowed = workflow.split("$allowedFiles = @(", 1)[1].split(")", 1)[0]
+    allowed = workflow.split("$allowedFiles = @(\", 1)[1].split(")", 1)[0]
 
     assert ".github/workflows/v211-four-engine-manual-evidence.yml" in allowed
     assert "tests/test_v211_shop_gpu_workflow_contract.py" in allowed
