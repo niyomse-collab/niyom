@@ -183,9 +183,12 @@ def run(
             img.verify()
         with Image.open(source) as img:
             source_size = img.size
+            source_mode = img.mode
+            if source_mode not in ("RGB", "RGBA"):
+                raise ValueError("source must be an 8-bit RGB/RGBA PNG for native engine QA")
             if "transparency" in img.info and "A" not in img.getbands():
                 raise ValueError("palette/tRNS PNG transparency requires RGBA conversion before QA")
-            source_alpha = "A" in img.getbands()
+            source_alpha = source_mode == "RGBA"
             source_icc = img.info.get("icc_profile")
             source_dpi = img.info.get("dpi")
             source_alpha_image = img.getchannel("A").copy() if source_alpha else None
@@ -213,20 +216,22 @@ def run(
                 image.load()
                 if image.format != "PNG" or image.size != tuple(d * 2 for d in source_size):
                     raise ValueError(engine + ": expected a valid exact 2x PNG")
-                if image.mode not in ("RGB", "RGBA"):
-                    raise ValueError(engine + ": invalid colour mode")
-                if source_alpha and "A" not in image.getbands():
-                    raise ValueError(engine + ": alpha channel lost")
+                if image.mode != source_mode:
+                    raise ValueError(engine + ": output colour mode or alpha presence differs from source")
                 if source_alpha_image is not None:
                     expected_alpha = source_alpha_image.resize(image.size, Image.Resampling.LANCZOS)
                     if image.getchannel("A").tobytes() != expected_alpha.tobytes():
                         raise ValueError(engine + ": alpha pixels differ from original cutout")
-                if source_icc and image.info.get("icc_profile") != source_icc:
-                    raise ValueError(engine + ": ICC changed or lost")
+                output_icc = image.info.get("icc_profile")
+                if output_icc != source_icc:
+                    raise ValueError(engine + ": ICC profile presence or content differs from source")
                 output_dpi = image.info.get("dpi")
-                if source_dpi is not None and (output_dpi is None or
-                    len(output_dpi) != len(source_dpi) or
-                    any(abs(float(a) - float(b)) > 0.1 for a, b in zip(source_dpi, output_dpi))):
+                if source_dpi is None:
+                    if output_dpi is not None:
+                        raise ValueError(engine + ": engine introduced print DPI metadata")
+                elif (output_dpi is None or len(output_dpi) != len(source_dpi)
+                      or any(abs(float(a) - float(b)) > 0.1
+                             for a, b in zip(source_dpi, output_dpi))):
                     raise ValueError(engine + ": print DPI changed or lost")
                 process_record = _safe_process_record(process_telemetry.get(engine))
                 report["engines"][engine] = {
@@ -256,10 +261,14 @@ def run(
                     "sha256": sha256(destination),
                     "size": list(image.size),
                     "mode": image.mode,
-                    "alpha_preserved": not source_alpha or "A" in image.getbands(),
-                    "alpha_pixels_match_source": source_alpha_image is not None,
-                    "icc_preserved": not source_icc or image.info.get("icc_profile") == source_icc,
-                    "dpi_preserved": source_dpi is None or output_dpi is not None,
+                    "alpha_preserved": ("A" in image.getbands()) == source_alpha,
+                    "alpha_pixels_match_source": (
+                        True if source_alpha_image is not None else None
+                    ),
+                    "icc_preserved": output_icc == source_icc,
+                    "dpi_preserved": (
+                        output_dpi is None if source_dpi is None else output_dpi is not None
+                    ),
                 }
                 report["completed_engine_count"] += 1
         except Exception as exc:
