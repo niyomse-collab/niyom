@@ -439,8 +439,8 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         "execution_evidence_scope": (
             "native process lifecycle and output validation; physical adapter use is "
             "evidenced by live NVML PID-to-adapter visibility plus either non-zero NVML "
-            "process memory or, under WDDM, matching per-process Windows GPU Engine activity; "
-            "visual quality remains unverified"
+            "process memory or, under WDDM, per-process Windows GPU Engine activity whose "
+            "DXGI LUID matches the target adapter; visual quality remains unverified"
         ),
         "engine_execution": {
             name: {
