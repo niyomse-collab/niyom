@@ -589,7 +589,7 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
     )
     assert saved["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert saved["anime4k_backend_inventory"]["status"] == "ok"
-    assert saved["schema_version"] == 5
+    assert saved["schema_version"] == 6
     assert saved["vulkaninfo_succeeded"] is True
     assert saved["vulkan_device_inventory_succeeded"] is True
     assert saved["vulkan_inventory_source"] == "vulkaninfo"
@@ -983,3 +983,99 @@ def test_manual_shop_gpu_evidence_workflow_is_self_hosted_and_fail_closed():
     assert ".zip" not in upload_block.lower()
     assert ".bin" not in upload_block.lower()
     assert ".pth" not in upload_block.lower()
+
+
+
+def _runtime_verified_runner(manifest, source, output, *, timeout_seconds):
+    result = _successful_runner(
+        manifest, source, output, timeout_seconds=timeout_seconds
+    )
+    result["engines"] = {
+        name: {
+            **item,
+            "runtime_device_use_verified": True,
+            "runtime_device_telemetry": {
+                "runtime_device_probe_status": "verified",
+                "runtime_device_process_count": 1,
+                "runtime_device_verified_process_count": 1,
+                "runtime_device_sample_count": 2,
+                "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+                "runtime_adapter_index": 0,
+                "runtime_adapter_backend_apis": ["graphics"],
+            },
+        }
+        for name, item in result["engines"].items()
+    }
+    return result
+
+
+def _runtime_verified_bridge_runner(source, baseline, *, use_ai, resize_mode):
+    result = _successful_bridge_runner(
+        source, baseline, use_ai=use_ai, resize_mode=resize_mode
+    )
+    report_path = Path(result["four_engine_fusion_output"]).parent / "four_engine_report.json"
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    for name in ENGINES:
+        process = report["engine_execution"][name]["process"]
+        process.update({
+            "runtime_device_use_verified": True,
+            "runtime_device_process_count": 1,
+            "runtime_device_verified_process_count": 1,
+            "runtime_device_sample_count": 2,
+            "runtime_device_probe_status": "verified",
+            "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+            "runtime_adapter_index": 0,
+            "runtime_adapter_backend_apis": ["graphics"],
+        })
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    return result
+
+
+def test_shop_gpu_acceptance_requires_live_nvml_evidence_for_every_engine(tmp_path):
+    manifest = _write_manifest(tmp_path / "manifest.json")
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu,
+        engine_runner=_runtime_verified_runner,
+        anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
+        integration_runner=_runtime_verified_bridge_runner,
+    )
+
+    assert report["runtime_device_use_verified"] is True
+    assert all(report["per_engine_runtime_device_use_verified"].values())
+    assert all(
+        item["target_adapter_selection_verified"]
+        for item in report["engine_backend_expectations"].values()
+    )
+    assert report["shop_gpu_acceptance_passed"] is True
+    assert report["quality_improvement_verified"] is False
+    assert report["visual_quality_certified"] is False
+    assert report["print_quality_certified"] is False
+
+
+def test_shop_gpu_acceptance_fails_if_one_native_engine_lacks_runtime_evidence(tmp_path):
+    manifest = _write_manifest(tmp_path / "manifest.json")
+
+    def one_engine_not_seen(manifest_path, source, output, *, timeout_seconds):
+        result = _runtime_verified_runner(
+            manifest_path, source, output, timeout_seconds=timeout_seconds
+        )
+        result["engines"]["waifu2x"]["runtime_device_use_verified"] = False
+        result["engines"]["waifu2x"]["runtime_device_telemetry"][
+            "runtime_device_probe_status"
+        ] = "pid_not_observed"
+        return result
+
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu,
+        engine_runner=one_engine_not_seen,
+        anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
+        integration_runner=_runtime_verified_bridge_runner,
+    )
+
+    assert report["runtime_device_use_verified"] is False
+    assert report["per_engine_runtime_device_use_verified"]["waifu2x"] is False
+    assert report["shop_gpu_acceptance_passed"] is False
