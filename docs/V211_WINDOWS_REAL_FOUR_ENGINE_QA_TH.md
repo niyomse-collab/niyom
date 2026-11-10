@@ -198,7 +198,7 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "ไม่พบ�
 - เพิ่ม `vulkan_device_inventory_succeeded` และ `vulkan_inventory_source` เพื่อบอกว่ารายการอุปกรณ์มาจาก `vulkaninfo` หรือการเรียก Vulkan Loader โดยตรง
 - เมื่อเครื่องไม่มีโปรแกรม `vulkaninfo` แต่ `vulkan-1.dll` enumerates อุปกรณ์ได้ รายงานจะไม่กล่าวว่า vulkaninfo สำเร็จอีกต่อไป; GPU binding ใช้ผล inventory ที่ตรวจได้จริงแทนการบังคับให้ติดตั้ง Vulkan SDK
 - เพิ่ม Regression สำหรับกรณี Native Loader สำเร็จแต่ vulkaninfo ไม่ได้ติดตั้ง และกรณี inventory ไม่สำเร็จต้องหยุดแบบ fail-closed
-- การแก้ไขนี้เป็นการทำให้หลักฐาน GPU ตรงกับสิ่งที่เกิดขึ้นจริง ไม่ใช่หลักฐานว่า Native Engine ใช้ GTX 1660 Ti ระหว่าง inference; `runtime_device_use_verified=false` ยังคงเดิม
+- การแก้ไขนี้เป็นการทำให้หลักฐาน GPU ตรงกับสิ่งที่เกิดขึ้นจริง ไม่ใช่หลักฐานคุณภาพภาพหรือ print readiness. Runtime acceptance ยังต้องผ่าน NVML PID-to-device attribution และ non-zero memory หรือ WDDM PDH GPU Engine activity ครบทุก child process; หาก telemetry ของเครื่องร้านไม่พร้อม `runtime_device_use_verified=false` และ fail-closed ตามเดิม
 
 ## 9 พฤศจิกายน 2569 — ขอบเขต Large 4x ที่เพิ่มเข้ามา
 
@@ -255,9 +255,14 @@ The workflow additionally requires top-level and per-engine `runtime_device_use_
 
 - เพิ่ม `tools/v211_gpu_process_telemetry.py` ใช้ NVIDIA Management Library (NVML) อ่าน process lists ของทั้ง Graphics และ Compute ขณะ native child process ยังทำงาน โดยรองรับ process API v3 และ fallback v2/v1 เมื่อ symbol มีให้ใช้
 - Native subprocess sampler เรียก probe ทันทีหลัง launch และทุกช่วงไม่เกิน 50 ms ระหว่างรอ process; บันทึกเฉพาะสถานะ, จำนวน sample/process, adapter name/index และ API family ไม่บันทึก command line, local path, stdout/stderr หรือภาพ
-- การยืนยันต่อ process ต้องพบ PID เดียวกันใน NVML process list ของ GTX 1660 Ti ที่ระบุได้เพียงตัวเดียว และ NVML ต้องรายงาน GPU memory ของ PID นั้นมากกว่า 0; การพบ PID บน adapter อื่น, หลาย adapter, memory unavailable/zero, NVML API ใช้ไม่ได้ หรือ process จบก่อนถูก sample จะไม่ผ่าน
+- การยืนยันต่อ process ต้องพบ PID เดียวกันใน NVML process list ของ GTX 1660 Ti ที่ระบุได้เพียงตัวเดียว และต้องมีหลักฐานการทำงาน GPU อย่างใดอย่างหนึ่ง: (ก) NVML รายงาน GPU memory ของ PID มากกว่า 0 หรือ (ข) บน Windows WDDM ซึ่ง NVIDIA ระบุว่า `usedGpuMemory` เป็น `NVML_VALUE_NOT_AVAILABLE` เสมอ ต้องพบ GPU Engine utilization ของ PID เดียวกันผ่าน Windows PDH อย่างน้อย 2 samples และมี utilization มากกว่า 0. การพบ PID บน adapter อื่น/หลาย adapter, ไม่มี PDH activity, NVML/PDH ใช้ไม่ได้ หรือ process จบก่อนถูก sample จะไม่ผ่าน
+- WDDM fallback enumerate instance จริงจาก `GPU Engine` / `GPU Process` performance counters (ไม่เดาชื่อ instance), resolve localized counter names ผ่าน Perflib/PdhLookupPerfNameByIndex และอ่าน `Utilization Percentage`; ต้องพบ PID ใน NVML บน target adapter พร้อมกันกับ activity sample ของ PID นั้น. PDH activity อย่างเดียวไม่ยืนยัน adapter; NVML PID-to-device attribution ยังคงเป็นเงื่อนไขบังคับ
 - สำหรับงาน tiled ต้องยืนยันทุก native child process ของแต่ละ engine ไม่ใช่เพียง tile ใด tile หนึ่ง; process ที่ไม่มี telemetry จะทำให้ aggregate ของ engine นั้น fail-closed
 - Shop GPU acceptance รวมหลักฐานจาก synthetic RGB, RGBA และ end-to-end bridge/fusion run ทั้งสี่ engine; การตั้งค่า CLI `-g` หรือ `-p/-d` เพียงอย่างเดียวไม่ถือเป็น runtime evidence
-- ข้อจำกัด: NVML PID + non-zero memory เป็นหลักฐานว่า process มี GPU allocation บน adapter ที่รายงาน ไม่ใช่หลักฐานว่า GPU ทำทุก instruction หรือคุณภาพภาพดีขึ้น. WDDM/driver บางรุ่นอาจไม่เปิด process accounting หรือ inference สั้นเกินช่วง sample; กรณีเหล่านี้จะรายงาน unverified ไม่ลดเกณฑ์
+- ข้อจำกัด: NVML PID + non-zero memory หรือ NVML PID + WDDM PDH GPU Engine activity เป็นหลักฐานการผูก process กับ adapter และ activity ณ ช่วง sample เท่านั้น ไม่พิสูจน์ว่า GPU ทำทุก instruction หรือคุณภาพภาพดีขึ้น. หาก WDDM ไม่เปิด GPU Engine counters หรือ inference สั้นเกินช่วง sample จะรายงาน unverified ไม่ลดเกณฑ์
+
+อ้างอิง:
+- NVIDIA NVML: [nvmlProcessInfo_v1_t](https://docs.nvidia.com/deploy/nvml-api/latest/structnvmlProcessInfo__v1__t.html) — `usedGpuMemory` เป็น `NVML_VALUE_NOT_AVAILABLE` ภายใต้ WDDM
+- Microsoft PDH: [PdhEnumObjectItemsW](https://learn.microsoft.com/en-us/windows/win32/api/pdh/nf-pdh-pdhenumobjectitemsw) และ [PdhAddCounterW](https://learn.microsoft.com/en-us/windows/win32/api/pdh/nf-pdh-pdhaddcounterw)
 - เพิ่ม Regression สำหรับ target mismatch, adapter ambiguity, memory unavailable, PID ไม่ปรากฏ และ tiled child process ที่มีเพียงบาง process ผ่าน. Frozen spec และ Windows Candidate CI รวม module/test ใหม่แล้ว
 - ไม่มีการแก้ V1, V2 Stable, GFPGAN, accepted V2 output, installer model payload หรือ model weights; ไม่เพิ่ม network access และไม่อัปโหลดภาพ
