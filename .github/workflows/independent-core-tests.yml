@@ -2,7 +2,7 @@ name: Independent Core regression checks
 on:
   pull_request:
   push:
-    branches: [codex/niyomsil-independent-core, dev/niyomsil-design-v2]
+    branches: [codex/niyomsil-independent-core, dev/niyomsil-design-v2, work/v211-four-engine-v2-bridge-20261103]
 jobs:
   tests:
     strategy:
