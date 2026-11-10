@@ -26,6 +26,16 @@ jobs:
       run:
         shell: pwsh
     steps:
+      - name: Checkout the exact candidate source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare Python for static source audit
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Verify installed candidate and local verified manifest
         id: preflight
         run: |
@@ -71,6 +81,13 @@ jobs:
             ('V211_OUTPUT_DIR=' + $outputDir)
           ) | Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8
 
+      - name: Audit removal of active HAT references
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $auditPath = Join-Path $env:V211_OUTPUT_DIR 'hat_audit.json'
+          python tools/v211_hat_reference_audit.py | Set-Content -LiteralPath $auditPath -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'HAT reference audit failed; inspect hat_audit.json.' }
+
       - name: Run packaged synthetic-only GPU and four-engine bridge diagnostic
         id: diagnostic
         continue-on-error: true
@@ -86,7 +103,7 @@ jobs:
         if: always()
         run: |
           $ErrorActionPreference = 'Stop'
-          $outputDir = Join-Path $env:GITHUB_WORKSPACE 'v211-shop-evidence'
+          $outputDir = $env:V211_OUTPUT_DIR
           $exitPath = Join-Path $outputDir 'process_exit_code.txt'
           if (-not (Test-Path -LiteralPath $exitPath -PathType Leaf)) { throw 'Diagnostic process exit record is missing.' }
           $exitCode = [int](Get-Content -LiteralPath $exitPath -Raw)
@@ -156,40 +173,7 @@ jobs:
               $adapterLuid = [string]$detail.runtime_gpu_engine_adapter_luid
               if ($minSamples -lt 2 -or $minActive -lt 1 -or $maxUtilization -le 0 -or
                   $luidMatch -ne $true -or
-                  $adapterLuid -notmatch '^0x[0-9a-fA-F]{8}_0x[0-9a-fA-F]{8}
-            }
-          }
-          if ($report.bridge_integration.runtime_device_use_verified -ne $true) {
-            throw 'End-to-end bridge did not verify runtime physical-adapter use.'
-          }
-          if ($report.customer_artwork_used -ne $false -or $report.network_accessed -ne $false -or $report.uploads_performed -ne $false -or $report.images_retained -ne $false) {
-            throw 'Privacy invariant failed: customer imagery, network, upload or retained test images were reported.'
-          }
-          if ($report.quality_improvement_verified -ne $false -or $report.visual_quality_certified -ne $false -or $report.print_quality_certified -ne $false) {
-            throw 'Synthetic GPU evidence must never certify visual or print quality.'
-          }
-          if ($report.bridge_integration.passed -ne $true -or $report.bridge_integration.device_binding_configured -ne $true -or $report.bridge_integration.pre_launch_vram_checks_passed -ne $true) {
-            throw 'End-to-end bridge/fusion, device binding or per-process VRAM preflight did not pass.'
-          }
-          Write-Output 'PASS: all four native processes have per-engine physical-adapter telemetry on the selected GTX 1660 Ti. Synthetic evidence still does not certify visual or print quality.'
-
-      - name: Upload JSON evidence only
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: v211-shop-gpu-json-evidence
-          path: |
-            v211-shop-evidence/build_identity.json
-            v211-shop-evidence/shop_gpu_diagnostic.json
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Remove local evidence workspace
-        if: always()
-        run: |
-          $path = Join-Path $env:GITHUB_WORKSPACE 'v211-shop-evidence'
-          if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
-) {
+                  $adapterLuid -notmatch '^0x[0-9a-fA-F]{8}_0x[0-9a-fA-F]{8}$') {
                 throw ('WDDM GPU Engine activity or target DXGI LUID is not verified for every WDDM child process: ' + $engine)
               }
             }
@@ -215,6 +199,7 @@ jobs:
           name: v211-shop-gpu-json-evidence
           path: |
             v211-shop-evidence/build_identity.json
+            v211-shop-evidence/hat_audit.json
             v211-shop-evidence/shop_gpu_diagnostic.json
           if-no-files-found: warn
           retention-days: 7
