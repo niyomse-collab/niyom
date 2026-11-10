@@ -56,6 +56,11 @@ def test_all_four_candidates_valid_no_visual_certification(tmp_path, monkeypatch
     assert result["real_inference_verified"] is True
     assert result["quality_improvement_verified"] is False
     assert result["completed_engine_count"] == 4
+    assert result["candidate_output_validation_complete"] is True
+    assert result["native_process_execution_verified"] is True
+    assert result["per_engine_native_process_execution_verified"] == {
+        name: True for name in ENGINES
+    }
     assert not result["failures"]
     assert result["runtime_device_use_verified"] is False
     assert result["engines"]["real_esrgan"]["process"]["exit_code"] == 0
@@ -63,6 +68,41 @@ def test_all_four_candidates_valid_no_visual_certification(tmp_path, monkeypatch
     assert result["engines"]["real_esrgan"]["device_configuration"] is None
     assert json.loads((tmp_path / "outputs" / "real_inference_report.json").read_text())["completed_engine_count"] == 4
 
+
+
+def test_valid_candidate_outputs_without_native_process_evidence_do_not_certify_inference(
+    tmp_path, monkeypatch
+):
+    def factory(_manifest):
+        mapping = {}
+        for name in ENGINES:
+            def candidate(source, destination):
+                with Image.open(source) as image:
+                    image.resize(
+                        (image.width * 2, image.height * 2),
+                        Image.Resampling.LANCZOS,
+                    ).save(destination, dpi=(300, 300))
+            mapping[name] = candidate
+        return mapping
+
+    monkeypatch.setattr(
+        qa, "load_real_engine_manifest", lambda *_: {"test": "fake manifest"}
+    )
+    monkeypatch.setattr(qa, "make_processors", factory)
+    result = qa.run(
+        tmp_path / "manifest.json",
+        _source(tmp_path),
+        tmp_path / "outputs-without-process-evidence",
+    )
+
+    assert result["completed_engine_count"] == 4
+    assert result["candidate_output_validation_complete"] is True
+    assert result["native_process_execution_verified"] is False
+    assert result["per_engine_native_process_execution_verified"] == {
+        name: False for name in ENGINES
+    }
+    assert result["real_inference_verified"] is False
+    assert result["quality_improvement_verified"] is False
 
 def test_one_failure_does_not_hide_other_three_engine_results(tmp_path, monkeypatch):
     calls = _prepare(monkeypatch, failed_engine="real_esrgan")
@@ -151,7 +191,16 @@ def test_timeout_override_caps_each_native_engine(tmp_path, monkeypatch):
         observed.update(value)
         mapping = {}
         for name in ENGINES:
-            def candidate(source, destination):
+            def candidate(source, destination, *, engine=name):
+                if execution_records is not None:
+                    execution_records[engine] = {
+                        "status": "output_ready",
+                        "process_started": True,
+                        "pid": 14000 + list(ENGINES).index(engine),
+                        "exit_code": 0,
+                        "process_elapsed_ms": 12,
+                        "elapsed_ms_total": 15,
+                    }
                 with Image.open(source) as image:
                     image.resize(
                         (image.width * 2, image.height * 2),
@@ -168,6 +217,7 @@ def test_timeout_override_caps_each_native_engine(tmp_path, monkeypatch):
         timeout_seconds=75,
     )
     assert result["real_inference_verified"] is True
+    assert result["native_process_execution_verified"] is True
     assert all(command.timeout_seconds == 75 for command in observed.values())
 
 
@@ -259,6 +309,15 @@ def test_native_qa_accepts_absent_icc_and_dpi_when_output_also_absent(
         for name in ENGINES:
             def candidate(source, destination, *, engine=name):
                 calls.append(engine)
+                if execution_records is not None:
+                    execution_records[engine] = {
+                        "status": "output_ready",
+                        "process_started": True,
+                        "pid": 13000 + list(ENGINES).index(engine),
+                        "exit_code": 0,
+                        "process_elapsed_ms": 12,
+                        "elapsed_ms_total": 15,
+                    }
                 with Image.open(source) as image:
                     image.resize(
                         (image.width * 2, image.height * 2),
@@ -278,6 +337,8 @@ def test_native_qa_accepts_absent_icc_and_dpi_when_output_also_absent(
 
     assert calls == list(ENGINES)
     assert result["real_inference_verified"] is True
+    assert result["candidate_output_validation_complete"] is True
+    assert result["native_process_execution_verified"] is True
     assert result["completed_engine_count"] == 4
     assert not result["failures"]
     for engine in ENGINES:
