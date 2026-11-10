@@ -1001,6 +1001,9 @@ def _runtime_verified_runner(manifest, source, output, *, timeout_seconds):
                 "runtime_device_verified_process_count": 1,
                 "runtime_device_all_processes_verified": True,
                 "runtime_device_sample_count": 2,
+                "runtime_device_nvml_memory_verified_process_count": 1,
+                "runtime_device_wddm_pdh_verified_process_count": 0,
+                "runtime_device_evidence_source": "nvml_process_memory",
                 "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
                 "runtime_adapter_index": 0,
                 "runtime_adapter_backend_apis": ["graphics"],
@@ -1025,6 +1028,9 @@ def _runtime_verified_bridge_runner(source, baseline, *, use_ai, resize_mode):
             "runtime_device_verified_process_count": 1,
             "runtime_device_all_processes_verified": True,
             "runtime_device_sample_count": 2,
+            "runtime_device_nvml_memory_verified_process_count": 1,
+            "runtime_device_wddm_pdh_verified_process_count": 0,
+            "runtime_device_evidence_source": "nvml_process_memory",
             "runtime_device_probe_status": "verified",
             "runtime_device_probe_conflict": False,
             "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
@@ -1083,3 +1089,36 @@ def test_shop_gpu_acceptance_fails_if_one_native_engine_lacks_runtime_evidence(t
     assert report["runtime_device_use_verified"] is False
     assert report["per_engine_runtime_device_use_verified"]["waifu2x"] is False
     assert report["shop_gpu_acceptance_passed"] is False
+
+
+def test_runtime_evidence_accepts_wddm_only_with_per_process_gpu_engine_activity():
+    telemetry = {
+        "runtime_device_process_count": 2,
+        "runtime_device_verified_process_count": 2,
+        "runtime_device_all_processes_verified": True,
+        "runtime_device_sample_count": 5,
+        "runtime_device_probe_status": "verified",
+        "runtime_device_probe_conflict": False,
+        "runtime_device_nvml_memory_verified_process_count": 0,
+        "runtime_device_wddm_pdh_verified_process_count": 2,
+        "runtime_device_evidence_source": "nvml_pid_plus_windows_gpu_engine_pdh",
+        "runtime_gpu_engine_min_sample_count": 2,
+        "runtime_gpu_engine_min_active_sample_count": 1,
+        "runtime_gpu_engine_max_utilization_percent": 3.5,
+        "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+        "runtime_adapter_index": 0,
+        "runtime_adapter_backend_apis": ["graphics", "compute"],
+    }
+
+    assert diagnostic._runtime_device_evidence_verified(True, telemetry) is True
+
+    telemetry["runtime_gpu_engine_min_sample_count"] = 1
+    assert diagnostic._runtime_device_evidence_verified(True, telemetry) is False
+
+    telemetry["runtime_gpu_engine_min_sample_count"] = 2
+    telemetry["runtime_gpu_engine_min_active_sample_count"] = 0
+    assert diagnostic._runtime_device_evidence_verified(True, telemetry) is False
+
+    telemetry["runtime_gpu_engine_min_active_sample_count"] = 1
+    telemetry["runtime_device_wddm_pdh_verified_process_count"] = 1
+    assert diagnostic._runtime_device_evidence_verified(True, telemetry) is False
