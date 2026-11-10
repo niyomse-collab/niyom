@@ -115,6 +115,21 @@ def _safe_process_record(value: dict | None) -> dict | None:
     return {key: value[key] for key in allowed if key in value}
 
 
+def _native_process_execution_verified(value: dict | None) -> bool:
+    """Require an observed successful native process, not only a plausible PNG."""
+    if not isinstance(value, dict):
+        return False
+    pid = value.get("pid")
+    exit_code = value.get("exit_code")
+    return (
+        value.get("status") in ("process_succeeded", "output_ready")
+        and value.get("process_started") is True
+        and isinstance(pid, int) and not isinstance(pid, bool) and pid > 0
+        and isinstance(exit_code, int) and not isinstance(exit_code, bool)
+        and exit_code == 0
+    )
+
+
 def _make_processors_with_telemetry(
     commands, execution_records: dict, runtime_device_probe=None
 ) -> dict:
@@ -161,6 +176,11 @@ def run(
         runtime_probe.close()
         report_path.write_text(json.dumps({
             "real_inference_verified": False,
+            "candidate_output_validation_complete": False,
+            "native_process_execution_verified": False,
+            "per_engine_native_process_execution_verified": {
+                name: False for name in ENGINES
+            },
             "quality_improvement_verified": False,
             "failed_stage": "manifest_preflight",
             "failure_type": type(exc).__name__,
@@ -169,10 +189,16 @@ def run(
         raise
     report = {
         "real_inference_verified": False,
+        "candidate_output_validation_complete": False,
+        "native_process_execution_verified": False,
+        "per_engine_native_process_execution_verified": {
+            name: False for name in ENGINES
+        },
         "quality_improvement_verified": False,
         "runtime_device_use_verified": False,
         "execution_evidence_scope": (
-            "native process launch/exit, configured CLI backend/index and output invariants only"
+            "candidate output invariants plus separately recorded native process lifecycle; "
+            "GPU adapter use requires independent runtime telemetry"
         ),
         "engines": {},
     }
@@ -234,8 +260,14 @@ def run(
                              for a, b in zip(source_dpi, output_dpi))):
                     raise ValueError(engine + ": print DPI changed or lost")
                 process_record = _safe_process_record(process_telemetry.get(engine))
+                native_process_verified = _native_process_execution_verified(process_record)
                 report["engines"][engine] = {
-                    "status": "binary_executed_and_2x_output_validated",
+                    "status": (
+                        "native_process_and_2x_output_validated"
+                        if native_process_verified
+                        else "candidate_output_validated_without_process_evidence"
+                    ),
+                    "native_process_execution_verified": native_process_verified,
                     "process": process_record,
                     "device_configuration": _configured_device_selection(
                         engine, commands.get(engine)
@@ -276,10 +308,14 @@ def run(
             # Save only type and a bounded generic description. Windows error
             # stderr may contain local paths or other private information.
             failure_class, retry_on_vulkan_host = _classify_engine_failure(exc)
+            failure_process_record = _safe_process_record(process_telemetry.get(engine))
             failure = {
                 "error_type": type(exc).__name__,
                 "error_class": failure_class,
-                "process": _safe_process_record(process_telemetry.get(engine)),
+                "native_process_execution_verified": _native_process_execution_verified(
+                    failure_process_record
+                ),
+                "process": failure_process_record,
                 "device_configuration": _configured_device_selection(
                     engine, commands.get(engine)
                 ) if isinstance(commands, dict) else None,
@@ -310,7 +346,26 @@ def run(
             if os.environ.get("NIYOMSIL_V211_SYNTHETIC_CI_DEBUG") == "1":
                 failure["synthetic_test_diagnostic"] = str(exc)[-600:]
             report["failures"][engine] = failure
-    report["real_inference_verified"] = report["completed_engine_count"] == len(ENGINES)
+    report["candidate_output_validation_complete"] = (
+        report["completed_engine_count"] == len(ENGINES)
+    )
+    report["per_engine_native_process_execution_verified"] = {
+        name: bool(
+            (
+                report.get("engines", {}).get(name)
+                or report.get("failures", {}).get(name)
+                or {}
+            ).get("native_process_execution_verified") is True
+        )
+        for name in ENGINES
+    }
+    report["native_process_execution_verified"] = all(
+        report["per_engine_native_process_execution_verified"].values()
+    )
+    report["real_inference_verified"] = (
+        report["candidate_output_validation_complete"]
+        and report["native_process_execution_verified"]
+    )
     report["per_engine_runtime_device_use_verified"] = {
         name: bool(
             (report.get("engines", {}).get(name) or {}).get("runtime_device_use_verified") is True
@@ -321,8 +376,9 @@ def run(
         report["per_engine_runtime_device_use_verified"].values()
     )
     report["execution_evidence_scope"] = (
-        "native process launch/exit, output invariants, and live NVML PID-to-adapter "
-        "visibility with non-zero GPU memory; this is not a visual-quality or print certification"
+        "verified native process start/PID/zero-exit plus exact output invariants; "
+        "live NVML PID-to-adapter visibility is reported separately and is required "
+        "for GPU-use certification; this is not visual-quality or print certification"
     )
     runtime_probe.close()
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
