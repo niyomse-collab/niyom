@@ -90,8 +90,9 @@ def make_processors(
 ):
     """Make engine callbacks, failing closed when any engine is unconfigured.
 
-    Optional execution_records receives only process lifecycle facts. It never
-    stores command arguments, source/output paths, stdout, stderr or image data.
+    Optional execution_records receives process lifecycle and allowlisted
+    runtime-adapter facts only. It never stores command arguments, source/output
+    paths, stdout, stderr or image data. A missing/unavailable probe is unverified.
     """
     if set(commands) != set(ENGINES):
         raise ValueError("exactly four configured engines are required")
