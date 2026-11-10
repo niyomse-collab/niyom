@@ -573,6 +573,7 @@ def _runtime_device_evidence_verified(flag: object, telemetry: object) -> bool:
     backend_apis = telemetry.get("runtime_adapter_backend_apis")
     return bool(
         telemetry.get("runtime_device_all_processes_verified") is True
+        and telemetry.get("runtime_device_probe_conflict") is False
         and telemetry.get("runtime_device_probe_status") == "verified"
         and isinstance(process_count, int) and not isinstance(process_count, bool)
         and process_count >= 1
@@ -814,6 +815,7 @@ def _run_bridge_integration_case(
                 "runtime_device_all_processes_verified": process.get("runtime_device_all_processes_verified") is True,
                 "runtime_device_sample_count": process.get("runtime_device_sample_count", 0),
                 "runtime_device_probe_status": process.get("runtime_device_probe_status"),
+                "runtime_device_probe_conflict": process.get("runtime_device_probe_conflict") is True,
                 "runtime_adapter_name": process.get("runtime_adapter_name"),
                 "runtime_adapter_index": process.get("runtime_adapter_index"),
                 "runtime_adapter_backend_apis": process.get("runtime_adapter_backend_apis", []),
