@@ -122,6 +122,14 @@ def make_processors(
             previous_gpu_min_samples = previous_record.get("runtime_gpu_engine_min_sample_count")
             previous_gpu_min_active = previous_record.get("runtime_gpu_engine_min_active_sample_count")
             previous_gpu_max_utilization = previous_record.get("runtime_gpu_engine_max_utilization_percent")
+            previous_gpu_luid_match = previous_record.get("runtime_gpu_engine_adapter_luid_match")
+            previous_gpu_luid = previous_record.get("runtime_gpu_engine_adapter_luid")
+            if previous_wddm_pdh_count == 0:
+                previous_gpu_luid_match = False
+                previous_gpu_luid = None
+            elif previous_gpu_luid_match is not True or not isinstance(previous_gpu_luid, str):
+                previous_gpu_luid_match = False
+                previous_gpu_luid = None
             for value_name, value in (
                 ("runtime_device_process_count", previous_runtime_process_count),
                 ("runtime_device_verified_process_count", previous_runtime_verified_count),
@@ -189,6 +197,8 @@ def make_processors(
                 "runtime_gpu_engine_min_sample_count": previous_gpu_min_samples,
                 "runtime_gpu_engine_min_active_sample_count": previous_gpu_min_active,
                 "runtime_gpu_engine_max_utilization_percent": previous_gpu_max_utilization,
+                "runtime_gpu_engine_adapter_luid_match": previous_gpu_luid_match,
+                "runtime_gpu_engine_adapter_luid": previous_gpu_luid,
                 "runtime_device_probe_status": (
                     "not_configured" if runtime_device_probe is None else "not_observed"
                 ),
@@ -208,6 +218,8 @@ def make_processors(
             runtime_gpu_engine_samples_this_process = 0
             runtime_gpu_engine_active_this_process = 0
             runtime_gpu_engine_max_this_process = 0.0
+            runtime_gpu_engine_luid_match_this_process = False
+            runtime_gpu_engine_luid_this_process = None
 
             def sample_runtime_device():
                 nonlocal runtime_verified_this_process, runtime_probe_conflict, runtime_sample_count_this_process
@@ -215,6 +227,8 @@ def make_processors(
                 nonlocal runtime_gpu_engine_samples_this_process
                 nonlocal runtime_gpu_engine_active_this_process
                 nonlocal runtime_gpu_engine_max_this_process
+                nonlocal runtime_gpu_engine_luid_match_this_process
+                nonlocal runtime_gpu_engine_luid_this_process
                 if runtime_device_probe is None:
                     return
                 pid = record.get("pid")
@@ -276,6 +290,18 @@ def make_processors(
                         and gpu_max > 0
                     ):
                         runtime_gpu_engine_max_this_process = float(gpu_max)
+                    gpu_luid_match = evidence.get("gpu_engine_adapter_luid_match")
+                    gpu_luid = evidence.get("gpu_engine_adapter_luid")
+                    if (
+                        evidence_source == "nvml_pid_plus_windows_gpu_engine_pdh"
+                        and gpu_luid_match is True
+                        and isinstance(gpu_luid, str)
+                        and len(gpu_luid) == 19
+                        and gpu_luid.startswith("0x")
+                        and gpu_luid[10:12] == "_0"
+                    ):
+                        runtime_gpu_engine_luid_match_this_process = True
+                        runtime_gpu_engine_luid_this_process = gpu_luid.lower()
                 elif status in (
                     "pid_seen_on_wrong_adapter",
                     "pid_seen_on_multiple_adapters",
@@ -489,6 +515,24 @@ def make_processors(
                 raise
             finally:
                 if process_handle is not None and process_started is not None:
+                    if (
+                        runtime_verified_this_process
+                        and runtime_evidence_source_this_process
+                        == "nvml_pid_plus_windows_gpu_engine_pdh"
+                    ):
+                        if not runtime_gpu_engine_luid_match_this_process:
+                            runtime_verified_this_process = False
+                            runtime_probe_conflict = True
+                            record["runtime_device_probe_conflict"] = True
+                            record["runtime_device_probe_status"] = "gpu_engine_luid_unverified"
+                        elif (
+                            previous_gpu_luid is not None
+                            and previous_gpu_luid != runtime_gpu_engine_luid_this_process
+                        ):
+                            runtime_verified_this_process = False
+                            runtime_probe_conflict = True
+                            record["runtime_device_probe_conflict"] = True
+                            record["runtime_device_probe_status"] = "gpu_engine_luid_changed"
                     record["runtime_device_process_count"] = previous_runtime_process_count + 1
                     record["runtime_device_verified_process_count"] = (
                         previous_runtime_verified_count + int(runtime_verified_this_process)
@@ -525,6 +569,10 @@ def make_processors(
                             old_max = record.get("runtime_gpu_engine_max_utilization_percent")
                             record["runtime_gpu_engine_max_utilization_percent"] = max(
                                 float(old_max or 0.0), runtime_gpu_engine_max_this_process
+                            )
+                            record["runtime_gpu_engine_adapter_luid_match"] = True
+                            record["runtime_gpu_engine_adapter_luid"] = (
+                                runtime_gpu_engine_luid_this_process
                             )
                     memory_count = record["runtime_device_nvml_memory_verified_process_count"]
                     wddm_count = record["runtime_device_wddm_pdh_verified_process_count"]
