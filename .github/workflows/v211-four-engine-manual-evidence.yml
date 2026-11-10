@@ -90,7 +90,20 @@ jobs:
           } else {
             throw 'Unsupported event for shop GPU evidence.'
           }
-          if ($expectedSha -notmatch '^[0-9a-f]{40}
+          if ($expectedSha -notmatch '^[0-9a-f]{40}$') {
+            throw 'Candidate source SHA must be exactly 40 hexadecimal characters.'
+          }
+          git cat-file -e "${expectedSha}^{commit}"
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate source commit is not present in the checked-out history.' }
+          git merge-base --is-ancestor $expectedSha $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw 'Installed candidate source is not an ancestor of this branch revision.' }
+          $changedFiles = @(git diff --name-only $expectedSha $env:GITHUB_SHA --)
+          if ($LASTEXITCODE -ne 0) { throw 'Could not compare candidate source with the evidence trigger revision.' }
+          $unexpectedFiles = @($changedFiles | Where-Object { $_ -ne 'docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md' })
+          if ($unexpectedFiles.Count -gt 0) {
+            throw ('Candidate is stale relative to non-document source changes: ' + ($unexpectedFiles -join ', '))
+          }
+          $proofText = Get-Content -LiteralPath $proof -Raw
           $proofPattern = '(?im)^Source commit:\s*' + [regex]::Escape($expectedSha) + '\s*$'
           if ($proofText -notmatch $proofPattern) { throw 'Installed candidate BUILD_PROOF does not match this workflow commit.' }
           if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) { throw 'LOCALAPPDATA is unavailable for the shop runner user.' }
