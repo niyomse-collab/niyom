@@ -108,7 +108,8 @@ def _safe_process_record(value: dict | None) -> dict | None:
         "runtime_device_use_verified", "runtime_device_process_count",
         "runtime_device_verified_process_count", "runtime_device_all_processes_verified",
         "runtime_device_sample_count", "runtime_device_probe_status",
-        "runtime_device_probe_error_type", "runtime_adapter_name",
+        "runtime_device_probe_error_type", "runtime_device_probe_conflict",
+        "runtime_adapter_name",
         "runtime_adapter_index", "runtime_adapter_backend_apis",
     )
     return {key: value[key] for key in allowed if key in value}
@@ -241,6 +242,7 @@ def run(
                         key: process_record.get(key)
                         for key in (
                             "runtime_device_probe_status",
+                            "runtime_device_probe_conflict",
                             "runtime_device_process_count",
                             "runtime_device_verified_process_count",
                             "runtime_device_all_processes_verified",
@@ -279,6 +281,7 @@ def run(
                     key: process_telemetry.get(engine, {}).get(key)
                     for key in (
                         "runtime_device_probe_status",
+                        "runtime_device_probe_conflict",
                         "runtime_device_process_count",
                         "runtime_device_verified_process_count",
                         "runtime_device_all_processes_verified",
