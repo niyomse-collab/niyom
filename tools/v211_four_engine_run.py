@@ -19,6 +19,7 @@ from typing import Callable
 
 from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand, make_processors
+from tools.v211_gpu_process_telemetry import NvmlProcessProbe
 from tools.v211_real_engine_manifest import load_real_engine_manifest
 from tools.v211_three_engine_priority_preview import PRIMARY_ENGINES, select_three_engine_preview
 from tools.v211_four_engine_fusion import (
@@ -129,6 +130,11 @@ def _safe_execution_record(record: dict | None) -> dict | None:
         "tile_count", "tile_process_count", "tile_process_elapsed_ms_total",
         "tile_seam_count", "tile_seam_max_channel_delta", "tile_process_scope",
         "pre_launch_vram", "pre_launch_vram_checks", "pre_launch_vram_min_free_mib",
+        "runtime_device_use_verified", "runtime_device_process_count",
+        "runtime_device_verified_process_count", "runtime_device_all_processes_verified",
+        "runtime_device_sample_count", "runtime_device_probe_status",
+        "runtime_device_probe_error_type", "runtime_adapter_name",
+        "runtime_adapter_index", "runtime_adapter_backend_apis",
     )
     return {key: record[key] for key in allowed if key in record}
 
@@ -362,24 +368,29 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
                 raise ValueError("invalid argv for " + name)
             commands[name] = EngineCommand(tuple(argv))
     execution_records: dict[str, dict] = {}
+    runtime_probe = NvmlProcessProbe(target_name="gtx 1660 ti")
     processors = make_processors(
         commands,
         cancel_check=cancel,
         pre_launch_check=pre_launch_check,
         execution_records=execution_records,
+        runtime_device_probe=runtime_probe,
     )
-    if large_job:
-        result = run_tiled_candidates(
-            source, Path(v2_reference), output_dir, size, processors,
-            cancel_check=cancel,
-            progress_callback=progress_callback,
-            execution_records=execution_records,
-        )
-    else:
-        result = run_candidates(
-            source, output_dir, size, processors,
-            cancel_check=cancel, progress_callback=progress_callback,
-        )
+    try:
+        if large_job:
+            result = run_tiled_candidates(
+                source, Path(v2_reference), output_dir, size, processors,
+                cancel_check=cancel,
+                progress_callback=progress_callback,
+                execution_records=execution_records,
+            )
+        else:
+            result = run_candidates(
+                source, output_dir, size, processors,
+                cancel_check=cancel, progress_callback=progress_callback,
+            )
+    finally:
+        runtime_probe.close()
 
     # The native wrapper restores seed alpha after each 2x inference. For a
     # small RGBA job that seed alpha was itself downsampled from V2, so its
@@ -396,17 +407,26 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
     report = {
         "research_only": True,
         "real_engine_manifest_preflight_passed": real_engines,
-        "real_engine_inference_proven": False,  # Process success is not proof of physical adapter use.
-        "runtime_device_use_verified": False,
+        "real_engine_inference_proven": False,  # Runtime adapter evidence is not visual-quality certification.
+        "runtime_device_use_verified": all(
+            execution_records.get(name, {}).get("runtime_device_use_verified") is True
+            for name in ENGINES
+        ),
+        "per_engine_runtime_device_use_verified": {
+            name: execution_records.get(name, {}).get("runtime_device_use_verified") is True
+            for name in ENGINES
+        },
         "execution_evidence_scope": (
-            "native process lifecycle, exit code, and configured CLI backend/index only; "
-            "physical adapter use and visual quality remain unverified"
+            "native process lifecycle, output validation, and live NVML PID-to-adapter "
+            "visibility with non-zero GPU memory; visual quality remains unverified"
         ),
         "engine_execution": {
             name: {
                 "process": _safe_execution_record(execution_records.get(name)),
                 "device_configuration": _configured_device_selection(name, commands[name]),
-                "runtime_device_use_verified": False,
+                "runtime_device_use_verified": (
+                    execution_records.get(name, {}).get("runtime_device_use_verified") is True
+                ),
             }
             for name in ENGINES
         },
