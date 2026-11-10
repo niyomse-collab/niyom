@@ -418,8 +418,9 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
             for name in ENGINES
         },
         "execution_evidence_scope": (
-            "native process lifecycle, output validation, and live NVML PID-to-adapter "
-            "visibility with non-zero GPU memory; visual quality remains unverified"
+            "native process lifecycle and output validation; physical adapter use is "
+            "evidenced only by live NVML PID-to-adapter visibility with non-zero GPU memory; "
+            "visual quality remains unverified"
         ),
         "engine_execution": {
             name: {
