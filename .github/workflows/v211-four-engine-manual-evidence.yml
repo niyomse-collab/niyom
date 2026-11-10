@@ -32,28 +32,14 @@ concurrency:
 jobs:
   # Hosted-only status job: it always gives the push/dispatch a check result,
   # but never reads the shop installation or schedules the self-hosted PC.
-  gate-status:
-    if: github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103'
+  gate_status:
+    # Hosted-only status check. It never accesses the shop installation.
     runs-on: ubuntu-latest
     steps:
-      - name: Report consent gate without scheduling shop hardware
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PUSH_MESSAGE: ${{ github.event.head_commit.message }}
-          DISPATCH_CONFIRM: ${{ github.event.inputs.confirm_shop_gpu }}
-          DISPATCH_SOURCE_SHA: ${{ github.event.inputs.candidate_source_sha }}
+      - name: Explain the fail-closed shop gate
         run: |
-          if [ "$EVENT_NAME" = "push" ]; then
-            if [[ "$PUSH_MESSAGE" == *"[shop-gpu-evidence yes candidate="* ]]; then
-              echo "Push consent marker detected; the evidence job performs exact SHA validation."
-            else
-              echo "No explicit consent marker; self-hosted shop GPU runner will not be scheduled."
-            fi
-          elif [ "$DISPATCH_CONFIRM" = "yes" ] && [ "${#DISPATCH_SOURCE_SHA}" -eq 40 ]; then
-            echo "Dispatch consent and a 40-character candidate SHA were supplied."
-          else
-            echo "No affirmative consent and valid candidate SHA; self-hosted runner will not be scheduled."
-          fi
+          echo "This hosted job only reports workflow status."
+          echo "The self-hosted shop runner is scheduled only by the evidence job after explicit consent and candidate SHA validation."
 
   evidence:
     if: >-
