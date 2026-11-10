@@ -815,7 +815,7 @@ def _run_bridge_integration_case(
                 "runtime_device_all_processes_verified": process.get("runtime_device_all_processes_verified") is True,
                 "runtime_device_sample_count": process.get("runtime_device_sample_count", 0),
                 "runtime_device_probe_status": process.get("runtime_device_probe_status"),
-                "runtime_device_probe_conflict": process.get("runtime_device_probe_conflict") is True,
+                "runtime_device_probe_conflict": process.get("runtime_device_probe_conflict"),
                 "runtime_adapter_name": process.get("runtime_adapter_name"),
                 "runtime_adapter_index": process.get("runtime_adapter_index"),
                 "runtime_adapter_backend_apis": process.get("runtime_adapter_backend_apis", []),
