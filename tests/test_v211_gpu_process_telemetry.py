@@ -202,6 +202,8 @@ def test_wddm_pid_with_unavailable_nvml_memory_requires_live_gpu_engine_activity
     assert result["gpu_engine_sample_count"] == 2
     assert result["gpu_engine_active_sample_count"] == 1
     assert result["gpu_engine_max_utilization_percent"] == 4.25
+    assert result["gpu_engine_adapter_luid_match"] is True
+    assert result["gpu_engine_adapter_luid"] == "0x00000000_0x0000e7f7"
 
 
 def test_wddm_pid_without_active_gpu_engine_sample_fails_closed():
