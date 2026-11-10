@@ -386,3 +386,37 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Large PNG 2x/4x/8x synthetic disk-backed orchestration exists in the current branch, with one native 2x pass per engine on a half-target seed. 4x/8x labels describe source-to-target geometry, **not native 4x/8x or multi-pass inference**. Current evidence does not include a customer-size >18 MP native GPU run, peak 6 GB VRAM measurement, cancellation during a real Windows native process, or visual A/B.
 - Rechecked PR #18 face/GFPGAN baseline against PR #20: `face_protection.py`, `large_faces.py`, `v211_face_contract.py`, and `face_module/__init__.py` are byte-identical (4/4).
 - No executable/DLL/archive/model weights/customer images were added to Git. PR #20 remains Draft/unmerged; no release, no V1/V2 Stable modification, and no quality-superiority claim.
+
+## 11 พฤศจิกายน 2569 — Candidate #553, Native CLI diagnostic และการคุ้มครอง V2
+
+ขอบเขตยังคงจำกัดเฉพาะ Draft PR #20 / `work/v211-four-engine-v2-bridge-20261103`; ไม่มีการแก้ V1 หรือ V2 Stable, ไม่มี merge/release และไม่ส่งงานไป self-hosted shop runner โดยไม่มี consent marker.
+
+### HEAD และ Candidate ที่ยืนยันจาก GitHub
+- Production/test HEAD ที่ Candidate สร้าง: `21366b61a98388324b120585c039598b046fb142`.
+- Windows Candidate **#553**: [run #42827575892](https://github.com/niyomse-collab/niyom/actions/runs/42827575892) — ทั้ง `bridge-tests` และ `windows-v2-candidate` สำเร็จ. Bridge tests **286 passed**; privacy/provisioning/hash tests **63 passed**.
+- Frozen job ตรวจ V2 imports, packaged provisioning `--check-only` โดยไม่ดาวน์โหลด, isolated cache cleanup, diagnostic `--help`, BUILD_PROOF/source SHA และ SHA256 ของ installer slices ครบ.
+- Artifact ID `13772740302`, ขนาด **2,584,696,547 bytes**, ZIP SHA256 `42a104c6f9377bba1544113fed9bac281ba725bcbf3ea8ae36f05b1b15b4a5ec`, installer SHA256 `054e4ce83ac32363fcb603719e259eee282a9d9ddb6cb295baeb7c40ac3cf046`; หมดอายุ **17 พ.ย. 2569 21:15:57 น. ICT**. [Artifact #553](https://github.com/niyomse-collab/niyom/actions/runs/42827575892/artifacts/13772740302).
+- Candidate #553 เป็น frozen-package/provenance pass เท่านั้น ไม่รับรองการติดตั้ง/รันบนเครื่องร้าน, Vulkan, Native GPU 4/4, peak VRAM, A/B หรือคุณภาพพิมพ์. ไม่มี native executables/weights ฝังใน installer.
+
+### Core และ Native CLI — แยกผลให้ตรงตามหลักฐาน
+- Independent Core **#42827576038** บน production/test HEAD `21366b61`: Windows **897 passed / 1 skipped**, Ubuntu **895 passed / 3 skipped**, compileall ผ่านทั้งคู่. [Core #42827576038](https://github.com/niyomse-collab/niyom/actions/runs/42827576038).
+- Native CLI Smoke **#42827576125** เป็น classified diagnostic ไม่ใช่ inference acceptance. บน Hosted Windows, Real-CUGAN และ Anime4KCPP จบ native process และสร้าง synthetic 2x RGB/RGBA output ที่ผ่าน dimension/ICC/DPI/alpha invariants; Real-ESRGAN และ Waifu2x ล้มด้วย `vkCreateInstance failed -9`. NVML ไม่พบ library และ `runtime_device_use_verified=false` สำหรับทั้งสี่. [Native CLI Smoke #42827576125](https://github.com/niyomse-collab/niyom/actions/runs/42827576125).
+- Workflow จัดประเภท Vulkan limitation แล้วจึงจบเป็น diagnostic SUCCESS; ห้ามอ่านสีเขียวนี้เป็น Native GPU 4/4 หรือ quality pass. ผล Hosted Runner ไม่ได้หักล้างผลรายตัวที่เจ้าของเคยทดสอบบน Windows 11 GTX 1660 Ti และก็ไม่ใช่หลักฐานว่า integrated four-engine fusion ผ่าน.
+
+### Shop evidence และ consent
+- Shop GPU Evidence #24: hosted `gate_status` ผ่าน แต่ `evidence` ถูก SKIPPED เพราะไม่มี affirmative consent/candidate marker; ไม่มีการเข้าถึง self-hosted shop PC. [Shop Evidence #24](https://github.com/niyomse-collab/niyom/actions/runs/42794027373).
+- QA document `docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md` ได้ปรับข้อมูลจาก Candidate #531 ที่ล้าสมัยเป็น Candidate #553 และบันทึก source SHA, installer/ZIP hashes, artifact ID และวันหมดอายุแล้ว.
+- การแก้เอกสารรอบนี้เป็น documentation-only; ไม่มี consent marker จึงไม่อนุญาตให้ workflow schedule self-hosted runner. Commit: [2734ad7](https://github.com/niyomse-collab/niyom/commit/2734ad7ecfa635a98b3651b17c249fd5acb54dbe).
+
+### PR #18 / V2-GFPGAN
+- Git Blob SHA ของ `face_protection.py`, `large_faces.py`, `v211_face_contract.py` และ `face_module/__init__.py` เทียบ PR #18 กับ PR #20 ตรงกัน **4/4**; Core Adapter ยังเรียก Face Module เดิม.
+- PR #20 ปิด Optional HAT Assist execution route ที่มีใน PR #18 และมี regression test ป้องกันการเรียก route ดังกล่าว. นี่เป็น compatibility difference แยกจาก GFPGAN; ต้องคงบันทึกไว้เป็นประเด็นก่อน merge ไม่ restore HAT โดยอัตโนมัติ.
+
+### สิ่งที่ยังไม่ผ่าน
+- Native GPU 4/4 พร้อม physical-adapter telemetry บน Windows 11 GTX 1660 Ti.
+- Peak VRAM 6 GB, cancellation ระหว่าง native tiled process, และ large-print >18 MP stress บนเครื่องร้าน.
+- Equal-pixel A/B ครบคน/สัตว์/วัตถุ/กรอบ/ลายไทย/ไทย-อังกฤษ-จีน/flat fill/gradient/RGBA/ใบหน้า.
+- Photoshop, MainTop, RIP และงานพิมพ์จริง.
+- Real-ESRGAN และ Real-CUGAN ยังใช้ observed-CI archive SHA ไม่ใช่ publisher-published digest; model-weight/license certification และ redistribution approval ยังคง false.
+
+**สถานะ:** V2 ยังคง accepted master. PR #20 คง Draft/unmerged; ไม่อ้างว่าคุณภาพเหนือ V2; ไม่มีการแก้ V1/V2 Stable, ไม่มี merge/release และไม่มี binaries/weights/ภาพลูกค้าใน Git.
