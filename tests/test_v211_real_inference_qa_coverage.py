@@ -297,7 +297,7 @@ def test_native_qa_rejects_engine_added_mode_or_metadata(tmp_path, monkeypatch, 
     assert result["completed_engine_count"] == 0
     assert set(result["failures"]) == set(ENGINES)
     assert all(item["error_type"] == "ValueError" for item in result["failures"].values())
-\n
+
 
 def test_native_qa_accepts_absent_icc_and_dpi_when_output_also_absent(
     tmp_path, monkeypatch
