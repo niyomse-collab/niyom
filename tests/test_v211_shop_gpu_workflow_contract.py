@@ -14,9 +14,9 @@ def test_shop_gpu_evidence_requires_explicit_yes_and_dedicated_runner():
     assert "workflow_dispatch:" in workflow
     assert "push:" in workflow
     assert "default: 'no'" in workflow
-    assert "inputs.confirm_shop_gpu == 'yes'" in workflow
+    assert "github.event.inputs.confirm_shop_gpu == 'yes'" in workflow
     assert "candidate_source_sha:" in workflow
-    assert "inputs.candidate_source_sha != ''" in workflow
+    assert "github.event.inputs.candidate_source_sha != ''" in workflow
     assert "contains(github.event.head_commit.message, '[shop-gpu-evidence yes candidate=')" in workflow
     assert "git merge-base --is-ancestor" in workflow
     assert "git diff --name-only" in workflow
@@ -39,6 +39,18 @@ def test_no_consent_path_is_a_successful_noop_without_shop_runner():
     assert "required: false" in sha_input
     assert "inputs.candidate_source_sha != ''" in workflow
     assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" in workflow
+
+
+def test_hosted_consent_status_job_never_schedules_shop_hardware():
+    workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
+    status_job = workflow.split("  gate-status:", 1)[1].split("  evidence:", 1)[0]
+
+    assert "if: github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103'" in status_job
+    assert "runs-on: ubuntu-latest" in status_job
+    assert "runs-on: [self-hosted, Windows, X64, niyom-shop-gpu]" not in status_job
+    assert "No explicit consent marker; self-hosted shop GPU runner will not be scheduled." in status_job
+    assert "DISPATCH_CONFIRM" in status_job
+    assert "DISPATCH_SOURCE_SHA" in status_job
 
 
 def test_candidate_regression_includes_the_shop_gpu_workflow_contract():
