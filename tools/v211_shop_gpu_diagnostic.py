@@ -576,6 +576,11 @@ def _case_summary(value: dict) -> dict:
             "alpha_pixels_match_source": item.get("alpha_pixels_match_source", False),
             "icc_preserved": item.get("icc_preserved", False),
             "dpi_preserved": item.get("dpi_preserved", False),
+            "runtime_device_use_verified": item.get("runtime_device_use_verified") is True,
+            "runtime_device_telemetry": (
+                item.get("runtime_device_telemetry")
+                if isinstance(item.get("runtime_device_telemetry"), dict) else {}
+            ),
             "error_type": failure.get("error_type"),
             "error_class": failure.get("error_class"),
         }
@@ -585,6 +590,10 @@ def _case_summary(value: dict) -> dict:
             and value.get("completed_engine_count") == len(ENGINES)
         ),
         "completed_engine_count": int(value.get("completed_engine_count") or 0),
+        "runtime_device_use_verified": {
+            name: bool(engines[name]["runtime_device_use_verified"])
+            for name in ENGINES
+        },
         "failed_stage": value.get("failed_stage"),
         "failure_type": value.get("failure_type"),
         "engines": engines,
@@ -764,8 +773,20 @@ def _run_bridge_integration_case(
         engine_report = _read_local_report(report_path) if report_path else {}
         execution = engine_report.get("engine_execution") or {}
         prelaunch = {}
+        runtime_by_engine = {}
+        runtime_process_evidence = {}
         for name in ENGINES:
             process = ((execution.get(name) or {}).get("process") or {})
+            runtime_by_engine[name] = process.get("runtime_device_use_verified") is True
+            runtime_process_evidence[name] = {
+                "process_count": process.get("runtime_device_process_count", 0),
+                "verified_process_count": process.get("runtime_device_verified_process_count", 0),
+                "sample_count": process.get("runtime_device_sample_count", 0),
+                "probe_status": process.get("runtime_device_probe_status"),
+                "adapter_name": process.get("runtime_adapter_name"),
+                "adapter_index": process.get("runtime_adapter_index"),
+                "backend_apis": process.get("runtime_adapter_backend_apis", []),
+            }
             checks = process.get("pre_launch_vram_checks", 0)
             minimum = process.get("pre_launch_vram_min_free_mib")
             if isinstance(checks, bool) or not isinstance(checks, int) or checks < 0:
@@ -820,6 +841,13 @@ def _run_bridge_integration_case(
             and binding_configured
             and all_prelaunch_passed
         )
+        runtime_verified = all(runtime_by_engine.values()) and all(
+            isinstance(runtime_process_evidence[name].get("process_count"), int)
+            and runtime_process_evidence[name]["process_count"] >= 1
+            and runtime_process_evidence[name].get("verified_process_count")
+                == runtime_process_evidence[name].get("process_count")
+            for name in ENGINES
+        )
         return {
             "case": "rgba_alpha_icc_dpi",
             "status": str(result.get("status") or "unknown")[:80],
@@ -837,10 +865,9 @@ def _run_bridge_integration_case(
             "device_binding_configured": binding_configured,
             "pre_launch_vram": prelaunch,
             "pre_launch_vram_checks_passed": all_prelaunch_passed,
-            "runtime_device_use_verified": False,
-            "per_engine_runtime_device_use_verified": {
-                name: False for name in ENGINES
-            },
+            "runtime_device_use_verified": runtime_verified,
+            "per_engine_runtime_device_use_verified": runtime_by_engine,
+            "runtime_process_evidence": runtime_process_evidence,
             "quality_certified": False,
             "print_quality_certified": False,
             "customer_artwork_used": False,
@@ -1018,19 +1045,45 @@ def run_diagnostic(
         and gpu.get("vram_budget_6gb_detected")
     )
     device_binding_applied = bool(bind_devices and device_binding and binding_error is None)
-    runtime_by_engine = bridge_integration.get("per_engine_runtime_device_use_verified")
-    if not isinstance(runtime_by_engine, dict):
-        runtime_by_engine = {name: False for name in ENGINES}
+    bridge_runtime = bridge_integration.get("per_engine_runtime_device_use_verified")
+    if not isinstance(bridge_runtime, dict):
+        bridge_runtime = {name: False for name in ENGINES}
     else:
-        runtime_by_engine = {
-            name: runtime_by_engine.get(name) is True for name in ENGINES
+        bridge_runtime = {name: bridge_runtime.get(name) is True for name in ENGINES}
+    native_runtime = {
+        name: all(
+            (cases.get(case_name, {}).get("engines", {}).get(name) or {}).get(
+                "runtime_device_use_verified"
+            ) is True
+            for case_name in ("rgb_icc_dpi", "rgba_alpha_icc_dpi")
+        )
+        for name in ENGINES
+    }
+    runtime_by_engine = {
+        name: bool(native_runtime[name] and bridge_runtime[name])
+        for name in ENGINES
+    }
+    runtime_device_use_verified = all(runtime_by_engine.values())
+    engine_backend_expectations = {
+        name: {
+            "expected_backend": (
+                "NCNN Vulkan; explicit -g index when binding is enabled"
+                if name in NCNN_VULKAN_ENGINES
+                else "Anime4KCPP CUDA/OpenCL; explicit -p/-d when binding is enabled"
+            ),
+            "device_index_configured": (
+                device_binding["ncnn_vulkan"]["device_index"]
+                if device_binding and name in NCNN_VULKAN_ENGINES
+                else device_binding["anime4k"]["device_index"]
+                if device_binding and name == "anime4k"
+                else None
+            ),
+            "target_adapter_selection_verified": runtime_by_engine[name],
         }
-    runtime_device_use_verified = bool(
-        bridge_integration.get("runtime_device_use_verified") is True
-        and all(runtime_by_engine.values())
-    )
+        for name in ENGINES
+    }
     report = {
-        "schema_version": 5,
+        "schema_version": 6,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "manifest_present": manifest.is_file(),
         "manifest_preflight_passed": manifest_preflight_passed,
@@ -1047,28 +1100,9 @@ def run_diagnostic(
         "device_binding_applied": device_binding_applied,
         "device_binding_block_reason": str(binding_error) if binding_error else None,
         "engine_matrix": engine_matrix,
-        "engine_backend_expectations": {
-            name: {
-                "expected_backend": (
-                    "NCNN Vulkan; explicit -g index when binding is enabled"
-                    if name in NCNN_VULKAN_ENGINES
-                    else "Anime4KCPP CUDA/OpenCL; explicit -p/-d when binding is enabled"
-                ),
-                "device_index_configured": (
-                    device_binding["ncnn_vulkan"]["device_index"]
-                    if device_binding and name in NCNN_VULKAN_ENGINES
-                    else device_binding["anime4k"]["device_index"]
-                    if device_binding and name == "anime4k"
-                    else None
-                ),
-                "target_adapter_selection_verified": False,
-            }
-            for name in ENGINES
-        },
-        "per_engine_backend_selection_verified": {
-            name: False for name in ENGINES
-        },
-        "anime4k_backend_selection_verified": False,
+        "engine_backend_expectations": engine_backend_expectations,
+        "per_engine_backend_selection_verified": runtime_by_engine,
+        "anime4k_backend_selection_verified": runtime_by_engine["anime4k"],
         "ncnn_vulkan_engine_names": list(NCNN_VULKAN_ENGINES),
         "three_ncnn_vulkan_cli_outputs_validated_on_both_synthetic_cases": ncnn_vulkan_engines_pass,
         "three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host": bool(
@@ -1113,8 +1147,9 @@ def run_diagnostic(
             "It does not prove visual improvement, face identity, CMYK/RIP quality or print acceptance.",
             "Shop GPU readiness requires GTX 1660 Ti visibility in NVIDIA-SMI and Vulkan physical-device inventory (from vulkaninfo or direct loader enumeration), the Vulkan loader, and the expected 6 GiB VRAM budget; this still does not prove which adapter each CLI selected.",
             "When bind_devices is enabled, a private per-run manifest explicitly configures the unique Vulkan index with -g for all three NCNN engines and the unique Anime4KCPP CUDA/OpenCL backend/device with -p/-d. The installed manifest is never modified.",
-            "Device binding proves the selected CLI arguments were configured from local inventories; this diagnostic intentionally keeps runtime_device_use_verified false until per-process physical-adapter telemetry exists.",
-            "Shop GPU acceptance and a zero CLI exit code require positive runtime-adapter telemetry for all four native processes on the selected GTX 1660 Ti.",
+            "Runtime adapter evidence is sampled from NVML graphics/compute process lists while each native PID is alive; acceptance requires the PID to appear on the unique GTX 1660 Ti with non-zero GPU memory.",
+            "If NVML process accounting is unavailable, a process exits before it can be sampled, or the PID is visible only on another adapter, runtime_device_use_verified remains false.",
+            "Shop GPU acceptance and a zero CLI exit code require positive runtime-adapter telemetry for all four native processes on the selected GTX 1660 Ti in RGB, RGBA, and end-to-end bridge runs.",
             "The end-to-end bridge case runs the actual V2.1.1 bridge and four-engine fusion on a generated RGBA/ICC/300-DPI image; it checks four pixel contributions, per-process VRAM preflight records, exact V2-reference preservation and output metadata.",
             "A passing bridge case still does not prove which physical adapter each native process used or certify visual/print quality; compare real owner-approved images separately.",
         ],
