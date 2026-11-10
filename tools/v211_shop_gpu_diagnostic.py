@@ -14,6 +14,7 @@ import hashlib
 from datetime import datetime, timezone
 import io
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -562,16 +563,19 @@ def _read_local_report(path: Path) -> dict:
 
 
 def _runtime_device_evidence_verified(flag: object, telemetry: object) -> bool:
-    """Validate the evidence fields instead of trusting a single PASS boolean."""
+    """Validate per-process NVML/WDDM evidence instead of trusting a PASS boolean."""
     if flag is not True or not isinstance(telemetry, dict):
         return False
     process_count = telemetry.get("runtime_device_process_count")
     verified_count = telemetry.get("runtime_device_verified_process_count")
     sample_count = telemetry.get("runtime_device_sample_count")
+    memory_count = telemetry.get("runtime_device_nvml_memory_verified_process_count")
+    wddm_count = telemetry.get("runtime_device_wddm_pdh_verified_process_count")
+    evidence_source = telemetry.get("runtime_device_evidence_source")
     adapter_index = telemetry.get("runtime_adapter_index")
     adapter_name = telemetry.get("runtime_adapter_name")
     backend_apis = telemetry.get("runtime_adapter_backend_apis")
-    return bool(
+    if not (
         telemetry.get("runtime_device_all_processes_verified") is True
         and telemetry.get("runtime_device_probe_conflict") is False
         and telemetry.get("runtime_device_probe_status") == "verified"
@@ -581,13 +585,43 @@ def _runtime_device_evidence_verified(flag: object, telemetry: object) -> bool:
         and verified_count == process_count
         and isinstance(sample_count, int) and not isinstance(sample_count, bool)
         and sample_count >= process_count
+        and isinstance(memory_count, int) and not isinstance(memory_count, bool)
+        and memory_count >= 0
+        and isinstance(wddm_count, int) and not isinstance(wddm_count, bool)
+        and wddm_count >= 0
+        and memory_count + wddm_count == process_count
         and isinstance(adapter_index, int) and not isinstance(adapter_index, bool)
         and adapter_index >= 0
         and isinstance(adapter_name, str)
         and "gtx 1660 ti" in adapter_name.casefold()
         and isinstance(backend_apis, list) and bool(backend_apis)
         and all(item in ("graphics", "compute") for item in backend_apis)
+    ):
+        return False
+    expected_source = (
+        "mixed" if memory_count and wddm_count
+        else "nvml_process_memory" if memory_count
+        else "nvml_pid_plus_windows_gpu_engine_pdh" if wddm_count
+        else None
     )
+    if evidence_source != expected_source:
+        return False
+    if wddm_count:
+        minimum_samples = telemetry.get("runtime_gpu_engine_min_sample_count")
+        minimum_active = telemetry.get("runtime_gpu_engine_min_active_sample_count")
+        maximum_utilization = telemetry.get("runtime_gpu_engine_max_utilization_percent")
+        if not (
+            isinstance(minimum_samples, int) and not isinstance(minimum_samples, bool)
+            and minimum_samples >= 2
+            and isinstance(minimum_active, int) and not isinstance(minimum_active, bool)
+            and minimum_active >= 1
+            and isinstance(maximum_utilization, (int, float))
+            and not isinstance(maximum_utilization, bool)
+            and math.isfinite(float(maximum_utilization))
+            and float(maximum_utilization) > 0.0
+        ):
+            return False
+    return True
 
 
 def _case_summary(value: dict) -> dict:
@@ -814,6 +848,22 @@ def _run_bridge_integration_case(
                 "runtime_device_verified_process_count": process.get("runtime_device_verified_process_count", 0),
                 "runtime_device_all_processes_verified": process.get("runtime_device_all_processes_verified") is True,
                 "runtime_device_sample_count": process.get("runtime_device_sample_count", 0),
+                "runtime_device_nvml_memory_verified_process_count": process.get(
+                    "runtime_device_nvml_memory_verified_process_count", 0
+                ),
+                "runtime_device_wddm_pdh_verified_process_count": process.get(
+                    "runtime_device_wddm_pdh_verified_process_count", 0
+                ),
+                "runtime_device_evidence_source": process.get("runtime_device_evidence_source"),
+                "runtime_gpu_engine_min_sample_count": process.get(
+                    "runtime_gpu_engine_min_sample_count"
+                ),
+                "runtime_gpu_engine_min_active_sample_count": process.get(
+                    "runtime_gpu_engine_min_active_sample_count"
+                ),
+                "runtime_gpu_engine_max_utilization_percent": process.get(
+                    "runtime_gpu_engine_max_utilization_percent"
+                ),
                 "runtime_device_probe_status": process.get("runtime_device_probe_status"),
                 "runtime_device_probe_conflict": process.get("runtime_device_probe_conflict"),
                 "runtime_adapter_name": process.get("runtime_adapter_name"),
