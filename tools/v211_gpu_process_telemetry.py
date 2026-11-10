@@ -1,9 +1,10 @@
-"""Fail-closed NVML process-to-adapter telemetry for V2.1.1 native engines.
+"""Fail-closed NVML/WDDM process-to-adapter telemetry for V2.1.1 engines.
 
-This records only whether a live native process PID is visible on the unique
-requested NVIDIA adapter with non-zero GPU memory allocated. It does not
+A live native PID must be visible on the unique requested NVIDIA adapter and
+must have either non-zero NVML process memory or matching active Windows GPU
+Engine counters when WDDM reports NVML memory as unavailable. This does not
 certify image quality, throughput, or that every instruction executed on GPU.
-Unavailable/unsupported NVML process accounting remains unverified.
+Unavailable/unsupported process accounting remains unverified.
 """
 from __future__ import annotations
 
@@ -48,6 +49,15 @@ class _ProcessInfoV1(ctypes.Structure):
     _fields_ = [
         ("pid", ctypes.c_uint),
         ("usedGpuMemory", ctypes.c_uint64),
+    ]
+
+
+class _ProcessInfoV2(ctypes.Structure):
+    _fields_ = [
+        ("pid", ctypes.c_uint),
+        ("usedGpuMemory", ctypes.c_uint64),
+        ("gpuInstanceId", ctypes.c_uint),
+        ("computeInstanceId", ctypes.c_uint),
     ]
 
 
@@ -313,13 +323,14 @@ class NvmlProcessProbe:
             self.status = "nvml_device_inventory_empty"
             return
 
-        pointer = ctypes.POINTER(_ProcessInfoV3)
+        pointer_v3 = ctypes.POINTER(_ProcessInfoV3)
+        pointer_v2 = ctypes.POINTER(_ProcessInfoV2)
         pointer_v1 = ctypes.POINTER(_ProcessInfoV1)
         for family in ("Graphics", "Compute"):
             candidates = []
             for version, info_type, info_pointer in (
-                (3, _ProcessInfoV3, pointer),
-                (2, _ProcessInfoV1, pointer_v1),
+                (3, _ProcessInfoV3, pointer_v3),
+                (2, _ProcessInfoV2, pointer_v2),
                 (1, _ProcessInfoV1, pointer_v1),
             ):
                 function = self._function(
