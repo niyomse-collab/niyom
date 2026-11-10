@@ -48,8 +48,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
       - name: Check source syntax
@@ -81,8 +81,8 @@ jobs:
     env:
       PIP_NO_CACHE_DIR: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
       - name: Install Windows installer compiler
@@ -259,7 +259,7 @@ jobs:
             Set-Content -LiteralPath '.\release\CANDIDATE_PROVENANCE.json' -Encoding utf8
 
       - name: Upload experimental package; no release published
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: NiyomSilp-V2.1.1-four-engine-bridge-EXPERIMENTAL
           compression-level: 0

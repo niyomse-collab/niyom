@@ -43,10 +43,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
       - name: Test QA report logic (mock executables, not evidence)
@@ -156,7 +156,7 @@ jobs:
           Assert-RealCliReport (Join-Path $env:RUNNER_TEMP 'v211-real-cli-alpha-results/real_inference_report.json') 'RGBA/ICC synthetic'
       - name: Retain JSON evidence only, not model packages or images
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: v211-real-cli-windows-synthetic-only-report
           path: |

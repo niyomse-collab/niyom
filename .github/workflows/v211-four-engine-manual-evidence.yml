@@ -27,12 +27,12 @@ jobs:
         shell: pwsh
     steps:
       - name: Checkout the exact candidate source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
       - name: Prepare Python for static source audit
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.11'
 
@@ -214,7 +214,7 @@ jobs:
 
       - name: Upload JSON evidence only
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: v211-shop-gpu-json-evidence
           path: |

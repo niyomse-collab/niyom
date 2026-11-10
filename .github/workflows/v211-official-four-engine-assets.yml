@@ -32,10 +32,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
       - name: Static syntax and audit-tool contract tests
@@ -73,7 +73,7 @@ jobs:
           }
       - name: Upload provenance-only report, never large binaries or private images
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: v211-four-engine-official-archives-sha256-audit
           path: ${{ runner.temp }}/v211-four-engine-official-archives.json
