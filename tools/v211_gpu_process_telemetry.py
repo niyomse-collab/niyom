@@ -228,6 +228,11 @@ class NvmlProcessProbe:
             system_root = os.environ.get("SystemRoot")
             if system_root:
                 candidates.append(str(Path(system_root) / "System32" / "nvml.dll"))
+            program_files = os.environ.get("ProgramFiles")
+            if program_files:
+                candidates.append(
+                    str(Path(program_files) / "NVIDIA Corporation" / "NVSMI" / "nvml.dll")
+                )
         else:
             loader = ctypes.CDLL
             candidates = ["libnvidia-ml.so.1"]
