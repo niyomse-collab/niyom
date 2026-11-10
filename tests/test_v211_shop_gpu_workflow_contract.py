@@ -56,5 +56,8 @@ def test_synthetic_shop_gpu_evidence_never_certifies_visual_or_print_quality():
     assert "runtime_device_nvml_memory_verified_process_count" in workflow
     assert "runtime_device_wddm_pdh_verified_process_count" in workflow
     assert "runtime_gpu_engine_min_sample_count" in workflow
+    assert "runtime_gpu_engine_adapter_luid_match" in workflow
+    assert "runtime_gpu_engine_adapter_luid" in workflow
+    assert "0x[0-9a-fA-F]{8}_0x[0-9a-fA-F]{8}" in workflow
     assert "nvml_pid_plus_windows_gpu_engine_pdh" in workflow
     assert "bridge_integration.runtime_device_use_verified -ne $true" in workflow
