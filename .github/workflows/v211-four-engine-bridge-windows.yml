@@ -1,4 +1,5 @@
 name: V2.1.1 four-AI bridge Windows candidate
+run-name: V2.1.1 Windows candidate - ${{ github.sha }}
 on:
   pull_request:
     branches:
