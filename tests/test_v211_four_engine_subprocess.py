@@ -267,3 +267,43 @@ def test_runtime_adapter_acceptance_fails_closed_when_any_tile_process_is_unveri
     assert record["runtime_device_verified_process_count"] == 1
     assert record["runtime_device_all_processes_verified"] is False
     assert record["runtime_device_use_verified"] is False
+
+
+
+def test_runtime_adapter_conflict_invalidates_an_earlier_positive_sample(tmp_path):
+    from PIL import Image
+
+    source = tmp_path / "source.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    script = "import time,sys; time.sleep(0.15)"
+    commands = {
+        engine: EngineCommand((sys.executable, "-c", script, "{input}", "{output}"))
+        for engine in ENGINES
+    }
+    samples = iter([
+        {
+            "verified": True,
+            "status": "verified",
+            "adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+            "adapter_index": 0,
+            "backend_apis": ["graphics"],
+        },
+        {"verified": False, "status": "pid_seen_on_wrong_adapter"},
+    ])
+
+    def conflicting_probe(pid, engine):
+        return next(samples)
+
+    records = {}
+    processor = make_processors(
+        commands,
+        execution_records=records,
+        runtime_device_probe=conflicting_probe,
+    )["real_esrgan"]
+    with pytest.raises(RuntimeError):
+        processor(source, tmp_path / "conflict.png")
+
+    record = records["real_esrgan"]
+    assert record["runtime_device_probe_conflict"] is True
+    assert record["runtime_device_all_processes_verified"] is False
+    assert record["runtime_device_use_verified"] is False
