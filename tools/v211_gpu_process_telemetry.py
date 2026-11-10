@@ -101,7 +101,7 @@ def _enumerate_dxgi_adapters() -> list[dict[str, Any]]:
             ctypes.c_long, ctypes.c_void_p, ctypes.c_uint32,
             ctypes.POINTER(ctypes.c_void_p),
         )(factory_vtable[12])
-        release = prototype(ctypes.c_uint32, ctypes.c_void_p)(
+        release_factory = prototype(ctypes.c_uint32, ctypes.c_void_p)(
             factory_vtable[2]
         )
         results = []
@@ -117,6 +117,9 @@ def _enumerate_dxgi_adapters() -> list[dict[str, Any]]:
                     adapter_vtable = ctypes.cast(
                         adapter, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))
                     ).contents
+                    release_adapter = prototype(ctypes.c_uint32, ctypes.c_void_p)(
+                        adapter_vtable[2]
+                    )
                     get_desc1 = prototype(
                         ctypes.c_long, ctypes.c_void_p,
                         ctypes.POINTER(_DxgiAdapterDesc1),
@@ -136,12 +139,12 @@ def _enumerate_dxgi_adapters() -> list[dict[str, Any]]:
                     })
                 finally:
                     try:
-                        release(adapter)
+                        release_adapter(adapter)
                     except Exception:
                         pass
         finally:
             try:
-                release(factory)
+                release_factory(factory)
             except Exception:
                 pass
         return results
