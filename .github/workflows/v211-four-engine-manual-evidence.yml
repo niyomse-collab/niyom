@@ -129,6 +129,33 @@ jobs:
                 @($detail.runtime_adapter_backend_apis).Count -lt 1) {
               throw ('Runtime physical-adapter telemetry is incomplete or conflicted for engine: ' + $engine)
             }
+            $nvmlMemoryCount = [int]$detail.runtime_device_nvml_memory_verified_process_count
+            $wddmPdhCount = [int]$detail.runtime_device_wddm_pdh_verified_process_count
+            $evidenceSource = [string]$detail.runtime_device_evidence_source
+            if ($nvmlMemoryCount -lt 0 -or $wddmPdhCount -lt 0 -or
+                ($nvmlMemoryCount + $wddmPdhCount) -ne $processCount) {
+              throw ('Per-process GPU evidence source counts do not cover every child process: ' + $engine)
+            }
+            $expectedSource = if ($nvmlMemoryCount -gt 0 -and $wddmPdhCount -gt 0) {
+              'mixed'
+            } elseif ($nvmlMemoryCount -gt 0) {
+              'nvml_process_memory'
+            } elseif ($wddmPdhCount -gt 0) {
+              'nvml_pid_plus_windows_gpu_engine_pdh'
+            } else {
+              ''
+            }
+            if ($evidenceSource -ne $expectedSource) {
+              throw ('Per-process GPU evidence source is missing or inconsistent: ' + $engine)
+            }
+            if ($wddmPdhCount -gt 0) {
+              $minSamples = [int]$detail.runtime_gpu_engine_min_sample_count
+              $minActive = [int]$detail.runtime_gpu_engine_min_active_sample_count
+              $maxUtilization = [double]$detail.runtime_gpu_engine_max_utilization_percent
+              if ($minSamples -lt 2 -or $minActive -lt 1 -or $maxUtilization -le 0) {
+                throw ('WDDM GPU Engine activity is not verified for every WDDM child process: ' + $engine)
+              }
+            }
           }
           if ($report.bridge_integration.runtime_device_use_verified -ne $true) {
             throw 'End-to-end bridge did not verify runtime physical-adapter use.'
