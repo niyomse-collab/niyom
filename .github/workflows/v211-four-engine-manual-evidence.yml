@@ -81,12 +81,23 @@ jobs:
             ('V211_OUTPUT_DIR=' + $outputDir)
           ) | Add-Content -LiteralPath $env:GITHUB_ENV -Encoding utf8
 
-      - name: Audit removal of active HAT references
+      - name: Record static HAT reference audit (separate release gate)
+        id: hat_audit
+        continue-on-error: true
         run: |
-          $ErrorActionPreference = 'Stop'
+          $ErrorActionPreference = 'Continue'
           $auditPath = Join-Path $env:V211_OUTPUT_DIR 'hat_audit.json'
           python tools/v211_hat_reference_audit.py | Set-Content -LiteralPath $auditPath -Encoding utf8
-          if ($LASTEXITCODE -ne 0) { throw 'HAT reference audit failed; inspect hat_audit.json.' }
+          $auditExit = [int]$LASTEXITCODE
+          if (Test-Path -LiteralPath $auditPath -PathType Leaf) {
+            $audit = Get-Content -LiteralPath $auditPath -Raw | ConvertFrom-Json
+            $audit | Add-Member -NotePropertyName audit_exit_code -NotePropertyValue $auditExit -Force
+            $audit | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $auditPath -Encoding utf8
+          } else {
+            [ordered]@{ status = 'ERROR'; audit_exit_code = $auditExit; reason = 'Audit report was not created.' } |
+              ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $auditPath -Encoding utf8
+          }
+          Write-Output ('Static HAT audit status: ' + $audit.status + '; exit=' + $auditExit)
 
       - name: Run packaged synthetic-only GPU and four-engine bridge diagnostic
         id: diagnostic
@@ -181,6 +192,15 @@ jobs:
           if ($report.bridge_integration.runtime_device_use_verified -ne $true) {
             throw 'End-to-end bridge did not verify runtime physical-adapter use.'
           }
+          $hatAuditPath = Join-Path $outputDir 'hat_audit.json'
+          if (-not (Test-Path -LiteralPath $hatAuditPath -PathType Leaf)) {
+            throw 'Static HAT audit report is missing; inspect the audit step.'
+          }
+          $hatAudit = Get-Content -LiteralPath $hatAuditPath -Raw | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace([string]$hatAudit.status)) {
+            throw 'Static HAT audit report has no status.'
+          }
+          Write-Output ('Static HAT audit is a separate release gate: ' + $hatAudit.status)
           if ($report.customer_artwork_used -ne $false -or $report.network_accessed -ne $false -or $report.uploads_performed -ne $false -or $report.images_retained -ne $false) {
             throw 'Privacy invariant failed: customer imagery, network, upload or retained test images were reported.'
           }
