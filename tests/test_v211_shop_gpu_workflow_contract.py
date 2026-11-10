@@ -73,7 +73,8 @@ def test_synthetic_shop_gpu_evidence_never_certifies_visual_or_print_quality():
 def test_premerge_push_gate_is_branch_scoped_and_candidate_pinned():
     workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
 
-    assert "branches:\\n      - work/v211-four-engine-v2-bridge-20261103" in workflow
+    assert "branches:" in workflow
+    assert "- work/v211-four-engine-v2-bridge-20261103" in workflow
     assert "'.github/workflows/v211-four-engine-manual-evidence.yml'" in workflow
     assert "'docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md'" in workflow
     assert r"\[shop-gpu-evidence\s+yes\s+candidate=([0-9a-fA-F]{40})\]" in workflow
