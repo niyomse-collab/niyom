@@ -426,18 +426,28 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
                         candidate.path, Path(v2_reference)
                     )
 
+    per_engine_runtime_device_use_verified = {
+        name: execution_records.get(name, {}).get("runtime_device_use_verified") is True
+        for name in ENGINES
+    }
+    runtime_device_use_verified = all(
+        per_engine_runtime_device_use_verified[name] is True for name in ENGINES
+    )
+    # The desktop bridge may publish a four-engine QA sidecar only after every
+    # native child PID has been observed on the selected GTX 1660 Ti adapter.
+    # Explicit research-command runs remain available for synthetic/local tests.
+    runtime_gate_blocked = bool(
+        real_engines
+        and v2_reference is not None
+        and result["ready_for_fusion_research"]
+        and not runtime_device_use_verified
+    )
     report = {
         "research_only": True,
         "real_engine_manifest_preflight_passed": real_engines,
         "real_engine_inference_proven": False,  # Runtime adapter evidence is not visual-quality certification.
-        "runtime_device_use_verified": all(
-            execution_records.get(name, {}).get("runtime_device_use_verified") is True
-            for name in ENGINES
-        ),
-        "per_engine_runtime_device_use_verified": {
-            name: execution_records.get(name, {}).get("runtime_device_use_verified") is True
-            for name in ENGINES
-        },
+        "runtime_device_use_verified": runtime_device_use_verified,
+        "per_engine_runtime_device_use_verified": per_engine_runtime_device_use_verified,
         "execution_evidence_scope": (
             "native process lifecycle and output validation; physical adapter use is "
             "evidenced by live NVML PID-to-adapter visibility plus either non-zero NVML "
@@ -457,7 +467,8 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         "completed_engine_count": len(result["candidates"]),
         "completed_engine_names": [item.engine for item in result["candidates"]],
         "fusion_implemented": False,
-        "ready_for_fusion_research": result["ready_for_fusion_research"],
+        "ready_for_fusion_research": result["ready_for_fusion_research"] and not runtime_gate_blocked,
+        "fusion_block_reason": "gpu_runtime_unverified" if runtime_gate_blocked else None,
         "native_tiled_inference": result.get("native_tiled_inference"),
         "quality_certified": False,
         "source_sha256": _sha256(source),
@@ -479,6 +490,8 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
                 "status": "skipped_large_tiled_job",
                 "reason": "full-image priority preview is not disk-backed",
             }
+        elif runtime_gate_blocked:
+            report["priority_preview_status"] = "gpu_runtime_unverified"
         elif set(PRIMARY_ENGINES).issubset(available):
             try:
                 if cancel and cancel():
@@ -497,7 +510,7 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
                 (output_dir / "three_engine_priority_preview.png").unlink(missing_ok=True)
         else:
             report["priority_preview_error"] = "Three priority candidates required; Anime4K optional"
-        if result["ready_for_fusion_research"]:
+        if result["ready_for_fusion_research"] and not runtime_gate_blocked:
             try:
                 fusion = fuse_four_engine_details(
                     source, v2_reference, available,

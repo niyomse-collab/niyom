@@ -159,6 +159,8 @@ def test_native_2x_engines_use_half_target_seed_for_supported_scale_geometry(
         return {
             "ready_for_fusion_research": True,
             "completed_engine_count": 4,
+            "runtime_device_use_verified": True,
+            "per_engine_runtime_device_use_verified": {name: True for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")},
             "failures": {},
             "four_engine_fusion": {"fusion_implemented": True, "all_four_engine_pixels_contributed": True, "output": str(fused)},
         }
@@ -712,11 +714,30 @@ def test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_ru
         return run_tile
 
     processors = {name: processor(name) for name in ENGINES}
-    monkeypatch.setattr(
-        runner,
-        "make_processors",
-        lambda _commands, cancel_check=None, pre_launch_check=None, execution_records=None: processors,
-    )
+    def make_verified_processors(
+        _commands,
+        cancel_check=None,
+        pre_launch_check=None,
+        execution_records=None,
+        runtime_device_probe=None,
+    ):
+        wrapped = {}
+        for engine_name, processor in processors.items():
+            def run_verified(source_path, output_path, _name=engine_name, _processor=processor):
+                _processor(source_path, output_path)
+                if execution_records is not None:
+                    record = execution_records.setdefault(_name, {})
+                    process_count = int(record.get("runtime_device_process_count", 0)) + 1
+                    record.update({
+                        "runtime_device_process_count": process_count,
+                        "runtime_device_verified_process_count": process_count,
+                        "runtime_device_all_processes_verified": True,
+                        "runtime_device_use_verified": True,
+                    })
+            wrapped[engine_name] = run_verified
+        return wrapped
+
+    monkeypatch.setattr(runner, "make_processors", make_verified_processors)
 
     streamed_prepare_calls = []
     original_prepare = bridge.prepare_native_2x_inputs_streamed
@@ -776,3 +797,50 @@ def test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_ru
             assert preview.info.get("icc_profile") == profile
             assert preview.info.get("dpi")[0] == pytest.approx(300, abs=0.1)
     assert baseline.read_bytes() == original_v2
+
+
+def test_four_engine_qa_is_withheld_without_runtime_adapter_proof(
+    tmp_path, monkeypatch
+):
+    source, baseline = _images(tmp_path)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv(
+        "NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json")
+    )
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
+    from tools import v211_four_engine_run
+
+    def fake_run(_src, output_dir, _manifest, size, **_kwargs):
+        output_dir.mkdir(parents=True, exist_ok=True)
+        fused = output_dir / "four_engine_fused_preview.png"
+        Image.new("RGBA", size, (210, 20, 40, 120)).save(fused)
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": 4,
+            "runtime_device_use_verified": False,
+            "per_engine_runtime_device_use_verified": {
+                "real_esrgan": True,
+                "waifu2x": True,
+                "real_cugan": True,
+                "anime4k": False,
+            },
+            "failures": {},
+            "four_engine_fusion": {
+                "fusion_implemented": True,
+                "all_four_engine_pixels_contributed": True,
+                "output": str(fused),
+            },
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+
+    assert result["status"] == "gpu_runtime_unverified"
+    assert result["runtime_device_use_verified"] is False
+    assert result["per_engine_runtime_device_use_verified"]["anime4k"] is False
+    assert result["four_engine_fusion_output"] is None
+    assert result["v2_output_preserved"] is True
+    assert result["quality_certified"] is False
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+    assert baseline.read_bytes() == before

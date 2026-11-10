@@ -16,6 +16,7 @@ from tools.v211_four_engine_run import (
 )
 from tools.v211_four_engine_coordinator import run_candidates
 from tools.v211_four_engine_subprocess import ENGINES
+from tools import v211_four_engine_run as runner
 
 
 def _minimal_png_ihdr(width, height, color_type=2):
@@ -552,3 +553,67 @@ def test_runner_routes_200mp_seed_and_800mp_v2_header_to_disk_tiles_without_pill
     assert result["completed_engine_count"] == 0
     assert result["quality_certified"] is False
     assert (tmp_path / "large-run" / "four_engine_report.json").is_file()
+
+
+
+def test_real_engine_runner_withholds_fusion_without_runtime_gpu_proof(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "source.png"
+    reference = tmp_path / "accepted-v2.png"
+    output_dir = tmp_path / "out"
+    Image.new("RGB", (8, 8), (20, 80, 120)).save(source)
+    Image.new("RGB", (16, 16), (20, 80, 120)).save(reference)
+
+    commands = {
+        name: __import__(
+            "tools.v211_four_engine_subprocess", fromlist=["EngineCommand"]
+        ).EngineCommand(("fake-" + name,))
+        for name in ENGINES
+    }
+    monkeypatch.setattr(runner, "load_real_engine_manifest", lambda _path: commands)
+
+    def resize_processor(input_path, output_path):
+        with Image.open(input_path) as image:
+            metadata = {
+                key: image.info[key]
+                for key in ("icc_profile", "dpi")
+                if key in image.info
+            }
+            image.resize(
+                (image.width * 2, image.height * 2),
+                resample=Image.Resampling.NEAREST,
+            ).save(output_path, format="PNG", **metadata)
+
+    monkeypatch.setattr(
+        runner,
+        "make_processors",
+        lambda _commands, cancel_check=None, pre_launch_check=None,
+               execution_records=None, runtime_device_probe=None:
+            {name: resize_processor for name in ENGINES},
+    )
+    monkeypatch.setattr(
+        runner,
+        "fuse_four_engine_details",
+        lambda *args, **kwargs: pytest.fail(
+            "real-engine fusion must not run without verified runtime GPU use"
+        ),
+    )
+
+    result = runner.run(
+        source,
+        output_dir,
+        tmp_path / "verified-manifest.json",
+        (16, 16),
+        real_engines=True,
+        v2_reference=reference,
+    )
+
+    assert result["completed_engine_count"] == 4
+    assert result["runtime_device_use_verified"] is False
+    assert result["ready_for_fusion_research"] is False
+    assert result["fusion_block_reason"] == "gpu_runtime_unverified"
+    assert result["per_engine_runtime_device_use_verified"] == {
+        name: False for name in ENGINES
+    }
+    assert not (output_dir / "four_engine_fused_preview.png").exists()

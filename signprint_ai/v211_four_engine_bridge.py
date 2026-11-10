@@ -38,6 +38,41 @@ _FLAG = "NIYOMSIL_V211_FOUR_AI"
 _MANIFEST = "NIYOMSIL_V211_FOUR_AI_MANIFEST"
 _EVIDENCE = "NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR"
 
+_ENGINE_NAMES = ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
+
+
+def _all_four_runtime_devices_verified(result: dict) -> bool:
+    """Require live per-process proof for every native engine before QA export."""
+    if not isinstance(result, dict) or result.get("runtime_device_use_verified") is not True:
+        return False
+    per_engine = result.get("per_engine_runtime_device_use_verified")
+    return (
+        isinstance(per_engine, dict)
+        and set(per_engine) == set(_ENGINE_NAMES)
+        and all(per_engine.get(name) is True for name in _ENGINE_NAMES)
+    )
+
+
+def _gpu_runtime_unverified_result(result: dict) -> dict:
+    """Return a fail-closed status without exposing or retaining a QA sidecar."""
+    per_engine = result.get("per_engine_runtime_device_use_verified")
+    if not isinstance(per_engine, dict):
+        per_engine = {}
+    binding = result.get("device_binding")
+    binding = dict(binding) if isinstance(binding, dict) else {}
+    binding["runtime_device_use_verified"] = False
+    binding["per_engine_runtime_device_use_verified"] = per_engine
+    return {
+        "status": "gpu_runtime_unverified",
+        "reason": "all_four_native_processes_must_be_verified_on_the_selected_gtx_1660_ti",
+        "completed_engine_count": result.get("completed_engine_count", 0),
+        "runtime_device_use_verified": False,
+        "per_engine_runtime_device_use_verified": per_engine,
+        "device_binding": binding,
+        "v2_output_preserved": True,
+        "quality_certified": False,
+    }
+
 # This is an auxiliary-engine budget, NOT a V2 resize/export pixel limit.
 AUXILIARY_MAX_PIXELS = 18_000_000
 _AUXILIARY_MAX_PIXELS = AUXILIARY_MAX_PIXELS
@@ -420,6 +455,18 @@ def maybe_run_four_engine_assist(
             persistent_output_dir = True
             result, target_size, padded_size, source_size, metadata = execute(output_dir)
             fusion = result.get("four_engine_fusion") or {}
+            fusion_ready = bool(
+                fusion.get("fusion_implemented")
+                and fusion.get("all_four_engine_pixels_contributed")
+                and fusion.get("output")
+            )
+            if result.get("fusion_block_reason") == "gpu_runtime_unverified" or (
+                fusion_ready and not _all_four_runtime_devices_verified(result)
+            ):
+                # The evidence directory is explicitly local-only; discard the
+                # candidate images when GPU use cannot be tied to all four PIDs.
+                shutil.rmtree(output_dir, ignore_errors=True)
+                return _gpu_runtime_unverified_result(result)
             private_output = None
             if (fusion.get("fusion_implemented")
                     and fusion.get("all_four_engine_pixels_contributed")
@@ -442,6 +489,15 @@ def maybe_run_four_engine_assist(
                 if cancel and cancel():
                     raise InterruptedError("Processing stopped by user")
                 fusion = result.get("four_engine_fusion") or {}
+                fusion_ready = bool(
+                    fusion.get("fusion_implemented")
+                    and fusion.get("all_four_engine_pixels_contributed")
+                    and fusion.get("output")
+                )
+                if result.get("fusion_block_reason") == "gpu_runtime_unverified" or (
+                    fusion_ready and not _all_four_runtime_devices_verified(result)
+                ):
+                    return _gpu_runtime_unverified_result(result)
                 if (fusion.get("fusion_implemented")
                     and fusion.get("all_four_engine_pixels_contributed")
                     and fusion.get("output")):
@@ -473,6 +529,14 @@ def maybe_run_four_engine_assist(
                     priority_preview_path = str(candidate_preview)
         source_w, source_h = source_size
         target_w, target_h = target_size
+        runtime_verified = _all_four_runtime_devices_verified(result)
+        per_engine_runtime = result.get("per_engine_runtime_device_use_verified")
+        if not isinstance(per_engine_runtime, dict):
+            per_engine_runtime = {}
+        device_binding = result.get("device_binding")
+        device_binding = dict(device_binding) if isinstance(device_binding, dict) else {}
+        device_binding["runtime_device_use_verified"] = runtime_verified
+        device_binding["per_engine_runtime_device_use_verified"] = per_engine_runtime
         return {
             "status": (
                 "four_engine_fusion_preview_ready"
@@ -508,7 +572,9 @@ def maybe_run_four_engine_assist(
             "all_four_engine_pixels_contributed": bool(fusion.get("all_four_engine_pixels_contributed")),
             "engine_pixel_effect_pixels": fusion.get("engine_pixel_effect_pixels"),
             "engine_pixel_effect_verified": fusion.get("engine_pixel_effect_verified"),
-            "device_binding": result.get("device_binding"),
+            "runtime_device_use_verified": runtime_verified,
+            "per_engine_runtime_device_use_verified": per_engine_runtime,
+            "device_binding": device_binding,
             "quality_certified": False,
             "v2_output_preserved": True,
         }
