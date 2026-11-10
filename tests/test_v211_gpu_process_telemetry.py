@@ -269,3 +269,14 @@ def test_wddm_gpu_engine_activity_must_match_pid_and_have_positive_utilization()
         process_api_available=True, gpu_activity=one_sample,
     )
     assert insufficient_samples["verified"] is False
+
+
+def test_windows_gpu_engine_instance_parser_matches_exact_pid_tokens():
+    from tools.v211_gpu_process_telemetry import NvmlProcessProbe
+
+    assert NvmlProcessProbe._instance_matches_pid(
+        "pid_4321_luid_0x00000000_0x0000A1B2_phys_0_engtype_3D_0", 4321
+    )
+    assert NvmlProcessProbe._instance_matches_pid("pid_4321_engtype_Compute_0", 4321)
+    assert not NvmlProcessProbe._instance_matches_pid("pid_14321_engtype_3D_0", 4321)
+    assert not NvmlProcessProbe._instance_matches_pid("pid_43210_engtype_3D_0", 4321)
