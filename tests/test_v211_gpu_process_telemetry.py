@@ -178,6 +178,8 @@ def test_wddm_pid_with_unavailable_nvml_memory_requires_live_gpu_engine_activity
         "counter_count": 3,
         "active_sample_count": 1,
         "max_utilization_percent": 4.25,
+        "adapter_luid": "0x00000000_0x0000e7f7",
+        "target_adapter_luid": "0x00000000_0x0000e7f7",
     }
     result = evaluate_pid_observations(
         4321,
@@ -224,6 +226,8 @@ def test_wddm_pid_without_active_gpu_engine_sample_fails_closed():
             "counter_count": 2,
             "active_sample_count": 0,
             "max_utilization_percent": 0.0,
+            "adapter_luid": "0x00000000_0x0000e7f7",
+            "target_adapter_luid": "0x00000000_0x0000e7f7",
         },
     )
 
@@ -263,12 +267,27 @@ def test_wddm_gpu_engine_activity_must_match_pid_and_have_positive_utilization()
     )
     assert no_work["verified"] is False
 
-    one_sample = dict(base, pid=4321, sample_count=1)
+    one_sample = dict(
+        base, pid=4321, sample_count=1,
+        adapter_luid="0x00000000_0x0000e7f7",
+        target_adapter_luid="0x00000000_0x0000e7f7",
+    )
     insufficient_samples = evaluate_pid_observations(
         4321, "gtx 1660 ti", devices,
         process_api_available=True, gpu_activity=one_sample,
     )
     assert insufficient_samples["verified"] is False
+
+    wrong_adapter = dict(
+        base, pid=4321,
+        adapter_luid="0x00000000_0x0000e7f7",
+        target_adapter_luid="0x00000000_0x0000f1a1",
+    )
+    adapter_mismatch = evaluate_pid_observations(
+        4321, "gtx 1660 ti", devices,
+        process_api_available=True, gpu_activity=wrong_adapter,
+    )
+    assert adapter_mismatch["verified"] is False
 
 
 def test_windows_gpu_engine_instance_parser_matches_exact_pid_tokens():
@@ -293,3 +312,13 @@ def test_nvml_process_info_v1_v2_v3_use_version_correct_struct_sizes():
     assert ctypes.sizeof(_ProcessInfoV1) == 16
     assert ctypes.sizeof(_ProcessInfoV2) == 24
     assert ctypes.sizeof(_ProcessInfoV3) == 24
+
+
+def test_gpu_engine_luid_parser_uses_high_low_order_and_rejects_missing_luid():
+    from tools.v211_gpu_process_telemetry import NvmlProcessProbe
+
+    instance = "pid_4321_luid_0x00000000_0x0000e7f7_phys_0_eng_0_engtype_3d"
+    assert NvmlProcessProbe._parse_gpu_engine_luid(instance) == (0, 0xE7F7)
+    assert NvmlProcessProbe._parse_gpu_engine_luid(
+        "pid_4321_engtype_3d_0"
+    ) is None
