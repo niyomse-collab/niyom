@@ -996,6 +996,7 @@ def _runtime_verified_runner(manifest, source, output, *, timeout_seconds):
             "runtime_device_use_verified": True,
             "runtime_device_telemetry": {
                 "runtime_device_probe_status": "verified",
+                "runtime_device_probe_conflict": False,
                 "runtime_device_process_count": 1,
                 "runtime_device_verified_process_count": 1,
                 "runtime_device_all_processes_verified": True,
@@ -1025,6 +1026,7 @@ def _runtime_verified_bridge_runner(source, baseline, *, use_ai, resize_mode):
             "runtime_device_all_processes_verified": True,
             "runtime_device_sample_count": 2,
             "runtime_device_probe_status": "verified",
+            "runtime_device_probe_conflict": False,
             "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
             "runtime_adapter_index": 0,
             "runtime_adapter_backend_apis": ["graphics"],
