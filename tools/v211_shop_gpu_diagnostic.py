@@ -610,6 +610,8 @@ def _runtime_device_evidence_verified(flag: object, telemetry: object) -> bool:
         minimum_samples = telemetry.get("runtime_gpu_engine_min_sample_count")
         minimum_active = telemetry.get("runtime_gpu_engine_min_active_sample_count")
         maximum_utilization = telemetry.get("runtime_gpu_engine_max_utilization_percent")
+        luid_match = telemetry.get("runtime_gpu_engine_adapter_luid_match")
+        adapter_luid = telemetry.get("runtime_gpu_engine_adapter_luid")
         if not (
             isinstance(minimum_samples, int) and not isinstance(minimum_samples, bool)
             and minimum_samples >= 2
@@ -619,6 +621,14 @@ def _runtime_device_evidence_verified(flag: object, telemetry: object) -> bool:
             and not isinstance(maximum_utilization, bool)
             and math.isfinite(float(maximum_utilization))
             and float(maximum_utilization) > 0.0
+            and luid_match is True
+            and isinstance(adapter_luid, str)
+            and len(adapter_luid) == 21
+            and adapter_luid[:2] == "0x"
+            and adapter_luid[10:13] == "_0x"
+            and all(ch in "0123456789abcdef" for ch in (
+                adapter_luid[2:10] + adapter_luid[13:21]
+            ))
         ):
             return False
     return True
@@ -863,6 +873,12 @@ def _run_bridge_integration_case(
                 ),
                 "runtime_gpu_engine_max_utilization_percent": process.get(
                     "runtime_gpu_engine_max_utilization_percent"
+                ),
+                "runtime_gpu_engine_adapter_luid_match": process.get(
+                    "runtime_gpu_engine_adapter_luid_match"
+                ),
+                "runtime_gpu_engine_adapter_luid": process.get(
+                    "runtime_gpu_engine_adapter_luid"
                 ),
                 "runtime_device_probe_status": process.get("runtime_device_probe_status"),
                 "runtime_device_probe_conflict": process.get("runtime_device_probe_conflict"),
