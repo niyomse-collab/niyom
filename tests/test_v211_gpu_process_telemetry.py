@@ -357,3 +357,33 @@ def test_wddm_target_luid_requires_one_matching_nvidia_dxgi_adapter(monkeypatch)
     )
     assert probe._target_dxgi_luid() is None
     assert probe._dxgi_status == "target_dxgi_adapter_not_unique"
+
+
+def test_wddm_gpu_engine_activity_rejects_malformed_luid_even_when_strings_match():
+    activity = {
+        "available": True,
+        "verified": True,
+        "status": "gpu_engine_activity_observed",
+        "source": "windows_gpu_engine_pdh",
+        "pid": 4321,
+        "sample_count": 2,
+        "counter_count": 1,
+        "active_sample_count": 1,
+        "max_utilization_percent": 1.0,
+        "adapter_luid": "gtx-1660-ti",
+        "target_adapter_luid": "gtx-1660-ti",
+    }
+    result = evaluate_pid_observations(
+        4321,
+        "gtx 1660 ti",
+        [
+            _device(
+                0,
+                "NVIDIA GeForce GTX 1660 Ti",
+                graphics=[{"pid": 4321, "used_gpu_memory_bytes": None}],
+            )
+        ],
+        process_api_available=True,
+        gpu_activity=activity,
+    )
+    assert result["verified"] is False
