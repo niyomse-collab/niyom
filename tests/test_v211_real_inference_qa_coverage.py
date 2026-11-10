@@ -8,11 +8,12 @@ from tools import v211_four_engine_real_inference_qa as qa
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand
 
 
-def _source(tmp_path, rgba=False):
+def _source(tmp_path, rgba=False, *, dpi=True):
     src = tmp_path / "artwork.png"
     mode = "RGBA" if rgba else "RGB"
     color = (20, 80, 120, 97) if rgba else (20, 80, 120)
-    Image.new(mode, (24, 16), color).save(src, dpi=(300, 300))
+    options = {"dpi": (300, 300)} if dpi else {}
+    Image.new(mode, (24, 16), color).save(src, **options)
     return src
 
 
@@ -205,3 +206,45 @@ def test_non_vulkan_native_failure_remains_a_candidate_failure(tmp_path, monkeyp
     )
     assert result["failures"]["waifu2x"]["error_class"] == "subprocess_or_candidate_failure"
     assert "retry_on_vulkan_capable_host" not in result["failures"]["waifu2x"]
+
+@pytest.mark.parametrize("mutation", ("invent_alpha", "invent_icc", "invent_dpi"))
+def test_native_qa_rejects_engine_added_mode_or_metadata(tmp_path, monkeypatch, mutation):
+    calls = []
+
+    def factory(_manifest, *, execution_records=None):
+        mapping = {}
+        for name in ENGINES:
+            def candidate(source, destination, *, engine=name):
+                calls.append(engine)
+                with Image.open(source) as image:
+                    output = image.resize(
+                        (image.width * 2, image.height * 2),
+                        Image.Resampling.LANCZOS,
+                    )
+                    options = {}
+                    if mutation == "invent_alpha":
+                        output = output.convert("RGBA")
+                    elif mutation == "invent_icc":
+                        options["icc_profile"] = b"unexpected-profile"
+                    elif mutation == "invent_dpi":
+                        options["dpi"] = (300, 300)
+                    output.save(destination, **options)
+            mapping[name] = candidate
+        return mapping
+
+    monkeypatch.setattr(
+        qa, "load_real_engine_manifest", lambda *_: {"test": "fake manifest"}
+    )
+    monkeypatch.setattr(qa, "make_processors", factory)
+    result = qa.run(
+        tmp_path / "manifest.json",
+        _source(tmp_path, dpi=False),
+        tmp_path / ("metadata-" + mutation),
+    )
+
+    assert calls == list(ENGINES)
+    assert result["real_inference_verified"] is False
+    assert result["completed_engine_count"] == 0
+    assert set(result["failures"]) == set(ENGINES)
+    assert all(item["error_type"] == "ValueError" for item in result["failures"].values())
+\n
