@@ -2,9 +2,9 @@
 
 A live native PID must be visible on the unique requested NVIDIA adapter and
 must have either non-zero NVML process memory or matching active Windows GPU
-Engine counters when WDDM reports NVML memory as unavailable. This does not
-certify image quality, throughput, or that every instruction executed on GPU.
-Unavailable/unsupported process accounting remains unverified.
+Engine counters whose DXGI LUID equals the target adapter when WDDM reports
+NVML memory as unavailable. This does not certify image quality, throughput,
+or that every instruction executed on GPU. Unsupported accounting is unverified.
 """
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ PDH_FMT_DOUBLE = 0x00000200
 PDH_CSTATUS_VALID_DATA = 0
 PDH_CSTATUS_NEW_DATA = 1
 PERF_DETAIL_WIZARD = 400
+PDH_REFRESHCOUNTERS = 0x00000001
 
 
 class _PdhValueUnion(ctypes.Union):
@@ -629,7 +630,7 @@ class NvmlProcessProbe:
         instance_size = ctypes.c_uint(0)
         status = int(enum_items(
             None, None, object_name, None, ctypes.byref(counter_size),
-            None, ctypes.byref(instance_size), PERF_DETAIL_WIZARD, 0,
+            None, ctypes.byref(instance_size), PERF_DETAIL_WIZARD, PDH_REFRESHCOUNTERS,
         ))
         if status not in (PDH_MORE_DATA, PDH_SUCCESS) or instance_size.value < 2:
             return []
@@ -638,7 +639,7 @@ class NvmlProcessProbe:
             instance_buffer = ctypes.create_unicode_buffer(max(1, instance_size.value))
             status = int(enum_items(
                 None, None, object_name, counter_buffer, ctypes.byref(counter_size),
-                instance_buffer, ctypes.byref(instance_size), PERF_DETAIL_WIZARD, 0,
+                instance_buffer, ctypes.byref(instance_size), PERF_DETAIL_WIZARD, PDH_REFRESHCOUNTERS,
             ))
             if status == PDH_SUCCESS:
                 raw = ctypes.wstring_at(
