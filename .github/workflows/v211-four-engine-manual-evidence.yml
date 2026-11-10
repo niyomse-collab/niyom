@@ -152,8 +152,45 @@ jobs:
               $minSamples = [int]$detail.runtime_gpu_engine_min_sample_count
               $minActive = [int]$detail.runtime_gpu_engine_min_active_sample_count
               $maxUtilization = [double]$detail.runtime_gpu_engine_max_utilization_percent
-              if ($minSamples -lt 2 -or $minActive -lt 1 -or $maxUtilization -le 0) {
-                throw ('WDDM GPU Engine activity is not verified for every WDDM child process: ' + $engine)
+              $luidMatch = $detail.runtime_gpu_engine_adapter_luid_match
+              $adapterLuid = [string]$detail.runtime_gpu_engine_adapter_luid
+              if ($minSamples -lt 2 -or $minActive -lt 1 -or $maxUtilization -le 0 -or
+                  $luidMatch -ne $true -or
+                  $adapterLuid -notmatch '^0x[0-9a-fA-F]{8}_0x[0-9a-fA-F]{8}
+            }
+          }
+          if ($report.bridge_integration.runtime_device_use_verified -ne $true) {
+            throw 'End-to-end bridge did not verify runtime physical-adapter use.'
+          }
+          if ($report.customer_artwork_used -ne $false -or $report.network_accessed -ne $false -or $report.uploads_performed -ne $false -or $report.images_retained -ne $false) {
+            throw 'Privacy invariant failed: customer imagery, network, upload or retained test images were reported.'
+          }
+          if ($report.quality_improvement_verified -ne $false -or $report.visual_quality_certified -ne $false -or $report.print_quality_certified -ne $false) {
+            throw 'Synthetic GPU evidence must never certify visual or print quality.'
+          }
+          if ($report.bridge_integration.passed -ne $true -or $report.bridge_integration.device_binding_configured -ne $true -or $report.bridge_integration.pre_launch_vram_checks_passed -ne $true) {
+            throw 'End-to-end bridge/fusion, device binding or per-process VRAM preflight did not pass.'
+          }
+          Write-Output 'PASS: all four native processes have per-engine physical-adapter telemetry on the selected GTX 1660 Ti. Synthetic evidence still does not certify visual or print quality.'
+
+      - name: Upload JSON evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v211-shop-gpu-json-evidence
+          path: |
+            v211-shop-evidence/build_identity.json
+            v211-shop-evidence/shop_gpu_diagnostic.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove local evidence workspace
+        if: always()
+        run: |
+          $path = Join-Path $env:GITHUB_WORKSPACE 'v211-shop-evidence'
+          if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
+) {
+                throw ('WDDM GPU Engine activity or target DXGI LUID is not verified for every WDDM child process: ' + $engine)
               }
             }
           }
