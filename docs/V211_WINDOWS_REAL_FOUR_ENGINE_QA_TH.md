@@ -237,18 +237,20 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "ไม่พบ�
 เมื่อเพิ่ม telemetry จริงแล้ว ต้องทดสอบทั้งกรณีพบ process บน GTX 1660 Ti และกรณีไม่พบ/อ่านไม่ได้ โดยกรณีหลังต้อง fail-closed. แม้ Runtime GPU Acceptance ผ่าน ก็ยังไม่ใช่ A/B ภาพคน/สัตว์/งานป้ายจริง และไม่รับรองคุณภาพเหนือ V2; `quality_improvement_verified`, `visual_quality_certified` และ `print_quality_certified` ยังคงเป็น false.
 
 
-## GitHub Actions: shop-PC GPU evidence (optional)
+## GitHub Actions: shop-PC GPU evidence (pre-merge, optional)
 
-The manual evidence workflow is prepared as a **self-hosted-only, post-merge workflow**. It must not run on `windows-latest`, because a hosted runner cannot prove the shop GTX 1660 Ti Vulkan path. GitHub exposes `workflow_dispatch` only when the workflow file exists on the repository default branch; this file is currently only in Draft PR #20, so it is not dispatchable yet. Because PR #20 must remain unmerged, use the local PowerShell diagnostic above for the current shop-PC test.
+The shop evidence workflow remains **self-hosted-only** and never falls back to `windows-latest`. GitHub's `workflow_dispatch` limitation still applies while the file exists only in Draft PR #20, so this branch now also has a narrowly scoped `push` trigger. The push job is skipped unless the commit message contains an explicit consent marker with the exact installed candidate source SHA.
 
 - Register a dedicated Windows 11 shop-PC runner in the repository's **Settings → Actions → Runners** and add the custom label `niyom-shop-gpu`. Use a dedicated Windows account with only the permissions needed for this QA; do not expose unrelated secrets to a self-hosted runner.
-- In that same Windows account, install the current V2.1.1 Experimental candidate whose installed `BUILD_PROOF.txt` source commit matches the PR #20 branch HEAD, and complete the one-time consented installation of all four verified engine packages.
-- After the workflow file has been approved and is present on the repository default branch, dispatch `V2.1.1 shop GPU evidence gate (manual, self-hosted)` from `work/v211-four-engine-v2-bridge-20261103` and explicitly choose `yes`. The default is `no`; the job is skipped unless the branch and confirmation both match. Until then, run the local command above; do not merge PR #20 merely to enable this workflow.
-- The workflow resolves the per-user Inno Setup installation, checks the installed executable's build proof against the workflow commit, uses only `%LOCALAPPDATA%\\NiyomSilp\\V211-FourAI-QA\\manifest.json`, and invokes the packaged `--diagnose-v211-four-ai` command. It generates its own synthetic RGB/RGBA test inputs.
+- Install the Experimental candidate built from source commit **X** and confirm the installed `BUILD_PROOF.txt` records that full 40-character SHA. Complete the one-time affirmative-consent installation of all four verified engine packages in the same Windows account.
+- Only after that installation, make a **documentation-only** commit to this QA document on the PR #20 branch. Include this exact marker in the commit message, replacing X with the installed candidate's full SHA: `[shop-gpu-evidence yes candidate=X]`. The word `yes` is the explicit authorization to run the synthetic-only GPU diagnostic.
+- The workflow checks that X is an ancestor of the trigger commit, that the only changes since X are to this QA document, and that the installed `BUILD_PROOF.txt` matches X. Any intervening source/workflow/test change fails closed; install the newer candidate before retrying.
+- The workflow resolves the per-user Inno Setup installation, uses only `%LOCALAPPDATA%\\NiyomSilp\\V211-FourAI-QA\\manifest.json`, and invokes the packaged `--diagnose-v211-four-ai` command. It generates its own synthetic RGB/RGBA test inputs.
 - The uploaded artifact contains only `build_identity.json` and `shop_gpu_diagnostic.json`. Synthetic images, native executables, model weights, ZIP archives and customer artwork are not uploaded.
+- The `workflow_dispatch` path remains available only if this workflow is later present on the repository default branch; it requires both `confirm_shop_gpu=yes` and the candidate's full source SHA. **Do not merge PR #20 merely to enable dispatch.**
 - If a self-hosted runner is not registered, use the one-command local PowerShell diagnostic above instead; do not dispatch this job to a GitHub-hosted runner.
 
-The workflow additionally requires top-level and per-engine `runtime_device_use_verified=true` plus `shop_gpu_acceptance_passed=true`. The current diagnostic deliberately reports these as false until reliable per-process physical-adapter telemetry is implemented, so the shop evidence gate must fail closed even when CLI output, configured indexes and fusion pass. No synthetic report certifies visual improvement, face identity or print quality.
+The job still requires top-level and per-engine `runtime_device_use_verified=true` plus `shop_gpu_acceptance_passed=true`. It fails closed on any missing/ambiguous process-to-adapter telemetry. Synthetic evidence never certifies visual improvement, face identity or print quality. This workflow change itself has no consent marker and will not start a shop-PC job.
 
 
 ## 10 พฤศจิกายน 2569 — live NVML PID-to-adapter telemetry (fail-closed)
