@@ -248,3 +248,42 @@ def test_native_qa_rejects_engine_added_mode_or_metadata(tmp_path, monkeypatch, 
     assert set(result["failures"]) == set(ENGINES)
     assert all(item["error_type"] == "ValueError" for item in result["failures"].values())
 \n
+
+def test_native_qa_accepts_absent_icc_and_dpi_when_output_also_absent(
+    tmp_path, monkeypatch
+):
+    calls = []
+
+    def factory(_manifest, *, execution_records=None):
+        mapping = {}
+        for name in ENGINES:
+            def candidate(source, destination, *, engine=name):
+                calls.append(engine)
+                with Image.open(source) as image:
+                    image.resize(
+                        (image.width * 2, image.height * 2),
+                        Image.Resampling.LANCZOS,
+                    ).save(destination)
+            mapping[name] = candidate
+        return mapping
+
+    monkeypatch.setattr(
+        qa, "load_real_engine_manifest", lambda *_: {"test": "fake manifest"}
+    )
+    monkeypatch.setattr(qa, "make_processors", factory)
+    source = _source(tmp_path, dpi=False)
+    result = qa.run(
+        tmp_path / "manifest.json", source, tmp_path / "no-source-metadata"
+    )
+
+    assert calls == list(ENGINES)
+    assert result["real_inference_verified"] is True
+    assert result["completed_engine_count"] == 4
+    assert not result["failures"]
+    for engine in ENGINES:
+        assert result["engines"][engine]["icc_preserved"] is True
+        assert result["engines"][engine]["dpi_preserved"] is True
+        with Image.open(tmp_path / "no-source-metadata" / f"{engine}.png") as output:
+            assert output.info.get("icc_profile") is None
+            assert output.info.get("dpi") is None
+
