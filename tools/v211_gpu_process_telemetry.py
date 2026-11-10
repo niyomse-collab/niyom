@@ -178,6 +178,8 @@ class _ProcessInfoV3(ctypes.Structure):
 
 def _valid_wddm_gpu_activity(pid: int, activity: object) -> bool:
     """Validate a two-sample Windows GPU Engine activity observation."""
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return False
     if not isinstance(activity, dict):
         return False
     samples = activity.get("sample_count")
@@ -185,22 +187,31 @@ def _valid_wddm_gpu_activity(pid: int, activity: object) -> bool:
     counters = activity.get("counter_count")
     observed_pid = activity.get("pid")
     utilization = activity.get("max_utilization_percent")
+    adapter_luid = activity.get("adapter_luid")
+    target_adapter_luid = activity.get("target_adapter_luid")
     return bool(
         activity.get("available") is True
         and activity.get("verified") is True
         and activity.get("source") == "windows_gpu_engine_pdh"
+        and isinstance(observed_pid, int) and not isinstance(observed_pid, bool)
         and observed_pid == pid
-        and isinstance(activity.get("adapter_luid"), str)
+        and isinstance(adapter_luid, str)
         and re.fullmatch(
             r"0x[0-9a-f]{8}_0x[0-9a-f]{8}",
-            activity.get("adapter_luid", ""), re.IGNORECASE,
+            adapter_luid, re.IGNORECASE,
         ) is not None
-        and activity.get("adapter_luid") == activity.get("target_adapter_luid")
+        and isinstance(target_adapter_luid, str)
+        and re.fullmatch(
+            r"0x[0-9a-f]{8}_0x[0-9a-f]{8}",
+            target_adapter_luid, re.IGNORECASE,
+        ) is not None
+        and adapter_luid.casefold() == target_adapter_luid.casefold()
         and isinstance(samples, int) and not isinstance(samples, bool) and samples >= 2
-        and isinstance(active_samples, int) and not isinstance(active_samples, bool) and active_samples >= 1
+        and isinstance(active_samples, int) and not isinstance(active_samples, bool)
+        and 1 <= active_samples <= samples
         and isinstance(counters, int) and not isinstance(counters, bool) and counters >= 1
         and isinstance(utilization, (int, float)) and not isinstance(utilization, bool)
-        and math.isfinite(float(utilization)) and float(utilization) > 0.0
+        and math.isfinite(float(utilization)) and 0.0 < float(utilization) <= 100.0
     )
 
 
@@ -754,6 +765,7 @@ class NvmlProcessProbe:
             "query": query,
             "counters": counters,
             "sample_count": 1,
+            "active_sample_count": 0,
             "counter_count": len(counters),
             "target_adapter_luid": target_luid_text,
         }
@@ -819,6 +831,9 @@ class NvmlProcessProbe:
                 active += 1
                 maximum = max(maximum, utilization)
         if active:
+            session["active_sample_count"] = int(
+                session.get("active_sample_count", 0)
+            ) + 1
             return {
                 "available": True,
                 "verified": True,
@@ -827,7 +842,7 @@ class NvmlProcessProbe:
                 "pid": pid,
                 "sample_count": session["sample_count"],
                 "counter_count": session["counter_count"],
-                "active_sample_count": active,
+                "active_sample_count": session["active_sample_count"],
                 "max_utilization_percent": maximum,
                 "adapter_luid": session["target_adapter_luid"],
                 "target_adapter_luid": session["target_adapter_luid"],
@@ -840,7 +855,7 @@ class NvmlProcessProbe:
             "pid": pid,
             "sample_count": session["sample_count"],
             "counter_count": session["counter_count"],
-            "active_sample_count": 0,
+            "active_sample_count": int(session.get("active_sample_count", 0)),
             "max_utilization_percent": 0.0,
             "adapter_luid": session["target_adapter_luid"],
             "target_adapter_luid": session["target_adapter_luid"],
