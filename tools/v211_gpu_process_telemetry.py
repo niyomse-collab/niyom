@@ -474,7 +474,7 @@ class NvmlProcessProbe:
         try:
             import winreg
             key_path = (
-                r"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Perflib\\009"
+                r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Perflib\009"
             )
             with winreg.OpenKey(
                 winreg.HKEY_LOCAL_MACHINE, key_path, 0,
@@ -521,14 +521,14 @@ class NvmlProcessProbe:
                 raw = ctypes.wstring_at(
                     ctypes.addressof(instance_buffer), max(1, instance_size.value)
                 )
-                return [item for item in raw.split("\\0") if item]
+                return [item for item in raw.split("\0") if item]
             if status != PDH_MORE_DATA:
                 return []
         return []
 
     @staticmethod
     def _instance_matches_pid(instance: str, pid: int) -> bool:
-        match = re.search(r"(?:^|_)pid_(\\d+)(?:_|$)", str(instance), re.IGNORECASE)
+        match = re.search(r"(?:^|_)pid_(\d+)(?:_|$)", str(instance), re.IGNORECASE)
         return bool(match and int(match.group(1)) == pid)
 
     def _create_pdh_session(self, pid: int) -> dict[str, Any] | None:
@@ -544,7 +544,7 @@ class NvmlProcessProbe:
         for object_name in dict.fromkeys(object_names):
             for instance in self._enumerate_pdh_instances(object_name):
                 if self._instance_matches_pid(instance, pid):
-                    paths.append(f"\\\\{object_name}({instance})\\\\{counter_name}")
+                    paths.append(f"\\{object_name}({instance})\\{counter_name}")
                     instances.append(instance)
         if not paths:
             return None
