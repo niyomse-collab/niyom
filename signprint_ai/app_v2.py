@@ -27,6 +27,7 @@ from .v2_output import output_folder as v2_output_folder, output_path as v2_outp
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
+from .v211_ui_status import four_engine_ui_status
 
 APP_NAME = "NiyomSilp Design"
 from .v21_brand import release_label
@@ -1685,17 +1686,23 @@ class App(tk.Tk):
                     if face_warnings:
                         face_text = f" • Face QA เตือน {len(face_warnings)}"
 
+                    four_ai = result.get("four_engine_research") or {}
+                    ai_ui_status = four_engine_ui_status(four_ai.get("status"))
+
                     if self.tree.exists(str(idx)):
                         vals = list(self.tree.item(str(idx), "values"))
                         while len(vals) < 6:
                             vals.append("")
-                        vals[5] = "สำเร็จ" + face_text
+                        row_status = ai_ui_status["row"] if ai_ui_status else "สำเร็จ"
+                        vals[5] = str(row_status) + face_text
                         self.tree.item(str(idx), values=vals)
 
                     if idx == self.current_index:
-                        four_ai = result.get("four_engine_research") or {}
                         qa_file = four_ai.get("four_engine_fusion_output")
-                        show_ai_preview = bool(qa_file and Path(qa_file).is_file())
+                        show_ai_preview = bool(
+                            qa_file and Path(qa_file).is_file()
+                            and (ai_ui_status is None or ai_ui_status.get("allow_preview") is True)
+                        )
                         # Display the real combined four-AI pixels on the right
                         # only after all candidate processes and fusion succeed.
                         # The saved V2 print export remains at the chosen path.
@@ -1706,6 +1713,8 @@ class App(tk.Tk):
                                 caption += " • QA ยังไม่ครบ 4 ตัว: มี Engine ที่ไม่เปลี่ยนพิกเซลผลลัพธ์ • ไฟล์ V2 เดิมยังอยู่"
                             else:
                                 caption += " • ตัวอย่าง AI 4 ตัวมีผลต่อพิกเซลแล้ว (QA) • ไฟล์ V2 เดิมยังอยู่ ไม่ใช่ผลรับรองคุณภาพ"
+                        elif ai_ui_status is not None:
+                            caption += " • " + str(ai_ui_status["caption"])
                         elif four_ai.get("status") == "four_engine_applied_to_v2_raster":
                             caption += " • AI 4 ตัวเสริมผลลัพธ์แล้ว (ยังไม่รับรองคุณภาพ)"
                         elif four_ai.get("status") == "models_not_installed":
