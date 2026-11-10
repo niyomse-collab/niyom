@@ -1105,6 +1105,8 @@ def test_runtime_evidence_accepts_wddm_only_with_per_process_gpu_engine_activity
         "runtime_gpu_engine_min_sample_count": 2,
         "runtime_gpu_engine_min_active_sample_count": 1,
         "runtime_gpu_engine_max_utilization_percent": 3.5,
+        "runtime_gpu_engine_adapter_luid_match": True,
+        "runtime_gpu_engine_adapter_luid": "0x00000000_0x0000e7f7",
         "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
         "runtime_adapter_index": 0,
         "runtime_adapter_backend_apis": ["graphics", "compute"],
@@ -1121,4 +1123,8 @@ def test_runtime_evidence_accepts_wddm_only_with_per_process_gpu_engine_activity
 
     telemetry["runtime_gpu_engine_min_active_sample_count"] = 1
     telemetry["runtime_device_wddm_pdh_verified_process_count"] = 1
+    assert diagnostic._runtime_device_evidence_verified(True, telemetry) is False
+
+    telemetry["runtime_device_wddm_pdh_verified_process_count"] = 2
+    telemetry["runtime_gpu_engine_adapter_luid_match"] = False
     assert diagnostic._runtime_device_evidence_verified(True, telemetry) is False
