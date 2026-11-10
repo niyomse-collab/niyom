@@ -210,10 +210,10 @@ def run(
         with Image.open(source) as img:
             source_size = img.size
             source_mode = img.mode
-            if source_mode not in ("RGB", "RGBA"):
-                raise ValueError("source must be an 8-bit RGB/RGBA PNG for native engine QA")
             if "transparency" in img.info and "A" not in img.getbands():
                 raise ValueError("palette/tRNS PNG transparency requires RGBA conversion before QA")
+            if source_mode not in ("RGB", "RGBA"):
+                raise ValueError("source must be an 8-bit RGB/RGBA PNG for native engine QA")
             source_alpha = source_mode == "RGBA"
             source_icc = img.info.get("icc_profile")
             source_dpi = img.info.get("dpi")
