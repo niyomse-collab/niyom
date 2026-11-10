@@ -264,5 +264,7 @@ The workflow additionally requires top-level and per-engine `runtime_device_use_
 อ้างอิง:
 - NVIDIA NVML: [nvmlProcessInfo_v1_t](https://docs.nvidia.com/deploy/nvml-api/latest/structnvmlProcessInfo__v1__t.html) — `usedGpuMemory` เป็น `NVML_VALUE_NOT_AVAILABLE` ภายใต้ WDDM
 - Microsoft PDH: [PdhEnumObjectItemsW](https://learn.microsoft.com/en-us/windows/win32/api/pdh/nf-pdh-pdhenumobjectitemsw) และ [PdhAddCounterW](https://learn.microsoft.com/en-us/windows/win32/api/pdh/nf-pdh-pdhaddcounterw)
-- เพิ่ม Regression สำหรับ target mismatch, adapter ambiguity, memory unavailable, PID ไม่ปรากฏ และ tiled child process ที่มีเพียงบาง process ผ่าน. Frozen spec และ Windows Candidate CI รวม module/test ใหม่แล้ว
+- แยก ctypes layouts ของ NVML process-info v1/v2/v3 ให้ตรงกับ ABI ของแต่ละ function (v1 = PID/memory; v2/v3 เพิ่ม GPU/compute instance IDs) และเพิ่ม Regression ขนาด struct 16/24/24 bytes เพื่อป้องกัน v2 API เขียนข้อมูลเกิน buffer ของ v1
+- เพิ่มตำแหน่งค้นหา `nvml.dll` ของ Windows Standard Driver ที่ `Program Files\\NVIDIA Corporation\\NVSMI` นอกเหนือจาก DLL search path และ `System32`
+- เพิ่ม Regression สำหรับ target mismatch, adapter ambiguity, memory unavailable, PID ไม่ปรากฏ, WDDM PID ที่ไม่มี PDH activity, PID mismatch ใน counter instance และ tiled child process ที่มีเพียงบาง process ผ่าน. Frozen spec และ Windows Candidate CI รวม module/test ใหม่แล้ว
 - ไม่มีการแก้ V1, V2 Stable, GFPGAN, accepted V2 output, installer model payload หรือ model weights; ไม่เพิ่ม network access และไม่อัปโหลดภาพ
