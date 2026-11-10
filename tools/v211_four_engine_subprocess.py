@@ -127,7 +127,16 @@ def make_processors(
             if previous_wddm_pdh_count == 0:
                 previous_gpu_luid_match = False
                 previous_gpu_luid = None
-            elif previous_gpu_luid_match is not True or not isinstance(previous_gpu_luid, str):
+            elif not (
+                previous_gpu_luid_match is True
+                and isinstance(previous_gpu_luid, str)
+                and len(previous_gpu_luid) == 21
+                and previous_gpu_luid[:2] == "0x"
+                and previous_gpu_luid[10:13] == "_0x"
+                and all(ch in "0123456789abcdef" for ch in (
+                    previous_gpu_luid[2:10] + previous_gpu_luid[13:21]
+                ))
+            ):
                 previous_gpu_luid_match = False
                 previous_gpu_luid = None
             for value_name, value in (
@@ -172,6 +181,8 @@ def make_processors(
             )
             if not isinstance(previous_runtime_all_verified, bool):
                 previous_runtime_all_verified = previous_runtime_process_count == 0
+            if previous_wddm_pdh_count > 0 and previous_gpu_luid_match is not True:
+                previous_runtime_all_verified = False
             record = {
                 "status": "not_started",
                 "process_started": False,
@@ -296,9 +307,12 @@ def make_processors(
                         evidence_source == "nvml_pid_plus_windows_gpu_engine_pdh"
                         and gpu_luid_match is True
                         and isinstance(gpu_luid, str)
-                        and len(gpu_luid) == 19
-                        and gpu_luid.startswith("0x")
-                        and gpu_luid[10:12] == "_0"
+                        and len(gpu_luid) == 21
+                        and gpu_luid[:2] == "0x"
+                        and gpu_luid[10:13] == "_0x"
+                        and all(ch in "0123456789abcdef" for ch in (
+                            gpu_luid[2:10] + gpu_luid[13:21]
+                        ))
                     ):
                         runtime_gpu_engine_luid_match_this_process = True
                         runtime_gpu_engine_luid_this_process = gpu_luid.lower()
