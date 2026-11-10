@@ -324,3 +324,34 @@ def test_gpu_engine_luid_parser_uses_high_low_order_and_rejects_missing_luid():
     assert NvmlProcessProbe._parse_gpu_engine_luid(
         "pid_4321_engtype_3d_0"
     ) is None
+
+
+def test_wddm_target_luid_requires_one_matching_nvidia_dxgi_adapter(monkeypatch):
+    from tools import v211_gpu_process_telemetry as telemetry
+
+    probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+    probe.target_name = "gtx 1660 ti"
+    probe._dxgi_adapters = None
+    probe._dxgi_status = "not_initialized"
+    adapters = [
+        {
+            "description": "NVIDIA GeForce GTX 1660 Ti",
+            "vendor_id": 0x10DE,
+            "luid": (0, 0xE7F7),
+        },
+        {
+            "description": "Intel UHD Graphics",
+            "vendor_id": 0x8086,
+            "luid": (0, 0x1100A),
+        },
+    ]
+    monkeypatch.setattr(telemetry, "_enumerate_dxgi_adapters", lambda: adapters)
+    assert probe._target_dxgi_luid() == (0, 0xE7F7)
+
+    probe._dxgi_adapters = None
+    monkeypatch.setattr(
+        telemetry, "_enumerate_dxgi_adapters",
+        lambda: adapters + [dict(adapters[0], luid=(0, 0xF1A1))],
+    )
+    assert probe._target_dxgi_luid() is None
+    assert probe._dxgi_status == "target_dxgi_adapter_not_unique"
