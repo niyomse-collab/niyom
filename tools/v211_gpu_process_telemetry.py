@@ -189,7 +189,10 @@ def _valid_wddm_gpu_activity(pid: int, activity: object) -> bool:
         and activity.get("source") == "windows_gpu_engine_pdh"
         and observed_pid == pid
         and isinstance(activity.get("adapter_luid"), str)
-        and bool(activity.get("adapter_luid"))
+        and re.fullmatch(
+            r"0x[0-9a-f]{8}_0x[0-9a-f]{8}",
+            activity.get("adapter_luid", ""), re.IGNORECASE,
+        ) is not None
         and activity.get("adapter_luid") == activity.get("target_adapter_luid")
         and isinstance(samples, int) and not isinstance(samples, bool) and samples >= 2
         and isinstance(active_samples, int) and not isinstance(active_samples, bool) and active_samples >= 1
