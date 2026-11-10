@@ -86,6 +86,7 @@ def make_processors(
     cancel_check: Callable[[], bool] | None = None,
     pre_launch_check: Callable[[str], dict] | None = None,
     execution_records: MutableMapping[str, dict] | None = None,
+    runtime_device_probe: Callable[[int, str], dict] | None = None,
 ):
     """Make engine callbacks, failing closed when any engine is unconfigured.
 
@@ -108,6 +109,27 @@ def make_processors(
             previous_record = execution_records.get(_engine, {}) if execution_records is not None else {}
             previous_checks = previous_record.get("pre_launch_vram_checks", 0)
             previous_minimum = previous_record.get("pre_launch_vram_min_free_mib")
+            previous_runtime_process_count = previous_record.get("runtime_device_process_count", 0)
+            previous_runtime_verified_count = previous_record.get("runtime_device_verified_process_count", 0)
+            previous_runtime_sample_count = previous_record.get("runtime_device_sample_count", 0)
+            for value_name, value in (
+                ("runtime_device_process_count", previous_runtime_process_count),
+                ("runtime_device_verified_process_count", previous_runtime_verified_count),
+                ("runtime_device_sample_count", previous_runtime_sample_count),
+            ):
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    if value_name == "runtime_device_process_count":
+                        previous_runtime_process_count = 0
+                    elif value_name == "runtime_device_verified_process_count":
+                        previous_runtime_verified_count = 0
+                    else:
+                        previous_runtime_sample_count = 0
+            previous_runtime_all_verified = previous_record.get(
+                "runtime_device_all_processes_verified",
+                previous_runtime_process_count == 0,
+            )
+            if not isinstance(previous_runtime_all_verified, bool):
+                previous_runtime_all_verified = previous_runtime_process_count == 0
             record = {
                 "status": "not_started",
                 "process_started": False,
@@ -117,6 +139,14 @@ def make_processors(
                     previous_checks if isinstance(previous_checks, int)
                     and not isinstance(previous_checks, bool) and previous_checks >= 0 else 0
                 ),
+                "runtime_device_use_verified": False,
+                "runtime_device_process_count": previous_runtime_process_count,
+                "runtime_device_verified_process_count": previous_runtime_verified_count,
+                "runtime_device_all_processes_verified": previous_runtime_all_verified,
+                "runtime_device_sample_count": previous_runtime_sample_count,
+                "runtime_device_probe_status": (
+                    "not_configured" if runtime_device_probe is None else "not_observed"
+                ),
             }
             if isinstance(previous_minimum, int) and not isinstance(previous_minimum, bool) and previous_minimum >= 0:
                 record["pre_launch_vram_min_free_mib"] = previous_minimum
@@ -125,6 +155,50 @@ def make_processors(
             total_started = time.monotonic()
             process_started = None
             process_handle = None
+            runtime_verified_this_process = False
+            runtime_sample_count_this_process = 0
+
+            def sample_runtime_device():
+                nonlocal runtime_verified_this_process, runtime_sample_count_this_process
+                if runtime_device_probe is None:
+                    return
+                pid = record.get("pid")
+                if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+                    return
+                try:
+                    evidence = runtime_device_probe(pid, _engine)
+                except Exception as exc:
+                    record["runtime_device_probe_status"] = "probe_error"
+                    record["runtime_device_probe_error_type"] = type(exc).__name__
+                    return
+                if not isinstance(evidence, dict):
+                    record["runtime_device_probe_status"] = "invalid_probe_result"
+                    return
+                runtime_sample_count_this_process += 1
+                record["runtime_device_sample_count"] += 1
+                status = evidence.get("status")
+                record["runtime_device_probe_status"] = (
+                    status[:48] if isinstance(status, str) else "unclassified"
+                )
+                if evidence.get("verified") is True:
+                    runtime_verified_this_process = True
+                    record["runtime_adapter_name"] = str(
+                        evidence.get("adapter_name") or ""
+                    )[:160]
+                    adapter_index = evidence.get("adapter_index")
+                    if (
+                        isinstance(adapter_index, int)
+                        and not isinstance(adapter_index, bool)
+                        and adapter_index >= 0
+                    ):
+                        record["runtime_adapter_index"] = adapter_index
+                    backend_apis = evidence.get("backend_apis")
+                    if isinstance(backend_apis, list):
+                        record["runtime_adapter_backend_apis"] = [
+                            str(item)[:24] for item in backend_apis[:4]
+                            if isinstance(item, str)
+                        ]
+
             source = Path(source).resolve(strict=True)
             destination = Path(destination).resolve()
             try:
@@ -194,6 +268,7 @@ def make_processors(
                 except (AttributeError, TypeError, ValueError):
                     record["pid"] = None
                 record["status"] = "running"
+                sample_runtime_device()
                 deadline = process_started + _spec.timeout_seconds
                 while True:
                     if cancel_check and cancel_check():
@@ -217,10 +292,14 @@ def make_processors(
                         raise TimeoutError("engine timed out")
                     try:
                         stdout, stderr = process_handle.communicate(
-                            timeout=min(0.2, remaining)
+                            timeout=min(
+                                0.05 if runtime_device_probe is not None else 0.2,
+                                remaining,
+                            )
                         )
                         break
                     except subprocess.TimeoutExpired:
+                        sample_runtime_device()
                         continue
                 record["exit_code"] = (
                     int(process_handle.returncode)
@@ -319,6 +398,27 @@ def make_processors(
                 record["failure_type"] = type(exc).__name__
                 raise
             finally:
+                if process_handle is not None and process_started is not None:
+                    record["runtime_device_process_count"] = previous_runtime_process_count + 1
+                    record["runtime_device_verified_process_count"] = (
+                        previous_runtime_verified_count + int(runtime_verified_this_process)
+                    )
+                    all_runtime_processes_verified = (
+                        previous_runtime_all_verified and runtime_verified_this_process
+                    )
+                    record["runtime_device_all_processes_verified"] = (
+                        all_runtime_processes_verified
+                    )
+                    record["runtime_device_use_verified"] = bool(
+                        record["runtime_device_process_count"] > 0
+                        and all_runtime_processes_verified
+                    )
+                    if runtime_device_probe is None:
+                        record["runtime_device_probe_status"] = "not_configured"
+                    elif not runtime_verified_this_process and record.get(
+                        "runtime_device_probe_status"
+                    ) == "not_observed":
+                        record["runtime_device_probe_status"] = "pid_not_observed"
                 record["elapsed_ms_total"] = int(
                     (time.monotonic() - total_started) * 1000
                 )
