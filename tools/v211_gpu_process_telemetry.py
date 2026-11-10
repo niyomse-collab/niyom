@@ -11,7 +11,6 @@ import ctypes
 import math
 import os
 import re
-import time
 from pathlib import Path
 from typing import Any
 
@@ -447,13 +446,13 @@ class NvmlProcessProbe:
                 ),
                 "PdhEnumObjectItemsW": (
                     [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
-                     ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_uint),
-                     ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_uint),
+                     ctypes.POINTER(ctypes.c_wchar), ctypes.POINTER(ctypes.c_uint),
+                     ctypes.POINTER(ctypes.c_wchar), ctypes.POINTER(ctypes.c_uint),
                      ctypes.c_uint, ctypes.c_uint],
                     ctypes.c_uint,
                 ),
                 "PdhLookupPerfNameByIndexW": (
-                    [ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_wchar_p,
+                    [ctypes.c_wchar_p, ctypes.c_uint, ctypes.POINTER(ctypes.c_wchar),
                      ctypes.POINTER(ctypes.c_uint)],
                     ctypes.c_uint,
                 ),
