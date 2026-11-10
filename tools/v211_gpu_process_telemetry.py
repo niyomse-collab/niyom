@@ -45,6 +45,109 @@ class _PdhFormattedCounterValue(ctypes.Structure):
     ]
 
 
+class _Luid(ctypes.Structure):
+    _fields_ = [("LowPart", ctypes.c_uint32), ("HighPart", ctypes.c_int32)]
+
+
+class _DxgiAdapterDesc1(ctypes.Structure):
+    _fields_ = [
+        ("Description", ctypes.c_wchar * 128),
+        ("VendorId", ctypes.c_uint32),
+        ("DeviceId", ctypes.c_uint32),
+        ("SubSysId", ctypes.c_uint32),
+        ("Revision", ctypes.c_uint32),
+        ("DedicatedVideoMemory", ctypes.c_size_t),
+        ("DedicatedSystemMemory", ctypes.c_size_t),
+        ("SharedSystemMemory", ctypes.c_size_t),
+        ("AdapterLuid", _Luid),
+        ("Flags", ctypes.c_uint32),
+    ]
+
+
+class _Guid(ctypes.Structure):
+    _fields_ = [
+        ("Data1", ctypes.c_uint32),
+        ("Data2", ctypes.c_uint16),
+        ("Data3", ctypes.c_uint16),
+        ("Data4", ctypes.c_ubyte * 8),
+    ]
+
+
+def _enumerate_dxgi_adapters() -> list[dict[str, Any]]:
+    """Enumerate DXGI adapter descriptions and their OS-assigned LUIDs."""
+    if os.name != "nt":
+        return []
+    try:
+        loader = getattr(ctypes, "WinDLL", ctypes.CDLL)
+        dxgi = loader("dxgi.dll")
+        create_factory = dxgi.CreateDXGIFactory1
+        create_factory.argtypes = [
+            ctypes.POINTER(_Guid), ctypes.POINTER(ctypes.c_void_p)
+        ]
+        create_factory.restype = ctypes.c_long
+        iid = _Guid(
+            0x770AAE78, 0xF26F, 0x4DBA,
+            (ctypes.c_ubyte * 8)(0xA8, 0x29, 0x25, 0x3C, 0x83, 0xD1, 0xB3, 0x87),
+        )
+        factory = ctypes.c_void_p()
+        if int(create_factory(ctypes.byref(iid), ctypes.byref(factory))) != 0 or not factory:
+            return []
+        prototype = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
+        factory_vtable = ctypes.cast(
+            factory, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))
+        ).contents
+        enum_adapters = prototype(
+            ctypes.c_long, ctypes.c_void_p, ctypes.c_uint32,
+            ctypes.POINTER(ctypes.c_void_p),
+        )(factory_vtable[12])
+        release = prototype(ctypes.c_uint32, ctypes.c_void_p)(
+            factory_vtable[2]
+        )
+        results = []
+        try:
+            for index in range(32):
+                adapter = ctypes.c_void_p()
+                hr = int(enum_adapters(factory, index, ctypes.byref(adapter)))
+                if (hr & 0xFFFFFFFF) == 0x887A0002:
+                    break
+                if hr < 0 or not adapter:
+                    continue
+                try:
+                    adapter_vtable = ctypes.cast(
+                        adapter, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))
+                    ).contents
+                    get_desc1 = prototype(
+                        ctypes.c_long, ctypes.c_void_p,
+                        ctypes.POINTER(_DxgiAdapterDesc1),
+                    )(adapter_vtable[10])
+                    desc = _DxgiAdapterDesc1()
+                    if int(get_desc1(adapter, ctypes.byref(desc))) != 0:
+                        continue
+                    high = int(desc.AdapterLuid.HighPart) & 0xFFFFFFFF
+                    low = int(desc.AdapterLuid.LowPart) & 0xFFFFFFFF
+                    results.append({
+                        "description": str(desc.Description),
+                        "vendor_id": int(desc.VendorId),
+                        "device_id": int(desc.DeviceId),
+                        "dedicated_video_memory_bytes": int(desc.DedicatedVideoMemory),
+                        "luid": (high, low),
+                        "luid_text": f"0x{high:08x}_0x{low:08x}",
+                    })
+                finally:
+                    try:
+                        release(adapter)
+                    except Exception:
+                        pass
+        finally:
+            try:
+                release(factory)
+            except Exception:
+                pass
+        return results
+    except (AttributeError, OSError, TypeError, ValueError):
+        return []
+
+
 class _ProcessInfoV1(ctypes.Structure):
     _fields_ = [
         ("pid", ctypes.c_uint),
@@ -84,6 +187,9 @@ def _valid_wddm_gpu_activity(pid: int, activity: object) -> bool:
         and activity.get("verified") is True
         and activity.get("source") == "windows_gpu_engine_pdh"
         and observed_pid == pid
+        and isinstance(activity.get("adapter_luid"), str)
+        and bool(activity.get("adapter_luid"))
+        and activity.get("adapter_luid") == activity.get("target_adapter_luid")
         and isinstance(samples, int) and not isinstance(samples, bool) and samples >= 2
         and isinstance(active_samples, int) and not isinstance(active_samples, bool) and active_samples >= 1
         and isinstance(counters, int) and not isinstance(counters, bool) and counters >= 1
@@ -226,6 +332,8 @@ class NvmlProcessProbe:
         self._pdh_sessions: dict[int, dict[str, Any]] = {}
         self._pdh_name_cache: dict[str, str] = {}
         self._pdh_status = "not_initialized"
+        self._dxgi_adapters: list[dict[str, Any]] | None = None
+        self._dxgi_status = "not_initialized"
         self.status = "not_initialized"
         self._initialize()
 
@@ -546,9 +654,38 @@ class NvmlProcessProbe:
         match = re.search(r"(?:^|_)pid_(\d+)(?:_|$)", str(instance), re.IGNORECASE)
         return bool(match and int(match.group(1)) == pid)
 
+    @staticmethod
+    def _parse_gpu_engine_luid(instance: str) -> tuple[int, int] | None:
+        match = re.search(
+            r"(?:^|_)luid_0x([0-9a-f]{8})_0x([0-9a-f]{8})(?:_|$)",
+            str(instance), re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return int(match.group(1), 16), int(match.group(2), 16)
+
+    def _target_dxgi_luid(self) -> tuple[int, int] | None:
+        if self._dxgi_adapters is None:
+            self._dxgi_adapters = _enumerate_dxgi_adapters()
+            self._dxgi_status = "ready" if self._dxgi_adapters else "dxgi_adapter_enumeration_unavailable"
+        matches = [
+            item for item in self._dxgi_adapters
+            if item.get("vendor_id") == 0x10DE
+            and self.target_name in str(item.get("description", "")).casefold()
+        ]
+        if len(matches) != 1:
+            self._dxgi_status = "target_dxgi_adapter_not_unique"
+            return None
+        self._dxgi_status = "ready"
+        return matches[0]["luid"]
+
     def _create_pdh_session(self, pid: int) -> dict[str, Any] | None:
         if self._load_pdh() is None:
             return None
+        target_luid = self._target_dxgi_luid()
+        if target_luid is None:
+            return None
+        target_luid_text = f"0x{target_luid[0]:08x}_0x{target_luid[1]:08x}"
         object_names = (
             self._localized_pdh_name("GPU Engine"),
             self._localized_pdh_name("GPU Process"),
@@ -558,7 +695,10 @@ class NvmlProcessProbe:
         instances = []
         for object_name in dict.fromkeys(object_names):
             for instance in self._enumerate_pdh_instances(object_name):
-                if self._instance_matches_pid(instance, pid):
+                if (
+                    self._instance_matches_pid(instance, pid)
+                    and self._parse_gpu_engine_luid(instance) == target_luid
+                ):
                     paths.append(f"\\{object_name}({instance})\\{counter_name}")
                     instances.append(instance)
         if not paths:
@@ -585,6 +725,7 @@ class NvmlProcessProbe:
             "counters": counters,
             "sample_count": 1,
             "counter_count": len(counters),
+            "target_adapter_luid": target_luid_text,
         }
 
     def _sample_windows_gpu_engine_activity(self, pid: int) -> dict[str, Any]:
@@ -604,7 +745,9 @@ class NvmlProcessProbe:
                     "available": self._pdh_status == "ready",
                     "verified": False,
                     "status": (
-                        "pid_gpu_engine_counters_not_found"
+                        self._dxgi_status
+                        if self._dxgi_status != "ready"
+                        else "pid_gpu_engine_counters_not_found"
                         if self._pdh_status == "ready" else self._pdh_status
                     ),
                 }
@@ -619,6 +762,8 @@ class NvmlProcessProbe:
                 "counter_count": session["counter_count"],
                 "active_sample_count": 0,
                 "max_utilization_percent": 0.0,
+                "adapter_luid": session["target_adapter_luid"],
+                "target_adapter_luid": session["target_adapter_luid"],
             }
         collect = self._pdh_functions["PdhCollectQueryData"]
         if int(collect(session["query"])) != PDH_SUCCESS:
@@ -654,6 +799,8 @@ class NvmlProcessProbe:
                 "counter_count": session["counter_count"],
                 "active_sample_count": active,
                 "max_utilization_percent": maximum,
+                "adapter_luid": session["target_adapter_luid"],
+                "target_adapter_luid": session["target_adapter_luid"],
             }
         return {
             "available": True,
@@ -665,6 +812,8 @@ class NvmlProcessProbe:
             "counter_count": session["counter_count"],
             "active_sample_count": 0,
             "max_utilization_percent": 0.0,
+            "adapter_luid": session["target_adapter_luid"],
+            "target_adapter_luid": session["target_adapter_luid"],
         }
 
     def close_pid(self, pid: int | None) -> None:
