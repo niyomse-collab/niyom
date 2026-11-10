@@ -387,3 +387,31 @@ def test_wddm_gpu_engine_activity_rejects_malformed_luid_even_when_strings_match
         gpu_activity=activity,
     )
     assert result["verified"] is False
+
+
+def test_pdh_object_cache_refresh_uses_enum_objects_brefresh_contract():
+    import ctypes
+    from tools.v211_gpu_process_telemetry import (
+        NvmlProcessProbe,
+        PDH_MORE_DATA,
+        PDH_SUCCESS,
+        PERF_DETAIL_WIZARD,
+    )
+
+    calls = []
+
+    def fake_enum_objects(_source, _machine, buffer, size_pointer, detail, refresh):
+        calls.append((buffer is None, detail, refresh))
+        if buffer is None:
+            size_pointer._obj.value = 2
+            return PDH_MORE_DATA
+        return PDH_SUCCESS
+
+    probe = NvmlProcessProbe.__new__(NvmlProcessProbe)
+    probe._pdh_functions = {"PdhEnumObjectsW": fake_enum_objects}
+
+    assert probe._refresh_pdh_object_cache() is True
+    assert calls == [
+        (True, PERF_DETAIL_WIZARD, 1),
+        (False, PERF_DETAIL_WIZARD, 0),
+    ]
