@@ -293,6 +293,8 @@ def evaluate_pid_observations(
                     gpu_activity["max_utilization_percent"]
                 ),
                 "gpu_engine_counter_count": int(gpu_activity["counter_count"]),
+                "gpu_engine_adapter_luid_match": True,
+                "gpu_engine_adapter_luid": str(gpu_activity["adapter_luid"]),
             }
         return {
             "available": True,
