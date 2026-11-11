@@ -1,9 +1,9 @@
-"""One-time install of four independently licensed engines for V2.1.1 QA.
+"""Installer-time provisioning of four independently licensed V2.1.1 engines.
 
-Only call provision() after explicit confirmation from the desktop user.
-The files go into private LOCALAPPDATA; no binaries or model weights are
-redistributed with V2, and no image is uploaded. Subsequent enhancement is
-offline. The approved V2 print/export pipeline remains unchanged.
+Only the experimental installer's explicit all-four consent task invokes this
+module. The files go into private LOCALAPPDATA; no binaries or model weights
+are redistributed with V2, and no image is uploaded. Subsequent enhancement
+is offline. The approved V2 print/export pipeline remains unchanged.
 """
 from __future__ import annotations
 
@@ -32,47 +32,6 @@ def selected_manifest() -> Path:
     return path.resolve()
 
 
-def declined_marker_path() -> Path:
-    """Local preference marker: a declined first-run offer is not repeated."""
-    return qa_root() / "setup-declined.flag"
-
-
-def record_consent_declined() -> Path:
-    """Remember that the user declined the one-time all-four setup offer."""
-    marker = declined_marker_path()
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text("declined", encoding="ascii")
-    return marker
-
-
-def clear_consent_declined() -> None:
-    """Allow a later explicit installer/app consent attempt to proceed."""
-    declined_marker_path().unlink(missing_ok=True)
-
-
-def needs_initial_setup() -> bool:
-    """Return true only when setup is needed and has not already been declined.
-
-    A stale, truncated, or hand-created manifest never counts as installed.
-    A user who declines the first-run offer is not nagged on every launch;
-    selecting the one-time installer task remains an explicit way to retry.
-    """
-    if os.environ.get("NIYOMSIL_V211_FOUR_AI") == "0":
-        return False
-
-    manifest = selected_manifest()
-    try:
-        from tools.v211_real_engine_manifest import load_real_engine_manifest
-
-        verified = load_real_engine_manifest(manifest)
-        if set(verified) == {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
-            clear_consent_declined()
-            return False
-    except (ImportError, OSError, ValueError, KeyError, TypeError):
-        pass
-    return not declined_marker_path().is_file()
-
-
 def provision_after_consent() -> dict:
     """Download four SHA256-pinned upstream Windows ZIPs on first consent only.
 
@@ -86,7 +45,6 @@ def provision_after_consent() -> dict:
     )
     from tools.v211_real_engine_manifest import load_real_engine_manifest
 
-    clear_consent_declined()
     root = qa_root()
     manifest = selected_manifest()
     if manifest.exists():
@@ -112,7 +70,6 @@ def provision_after_consent() -> dict:
     verified = load_real_engine_manifest(manifest)
     if set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
         raise RuntimeError("four-engine installed manifest did not validate")
-    clear_consent_declined()
     return {
         "status": "installed_for_offline_qa",
         "manifest": str(manifest),

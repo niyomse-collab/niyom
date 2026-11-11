@@ -1,9 +1,9 @@
-"""Consent-gated provisioning entry point for the V2.1.1 four-engine research set.
+"""Installer-time provisioning entry point for the V2.1.1 four-engine research set.
 
-The desktop editor calls this module only after the user accepts the single
-first-run offer for all four engines. The experimental installer can invoke
-the same entry point when its one-time setup task is selected. No download
-starts before explicit consent, and subsequent enhancement runs offline.
+The experimental installer calls this module only after the user explicitly
+selects the one-time all-four setup task. The desktop editor never prompts or
+downloads on first launch. No download starts before installer consent, and
+subsequent eligible enhancement runs offline.
 """
 from __future__ import annotations
 
