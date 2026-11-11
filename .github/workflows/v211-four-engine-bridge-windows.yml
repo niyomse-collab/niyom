@@ -36,9 +36,9 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: niyomsil-v211-bridge-windows
-  # Serialize the single V2.1.1 candidate lane, but cancel superseded commits.
-  # This releases stale builds and lets the current Draft PR head build promptly.
+  group: niyomsil-v211-bridge-windows-${{ github.event.pull_request.head.ref || github.ref_name }}
+  # Push and PR events for one branch share a group; a newer commit replaces the old candidate.
+  # Legacy runs from the previous global group cannot block the current Draft PR head.
   cancel-in-progress: true
 
 jobs:
