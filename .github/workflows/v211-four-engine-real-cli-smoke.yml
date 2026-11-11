@@ -1,12 +1,26 @@
 name: V2.1.1 actual engine CLI smoke on Windows (non-certifying)
 run-name: V2.1.1 native CLI smoke - ${{ github.sha }}
-# 2026-11-09: rerun the current official CLI smoke after manifest/device-binding hardening; hosted Vulkan limitations remain non-certifying.
+# 2026-11-11: rerun the official CLI smoke when bridge/runner/tile/device-binding code changes; hosted Vulkan limitations remain non-certifying.
 on:
   pull_request:
     branches:
       - feature/v2.1.1-super-ai
     paths:
       - 'tools/v211_four_engine_real_inference_qa.py'
+      - 'signprint_ai/v211_four_engine_bridge.py'
+      - 'signprint_ai/v211_large_image_bridge.py'
+      - 'tools/v211_four_engine_coordinator.py'
+      - 'tools/v211_four_engine_run.py'
+      - 'tools/v211_four_engine_fusion.py'
+      - 'tools/v211_four_engine_tiled_inference.py'
+      - 'tools/v211_gpu_device_binding.py'
+      - 'tools/v211_gpu_process_telemetry.py'
+      - 'tests/test_v211_four_engine_bridge.py'
+      - 'tests/test_v211_four_engine_run.py'
+      - 'tests/test_v211_four_engine_fusion.py'
+      - 'tests/test_v211_four_engine_tiled_inference.py'
+      - 'tests/test_v211_gpu_device_binding.py'
+      - 'tests/test_v211_gpu_process_telemetry.py'
       - 'tools/v211_four_engine_subprocess.py'
       - 'tools/v211_provision_four_engines.py'
       - 'tools/v211_official_assets_audit.py'
@@ -20,6 +34,20 @@ on:
       - work/v211-four-engine-v2-bridge-20261103
     paths:
       - 'tools/v211_four_engine_real_inference_qa.py'
+      - 'signprint_ai/v211_four_engine_bridge.py'
+      - 'signprint_ai/v211_large_image_bridge.py'
+      - 'tools/v211_four_engine_coordinator.py'
+      - 'tools/v211_four_engine_run.py'
+      - 'tools/v211_four_engine_fusion.py'
+      - 'tools/v211_four_engine_tiled_inference.py'
+      - 'tools/v211_gpu_device_binding.py'
+      - 'tools/v211_gpu_process_telemetry.py'
+      - 'tests/test_v211_four_engine_bridge.py'
+      - 'tests/test_v211_four_engine_run.py'
+      - 'tests/test_v211_four_engine_fusion.py'
+      - 'tests/test_v211_four_engine_tiled_inference.py'
+      - 'tests/test_v211_gpu_device_binding.py'
+      - 'tests/test_v211_gpu_process_telemetry.py'
       - 'tools/v211_four_engine_subprocess.py'
       - 'tools/v211_provision_four_engines.py'
       - 'tools/v211_official_assets_audit.py'
@@ -34,7 +62,7 @@ permissions:
   contents: read
 concurrency:
   group: v211-real-cli-smoke
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   windows-synthetic-real-cli:
