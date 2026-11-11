@@ -10,7 +10,7 @@ from tools import v211_real_engine_manifest as manifests
 
 
 def test_one_time_provision_checks_four_without_shipping_models(tmp_path, monkeypatch):
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
     monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
     saved = []
     packages = {name: {"url": "https://example.org/test-only"}
@@ -47,7 +47,7 @@ def test_one_time_provision_checks_four_without_shipping_models(tmp_path, monkey
 def test_explicit_manifest_override_is_the_path_provisioned_and_later_checked(
     tmp_path, monkeypatch
 ):
-    local_appdata = tmp_path / "local-appdata"
+    local_appdata = tmp_path / "profile" / "AppData" / "Local"
     override = tmp_path / "portable-config" / "manifest.json"
     monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(override))
@@ -83,7 +83,7 @@ def test_explicit_manifest_override_is_the_path_provisioned_and_later_checked(
 
 
 def test_setup_fails_closed_if_any_native_engine_missing(tmp_path, monkeypatch):
-    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
     monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
     setup.default_manifest().parent.mkdir(parents=True)
     setup.default_manifest().write_text("{}")
