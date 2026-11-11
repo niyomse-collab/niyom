@@ -200,7 +200,8 @@ def provision_from_archives(archives: Path, install_dir: Path, manifest_path: Pa
 
     archives = Path(archives).resolve()
     install_dir = Path(install_dir).resolve()
-    manifest_path = Path(manifest_path).resolve()
+    from tools.v211_real_engine_manifest import load_real_engine_manifest, safe_manifest_path
+    manifest_path = safe_manifest_path(manifest_path)
     # Validate EVERYTHING before extracting any executable.
     verified = {}
     for engine, package in PACKAGES.items():
@@ -215,11 +216,10 @@ def provision_from_archives(archives: Path, install_dir: Path, manifest_path: Pa
     install_dir.mkdir(parents=True, exist_ok=True)
     if any((install_dir / engine).exists() for engine in PACKAGES):
         raise FileExistsError("existing installation detected; use a new empty QA directory")
-    if manifest_path.exists():
+    if os.path.lexists(manifest_path):
         raise FileExistsError("manifest already exists; refusing to overwrite")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-
-    from tools.v211_real_engine_manifest import load_real_engine_manifest
+    manifest_path = safe_manifest_path(manifest_path)
 
     promoted: list[Path] = []
     manifest_published = False
