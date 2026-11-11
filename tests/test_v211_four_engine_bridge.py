@@ -726,7 +726,11 @@ def test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_ru
         pre_launch_check=None,
         execution_records=None,
         runtime_device_probe=None,
+        runtime_vram_guard=False,
     ):
+        # The production runner must require both the per-process GPU probe
+        # and the live whole-device VRAM reserve guard before four-engine QA.
+        assert runtime_vram_guard is True
         wrapped = {}
         for engine_name, processor in processors.items():
             def run_verified(source_path, output_path, _name=engine_name, _processor=processor):
@@ -737,8 +741,17 @@ def test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_ru
                     record.update({
                         "runtime_device_process_count": process_count,
                         "runtime_device_verified_process_count": process_count,
+                        "runtime_device_sample_count": process_count,
                         "runtime_device_all_processes_verified": True,
                         "runtime_device_use_verified": True,
+                        # Synthetic, test-only NVML evidence. Runtime enforcement
+                        # itself is exercised by test_v211_per_process_vram_guard.
+                        "runtime_vram_guard_enabled": True,
+                        "runtime_vram_guard_status": "within_budget",
+                        "runtime_vram_sample_count": process_count,
+                        "runtime_vram_peak_used_mib": 2048.0,
+                        "runtime_vram_min_free_mib": 4096.0,
+                        "runtime_vram_reserve_mib": 512,
                     })
             wrapped[engine_name] = run_verified
         return wrapped
