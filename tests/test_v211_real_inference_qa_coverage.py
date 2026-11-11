@@ -257,6 +257,14 @@ def test_non_vulkan_native_failure_remains_a_candidate_failure(tmp_path, monkeyp
     assert result["failures"]["waifu2x"]["error_class"] == "subprocess_or_candidate_failure"
     assert "retry_on_vulkan_capable_host" not in result["failures"]["waifu2x"]
 
+def test_invalid_gpu_device_index_is_not_misclassified_as_host_vulkan_absence():
+    error_class, retryable = qa._classify_engine_failure(
+        RuntimeError("engine exited with code 1: invalid gpu device")
+    )
+    assert error_class == "subprocess_or_candidate_failure"
+    assert retryable is False
+
+
 @pytest.mark.parametrize("mutation", ("invent_alpha", "invent_icc", "invent_dpi"))
 def test_native_qa_rejects_engine_added_mode_or_metadata(tmp_path, monkeypatch, mutation):
     calls = []
