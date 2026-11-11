@@ -36,9 +36,9 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: niyomsil-v211-bridge-windows-${{ github.event.pull_request.head.ref || github.ref_name }}
-  # A candidate from an older commit must not block the current branch head.
-  # Push and PR events for the same branch share one group; the newest run wins.
+  group: niyomsil-v211-bridge-windows
+  # Serialize the single V2.1.1 candidate lane, but cancel superseded commits.
+  # This releases stale builds and lets the current Draft PR head build promptly.
   cancel-in-progress: true
 
 jobs:
