@@ -19,6 +19,8 @@ NVML_SUCCESS = 0
 NVML_ERROR_INSUFFICIENT_SIZE = 7
 NVML_ERROR_NOT_SUPPORTED = 3
 NVML_VALUE_NOT_AVAILABLE = (1 << 64) - 1
+MIB_BYTES = 1024 * 1024
+RUNTIME_VRAM_RESERVE_MIB = 512
 
 PDH_SUCCESS = 0
 PDH_MORE_DATA = 0x800007D2
@@ -176,6 +178,14 @@ class _ProcessInfoV3(ctypes.Structure):
     ]
 
 
+class _NvmlMemoryInfo(ctypes.Structure):
+    _fields_ = [
+        ("total", ctypes.c_uint64),
+        ("free", ctypes.c_uint64),
+        ("used", ctypes.c_uint64),
+    ]
+
+
 def _valid_wddm_gpu_activity(pid: int, activity: object) -> bool:
     """Validate a two-sample Windows GPU Engine activity observation."""
     if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
@@ -213,6 +223,42 @@ def _valid_wddm_gpu_activity(pid: int, activity: object) -> bool:
         and isinstance(utilization, (int, float)) and not isinstance(utilization, bool)
         and math.isfinite(float(utilization)) and 0.0 < float(utilization) <= 100.0
     )
+
+
+def validate_runtime_vram_snapshot(
+    snapshot: object,
+    *,
+    reserve_mib: int = RUNTIME_VRAM_RESERVE_MIB,
+) -> dict[str, Any]:
+    """Validate a live whole-device NVML memory sample for the 6 GB safety reserve."""
+    if isinstance(reserve_mib, bool) or not isinstance(reserve_mib, int) or reserve_mib < 1:
+        return {"passed": False, "status": "invalid_reserve_policy"}
+    if (
+        not isinstance(snapshot, dict)
+        or snapshot.get("device_memory_available") is not True
+        or snapshot.get("device_memory_status") != "ok"
+    ):
+        return {"passed": False, "status": "telemetry_unavailable"}
+    total = snapshot.get("device_memory_total_bytes")
+    used = snapshot.get("device_memory_used_bytes")
+    free = snapshot.get("device_memory_free_bytes")
+    values = (total, used, free)
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in values):
+        return {"passed": False, "status": "invalid_snapshot"}
+    if (
+        total <= 0 or used < 0 or free < 0
+        or used > total or free > total or used + free > total
+    ):
+        return {"passed": False, "status": "invalid_snapshot"}
+    result = {
+        "passed": free >= reserve_mib * MIB_BYTES,
+        "status": "ok" if free >= reserve_mib * MIB_BYTES else "reserve_breached",
+        "total_mib": round(total / MIB_BYTES, 2),
+        "used_mib": round(used / MIB_BYTES, 2),
+        "free_mib": round(free / MIB_BYTES, 2),
+        "reserve_mib": reserve_mib,
+    }
+    return result
 
 
 def evaluate_pid_observations(
@@ -346,6 +392,7 @@ class NvmlProcessProbe:
         self._initialized = False
         self._devices: list[dict[str, Any]] = []
         self._process_functions: dict[str, list[tuple[str, Any, type]]] = {}
+        self._memory_function = None
         self._pdh_library = None
         self._pdh_functions: dict[str, Any] = {}
         self._pdh_sessions: dict[int, dict[str, Any]] = {}
@@ -471,6 +518,11 @@ class NvmlProcessProbe:
         if not any(self._process_functions.values()):
             self.status = "nvml_process_api_missing"
             return
+        self._memory_function = self._function(
+            library,
+            ("nvmlDeviceGetMemoryInfo",),
+            [ctypes.c_void_p, ctypes.POINTER(_NvmlMemoryInfo)],
+        )
         self.status = "ready"
 
     @staticmethod
@@ -505,6 +557,29 @@ class NvmlProcessProbe:
                 return False, []
         return False, []
 
+    def _query_device_memory(self, device: dict[str, Any]) -> dict[str, Any]:
+        """Return total/used/free bytes for one NVML adapter without raw output."""
+        function = getattr(self, "_memory_function", None)
+        if function is None:
+            return {"device_memory_available": False, "device_memory_status": "nvml_memory_api_missing"}
+        memory = _NvmlMemoryInfo()
+        try:
+            status = int(function(device["handle"], ctypes.byref(memory)))
+        except Exception:
+            return {"device_memory_available": False, "device_memory_status": "nvml_memory_query_failed"}
+        if status != NVML_SUCCESS:
+            return {"device_memory_available": False, "device_memory_status": "nvml_memory_query_failed"}
+        total, free, used = int(memory.total), int(memory.free), int(memory.used)
+        if total <= 0 or min(free, used) < 0 or free > total or used > total or free + used > total:
+            return {"device_memory_available": False, "device_memory_status": "nvml_memory_snapshot_invalid"}
+        return {
+            "device_memory_available": True,
+            "device_memory_status": "ok",
+            "device_memory_total_bytes": total,
+            "device_memory_used_bytes": used,
+            "device_memory_free_bytes": free,
+        }
+
     def __call__(self, pid: int, engine: str | None = None) -> dict[str, Any]:
         if self.status != "ready":
             return {"available": False, "verified": False, "status": self.status}
@@ -536,6 +611,17 @@ class NvmlProcessProbe:
             pid, self.target_name, inventory,
             process_api_available=any_api_available,
         )
+        target_devices = [
+            device for device in self._devices
+            if self.target_name in str(device.get("name") or "").casefold()
+        ]
+        if len(target_devices) == 1:
+            result.update(self._query_device_memory(target_devices[0]))
+        else:
+            result.update({
+                "device_memory_available": False,
+                "device_memory_status": "target_adapter_not_unique",
+            })
         if (
             os.name == "nt"
             and result.get("status") == "gpu_memory_not_confirmed"

@@ -169,3 +169,97 @@ def test_application_bridge_supplies_per_process_vram_guard(tmp_path, monkeypatc
     assert result["v2_output_preserved"] is True
     assert result["status"] == "four_engine_fusion_preview_ready"
     assert baseline.read_bytes() == before
+
+
+def _runtime_memory_probe(*, free_mib=4096, include_memory=True):
+    mib = 1024 * 1024
+    result = {
+        "available": True,
+        "verified": True,
+        "status": "verified",
+        "adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+        "adapter_index": 0,
+        "evidence_source": "nvml_process_memory",
+        "backend_apis": ["compute"],
+    }
+    if include_memory:
+        result.update({
+            "device_memory_available": True,
+            "device_memory_status": "ok",
+            "device_memory_total_bytes": 6144 * mib,
+            "device_memory_used_bytes": (6144 - free_mib) * mib,
+            "device_memory_free_bytes": free_mib * mib,
+        })
+    return result
+
+
+def test_runtime_vram_guard_records_peak_and_minimum_free_memory(tmp_path):
+    source = tmp_path / "source.png"
+    destination = tmp_path / "output.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    code = (
+        "import sys,time; time.sleep(0.15); "
+        "from PIL import Image; Image.open(sys.argv[1]).save(sys.argv[2])"
+    )
+    commands = {
+        name: EngineCommand((sys.executable, "-c", code, "{input}", "{output}"))
+        for name in ENGINES
+    }
+    records = {}
+    processor = make_processors(
+        commands,
+        runtime_device_probe=lambda _pid, _engine: _runtime_memory_probe(free_mib=4096),
+        runtime_vram_guard=True,
+        execution_records=records,
+    )["real_esrgan"]
+    processor(source, destination)
+    record = records["real_esrgan"]
+    assert destination.is_file()
+    assert record["runtime_vram_guard_status"] == "within_budget"
+    assert record["runtime_vram_sample_count"] >= 1
+    assert record["runtime_vram_peak_used_mib"] == 2048.0
+    assert record["runtime_vram_min_free_mib"] == 4096.0
+    assert record["runtime_vram_reserve_mib"] == 512
+
+
+def test_runtime_vram_guard_terminates_engine_when_reserve_is_breached(tmp_path):
+    source = tmp_path / "source.png"
+    destination = tmp_path / "blocked.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    code = "import time; time.sleep(30)"
+    commands = {
+        name: EngineCommand((sys.executable, "-c", code, "{input}", "{output}"))
+        for name in ENGINES
+    }
+    records = {}
+    processor = make_processors(
+        commands,
+        runtime_device_probe=lambda _pid, _engine: _runtime_memory_probe(free_mib=400),
+        runtime_vram_guard=True,
+        execution_records=records,
+    )["real_esrgan"]
+    with pytest.raises(RuntimeError, match="runtime VRAM reserve breached"):
+        processor(source, destination)
+    assert records["real_esrgan"]["status"] == "vram_guard_reserve_breached"
+    assert not destination.exists()
+
+
+def test_runtime_vram_guard_fails_closed_when_nvml_memory_is_unavailable(tmp_path):
+    source = tmp_path / "source.png"
+    destination = tmp_path / "blocked.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    commands = {
+        name: EngineCommand((sys.executable, "-c", "import time; time.sleep(30)", "{input}", "{output}"))
+        for name in ENGINES
+    }
+    records = {}
+    processor = make_processors(
+        commands,
+        runtime_device_probe=lambda _pid, _engine: _runtime_memory_probe(include_memory=False),
+        runtime_vram_guard=True,
+        execution_records=records,
+    )["real_esrgan"]
+    with pytest.raises(RuntimeError, match="runtime VRAM telemetry unavailable"):
+        processor(source, destination)
+    assert records["real_esrgan"]["status"] == "vram_guard_telemetry_unavailable"
+    assert not destination.exists()

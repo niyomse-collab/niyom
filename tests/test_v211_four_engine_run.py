@@ -589,7 +589,8 @@ def test_real_engine_runner_withholds_fusion_without_runtime_gpu_proof(
         runner,
         "make_processors",
         lambda _commands, cancel_check=None, pre_launch_check=None,
-               execution_records=None, runtime_device_probe=None:
+               execution_records=None, runtime_device_probe=None,
+               runtime_vram_guard=False:
             {name: resize_processor for name in ENGINES},
     )
     monkeypatch.setattr(

@@ -1,4 +1,6 @@
-from tools.v211_gpu_process_telemetry import evaluate_pid_observations
+from tools.v211_gpu_process_telemetry import (
+    evaluate_pid_observations, validate_runtime_vram_snapshot,
+)
 
 
 def _device(index, name, *, graphics=None, compute=None):
@@ -554,3 +556,77 @@ def test_pdh_counter_path_uses_local_machine_single_separator_syntax(monkeypatch
     ]
     assert not paths[0].startswith("\\\\")
     assert ")\\\\" not in paths[0]
+
+
+def test_runtime_vram_snapshot_records_peak_inputs_and_preserves_512_mib_reserve():
+    mib = 1024 * 1024
+    safe = validate_runtime_vram_snapshot({
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_total_bytes": 6144 * mib,
+        "device_memory_used_bytes": 5632 * mib,
+        "device_memory_free_bytes": 512 * mib,
+    })
+    assert safe["passed"] is True
+    assert safe["status"] == "ok"
+    assert safe["total_mib"] == 6144.0
+    assert safe["used_mib"] == 5632.0
+    assert safe["free_mib"] == 512.0
+
+
+def test_runtime_vram_snapshot_blocks_below_reserve_and_missing_telemetry():
+    mib = 1024 * 1024
+    low = validate_runtime_vram_snapshot({
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_total_bytes": 6144 * mib,
+        "device_memory_used_bytes": 5633 * mib,
+        "device_memory_free_bytes": 511 * mib,
+    })
+    assert low["passed"] is False
+    assert low["status"] == "reserve_breached"
+    missing = validate_runtime_vram_snapshot({"verified": True})
+    assert missing["passed"] is False
+    assert missing["status"] == "telemetry_unavailable"
+
+
+def test_runtime_vram_snapshot_rejects_boolean_and_impossible_memory_values():
+    mib = 1024 * 1024
+    boolean = validate_runtime_vram_snapshot({
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_total_bytes": True,
+        "device_memory_used_bytes": 0,
+        "device_memory_free_bytes": 6144 * mib,
+    })
+    impossible = validate_runtime_vram_snapshot({
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_total_bytes": 6144 * mib,
+        "device_memory_used_bytes": 7000 * mib,
+        "device_memory_free_bytes": 1 * mib,
+    })
+    assert boolean["status"] == "invalid_snapshot"
+    assert impossible["status"] == "invalid_snapshot"
+
+
+def test_nvml_device_memory_query_returns_only_numeric_snapshot_fields():
+    import ctypes
+    from tools import v211_gpu_process_telemetry as telemetry
+
+    probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+    def fake_memory_query(_handle, pointer):
+        memory = ctypes.cast(
+            pointer, ctypes.POINTER(telemetry._NvmlMemoryInfo)
+        ).contents
+        memory.total = 6144 * 1024 * 1024
+        memory.free = 4096 * 1024 * 1024
+        memory.used = 2048 * 1024 * 1024
+        return telemetry.NVML_SUCCESS
+    probe._memory_function = fake_memory_query
+    result = probe._query_device_memory({"handle": ctypes.c_void_p(1)})
+    assert result["device_memory_available"] is True
+    assert result["device_memory_status"] == "ok"
+    assert result["device_memory_total_bytes"] == 6144 * 1024 * 1024
+    assert result["device_memory_free_bytes"] == 4096 * 1024 * 1024
+    assert result["device_memory_used_bytes"] == 2048 * 1024 * 1024

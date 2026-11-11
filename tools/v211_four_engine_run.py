@@ -117,6 +117,8 @@ _SAFE_ERROR_CLASSES = {
     "timeout",
     "missing_output",
     "output_validation_failed",
+    "vram_budget_exceeded",
+    "vram_telemetry_unavailable",
     "engine_failed",
 }
 
@@ -145,6 +147,9 @@ def _safe_execution_record(record: dict | None) -> dict | None:
         "runtime_gpu_engine_adapter_luid",
         "runtime_adapter_name",
         "runtime_adapter_index", "runtime_adapter_backend_apis",
+        "runtime_vram_guard_enabled", "runtime_vram_guard_status",
+        "runtime_vram_sample_count", "runtime_vram_peak_used_mib",
+        "runtime_vram_min_free_mib", "runtime_vram_reserve_mib",
     )
     return {key: record[key] for key in allowed if key in record}
 
@@ -196,6 +201,10 @@ def _safe_error_summary(value: object) -> dict:
         "vulkan device not found",
     )):
         error_class = "vulkan_initialization_failed"
+    elif "runtime vram reserve breached" in lowered:
+        error_class = "vram_budget_exceeded"
+    elif "runtime vram telemetry unavailable" in lowered:
+        error_class = "vram_telemetry_unavailable"
     elif "timed out" in lowered or "timeout" in lowered:
         error_class = "timeout"
     elif "no usable output" in lowered or "produced no output" in lowered:
@@ -405,6 +414,24 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         supports_runtime_probe = False
     if supports_runtime_probe:
         processor_kwargs["runtime_device_probe"] = runtime_probe
+    try:
+        processor_parameters = inspect.signature(make_processors).parameters
+        accepts_processor_kwargs = any(
+            item.kind == inspect.Parameter.VAR_KEYWORD
+            for item in processor_parameters.values()
+        )
+        supports_runtime_vram_guard = (
+            "runtime_vram_guard" in processor_parameters or accepts_processor_kwargs
+        )
+    except (TypeError, ValueError):
+        supports_runtime_vram_guard = False
+    if real_engines and v2_reference is not None:
+        if not supports_runtime_probe or not supports_runtime_vram_guard:
+            runtime_probe.close()
+            raise RuntimeError("runtime GPU and VRAM telemetry guard is unavailable")
+        processor_kwargs["runtime_vram_guard"] = True
+    elif supports_runtime_vram_guard:
+        processor_kwargs["runtime_vram_guard"] = False
     processors = make_processors(commands, **processor_kwargs)
     try:
         if large_job:
