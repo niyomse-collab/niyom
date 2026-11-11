@@ -2,6 +2,12 @@
 from __future__ import annotations
 
 
+_PREVIEW_READY_STATUSES = frozenset({
+    "four_engine_fusion_preview_ready",
+    "three_engine_priority_preview_ready",
+})
+
+
 def four_engine_ui_status(status: object) -> dict[str, object] | None:
     """Describe fail-closed auxiliary AI states without implying V2 failed."""
     value = str(status or "").strip()
@@ -27,8 +33,8 @@ def four_engine_ui_status(status: object) -> dict[str, object] | None:
 
 
 def four_engine_preview_allowed(qa_file_exists: object, status: object) -> bool:
-    """Allow a QA preview only when a sidecar exists and its status is not blocked."""
+    """Allow a sidecar preview only for an explicitly recognized ready state."""
     if not bool(qa_file_exists):
         return False
-    ui_status = four_engine_ui_status(status)
-    return ui_status is None or ui_status.get("allow_preview") is True
+    value = str(status or "").strip()
+    return value in _PREVIEW_READY_STATUSES
