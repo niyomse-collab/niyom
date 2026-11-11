@@ -35,7 +35,9 @@ permissions:
   contents: read
 concurrency:
   group: niyomsil-v211-bridge-windows
-  cancel-in-progress: true
+  # Keep an in-flight frozen candidate alive when a newer commit is pushed.
+  # GitHub can then run the newest pending candidate after the active build finishes.
+  cancel-in-progress: false
 
 jobs:
   bridge-tests:
