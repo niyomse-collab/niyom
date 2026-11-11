@@ -159,3 +159,52 @@ def test_public_setup_entry_refuses_to_provision_without_affirmative_consent(mon
 
     v211_setup_cli.provision_after_user_consent(consent=True)
     assert called == [True]
+
+def _create_manifest_symlink_or_skip(link: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("external manifest target", encoding="utf-8")
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip("this runner cannot create file symlinks: " + str(exc))
+
+
+def test_selected_manifest_preserves_symlink_for_fail_closed_validation(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    override = tmp_path / "portable" / "manifest.json"
+    target = tmp_path / "outside" / "manifest.json"
+    _create_manifest_symlink_or_skip(override, target)
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(override))
+
+    selected = setup.selected_manifest()
+
+    assert selected == Path(str(override.absolute()))
+    assert selected.is_symlink()
+    assert setup.initial_setup_state()["status"] == "invalid_existing_manifest"
+
+
+def test_consent_provisioning_rejects_manifest_symlink_before_any_download(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    override = tmp_path / "portable" / "manifest.json"
+    target = tmp_path / "outside" / "manifest.json"
+    _create_manifest_symlink_or_skip(override, target)
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(override))
+
+    downloaded = []
+    monkeypatch.setattr(provisioning, "ensure_verified_archive",
+                        lambda *args, **kwargs: downloaded.append(args))
+    monkeypatch.setattr(manifests, "load_real_engine_manifest",
+                        lambda _path: (_ for _ in ()).throw(AssertionError(
+                            "symlink target must not be read"
+                        )))
+
+    with pytest.raises(RuntimeError, match="manifest path is not a safe regular file"):
+        setup.provision_after_consent()
+
+    assert downloaded == []
+
