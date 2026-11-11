@@ -47,8 +47,10 @@ def _classify_engine_failure(exc: Exception) -> tuple[str, bool]:
         return "executable_missing", False
     message = str(exc).lower()
     if any(token in message for token in (
+        # A generic "invalid gpu device" can indicate a bad CLI index or
+        # adapter-binding regression. Only explicit Vulkan loader/device
+        # initialization failures are retryable host limitations.
         "vkcreateinstance failed",
-        "invalid gpu device",
         "vulkan unavailable",
         "no vulkan device",
         "vulkan device not found",
