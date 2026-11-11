@@ -36,10 +36,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: niyomsil-v211-bridge-windows
-  # Keep an in-flight frozen candidate alive when a newer commit is pushed.
-  # GitHub can then run the newest pending candidate after the active build finishes.
-  cancel-in-progress: false
+  group: niyomsil-v211-bridge-windows-${{ github.event.pull_request.head.ref || github.ref_name }}
+  # A candidate from an older commit must not block the current branch head.
+  # Push and PR events for the same branch share one group; the newest run wins.
+  cancel-in-progress: true
 
 jobs:
   bridge-tests:

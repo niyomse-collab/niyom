@@ -351,3 +351,9 @@ def test_cli_smoke_classifies_provisioning_block_without_fabricating_engine_repo
     assert "steps.provision.outcome == 'success'" in workflow
     assert "PROVISIONING_BLOCKED: official archives were not verified" in workflow
     assert "native inference was not attempted" in workflow
+
+def test_candidate_workflow_cancels_only_superseded_builds_for_the_same_branch():
+    workflow = (ROOT / ".github" / "workflows" /
+                "v211-four-engine-bridge-windows.yml").read_text(encoding="utf-8")
+    assert "group: niyomsil-v211-bridge-windows-${{ github.event.pull_request.head.ref || github.ref_name }}" in workflow
+    assert "cancel-in-progress: true" in workflow

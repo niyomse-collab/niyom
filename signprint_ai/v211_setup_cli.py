@@ -365,10 +365,11 @@ def provision_after_user_consent(*, consent: bool) -> dict:
 
 
 def main(*, silent: bool = False, preflight_only: bool = False) -> int:
-    """Run installer-time provisioning and return a process exit code.
+    """Run the installer's already-consented provisioning command.
 
-    Silent installations do not create a hidden Tk window: they write a
-    local setup log and return a nonzero code on any failed verification.
+    The desktop editor uses provision_after_user_consent() after its own
+    first-launch Yes decision; this CLI path is retained for the optional
+    installer checkbox and frozen preflight tests.
     """
     if preflight_only:
         # Used by the frozen Windows candidate smoke test. This path imports
