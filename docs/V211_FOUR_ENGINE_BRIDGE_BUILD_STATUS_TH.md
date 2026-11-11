@@ -435,3 +435,13 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - ค่าเริ่มต้นเป็น ROI ว่าง จึงยังไม่มี automatic styled-text detector; ต้องมี ROI จากผู้เรียก/ตัวจำแนกก่อน การเปลี่ยนแปลงนี้เป็น protection contract เท่านั้น ไม่ใช่ OCR, การพิมพ์ข้อความใหม่ หรือการกู้คืน gradient/effect ที่หายไป
 - เพิ่ม synthetic tests สำหรับ gradient fill, double-stroke/bevel-style region, pixel-exact protection, unprotected-region contribution และ fit/stretch mapping; ภาพ synthetic เท่านั้น ไม่ใช้ภาพลูกค้า
 - ยังต้องทำ A/B กับป้ายจริงที่ได้รับอนุญาตและตรวจ Photoshop/MainTop/RIP ก่อนอ้างคุณภาพหรือเปิดใช้จริง
+
+
+## 12 November 2026 correction — editor first-launch consent
+
+- The V2.1.1 editor now performs a local-only setup-state check 600 ms after the window opens. It does not contact the network while checking for a verified four-engine manifest or the local `setup-declined.flag`.
+- If all four engines are already verified, the editor does not prompt. If the user previously selected No, the local decline marker suppresses repeat prompts. If the existing manifest is invalid, the editor warns and fails closed rather than overwriting it.
+- When no verified manifest or decline marker exists, the editor asks one Yes/No question for all four official engines. Only Yes starts the background worker through `provision_after_user_consent(consent=True)`; No records the decline locally. A failed download leaves V2 available and does not mark the setup as declined, allowing a later retry.
+- The installer checkbox remains an optional earlier consent path. If it is skipped, the editor's first-launch prompt is the consent surface. No individual per-engine buttons are added.
+- The downloaded archives remain in the current Windows user's LocalAppData, are SHA256-verified before provisioning, and are not committed or uploaded. Customer artwork is never part of setup.
+- This corrects the earlier installer-only wording. The first-launch setup path remains a V2.1.1 experimental feature and is not a shop-PC inference or image-quality certification.

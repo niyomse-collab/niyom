@@ -1,4 +1,4 @@
-"""Four-AI installer-time provisioning tests: no internet or real executable runs."""
+"""Four-AI consent/provisioning tests: no internet or real executable runs."""
 from pathlib import Path
 
 import pytest
@@ -93,12 +93,69 @@ def test_setup_fails_closed_if_any_native_engine_missing(tmp_path, monkeypatch):
         setup.provision_after_consent()
 
 
-def test_editor_never_prompts_or_downloads_on_first_launch():
+def test_editor_offers_one_first_launch_consent_and_downloads_only_after_yes():
     app_source = (Path(__file__).resolve().parents[1] /
                   "signprint_ai" / "app_v2.py").read_text(encoding="utf-8")
-    assert "_offer_v211_four_ai_setup" not in app_source
-    assert "needs_initial_setup" not in app_source
-    assert "install_for_offline_use()" not in app_source
-    assert "provision_after_consent" not in app_source
-    assert "four_ai_setup_done" not in app_source
-    assert "four_ai_setup_failed" not in app_source
+    assert "self.after(600, self._offer_v211_four_ai_setup)" in app_source
+    assert "messagebox.askyesno(" in app_source
+    assert "record_setup_declined()" in app_source
+    assert "provision_after_user_consent(consent=True)" in app_source
+    assert "four_ai_setup_done" in app_source
+    assert "four_ai_setup_failed" in app_source
+    assert app_source.index("accepted = messagebox.askyesno(") < app_source.index(
+        "self._start_v211_four_ai_setup()"
+    )
+
+
+def test_initial_setup_state_is_local_and_requires_consent_when_models_are_absent(
+    tmp_path, monkeypatch
+):
+    local_appdata = tmp_path / "AppData" / "Local"
+    local_appdata.mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+
+    report = setup.initial_setup_state()
+
+    assert report == {"status": "needs_consent"}
+    assert not setup.qa_root().exists()
+
+
+def test_decline_marker_suppresses_repeated_first_launch_prompt(tmp_path, monkeypatch):
+    local_appdata = tmp_path / "AppData" / "Local"
+    local_appdata.mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", str(local_appdata))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+
+    report = setup.record_setup_declined()
+
+    assert report["status"] == "declined"
+    assert setup.initial_setup_state()["status"] == "declined"
+    assert (setup.qa_root() / "setup-declined.flag").is_file()
+
+
+def test_initial_setup_state_rejects_an_unverifiable_existing_manifest(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+    manifest = setup.default_manifest()
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(manifests, "load_real_engine_manifest", lambda _path:
+                        (_ for _ in ()).throw(ValueError("invalid manifest")))
+
+    assert setup.initial_setup_state()["status"] == "invalid_existing_manifest"
+
+
+def test_public_setup_entry_refuses_to_provision_without_affirmative_consent(monkeypatch):
+    from signprint_ai import v211_setup_cli
+
+    called = []
+    monkeypatch.setattr(v211_setup_cli, "_run_and_publish_success", lambda: called.append(True))
+    with pytest.raises(PermissionError, match="affirmative"):
+        v211_setup_cli.provision_after_user_consent(consent=False)
+    assert called == []
+
+    v211_setup_cli.provision_after_user_consent(consent=True)
+    assert called == [True]

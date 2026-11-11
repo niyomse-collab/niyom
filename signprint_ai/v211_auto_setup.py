@@ -1,9 +1,10 @@
-"""Installer-time provisioning of four independently licensed V2.1.1 engines.
+"""Consent-gated provisioning of the four V2.1.1 research engines.
 
-Only the experimental installer's explicit all-four consent task invokes this
-module. The files go into private LOCALAPPDATA; no binaries or model weights
-are redistributed with V2, and no image is uploaded. Subsequent enhancement
-is offline. The approved V2 print/export pipeline remains unchanged.
+The experimental installer checkbox or the editor's one-time first-launch
+Yes/No prompt may authorize setup. A No decision is recorded locally so the
+editor does not repeat the prompt. No network access occurs during the status
+check; downloads begin only after affirmative consent. The approved V2
+print/export pipeline remains unchanged.
 """
 from __future__ import annotations
 
@@ -32,6 +33,54 @@ def selected_manifest() -> Path:
     return path.resolve()
 
 
+def initial_setup_state() -> dict:
+    """Inspect local state only; never download or create files."""
+    from .v211_setup_cli import _validate_four_ai_data_root
+    from tools.v211_real_engine_manifest import load_real_engine_manifest
+
+    root = _validate_four_ai_data_root(qa_root())
+    manifest = selected_manifest()
+    if manifest.is_symlink() or (manifest.exists() and not manifest.is_file()):
+        return {"status": "invalid_existing_manifest"}
+    if manifest.exists():
+        try:
+            verified = load_real_engine_manifest(manifest)
+        except Exception:
+            return {"status": "invalid_existing_manifest"}
+        required = {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
+        if set(verified) != required:
+            return {"status": "invalid_existing_manifest"}
+        return {
+            "status": "already_installed",
+            "manifest": str(manifest),
+            "verified_engine_names": sorted(verified),
+        }
+
+    marker = root / "setup-declined.flag"
+    if marker.is_symlink() or (marker.exists() and not marker.is_file()):
+        return {"status": "invalid_decline_marker"}
+    if marker.is_file():
+        return {"status": "declined"}
+    return {"status": "needs_consent"}
+
+
+def record_setup_declined() -> dict:
+    """Persist the user's No decision locally without touching model files."""
+    from .v211_setup_cli import _validate_four_ai_data_root
+
+    root = _validate_four_ai_data_root(qa_root())
+    root.mkdir(parents=True, exist_ok=True)
+    marker = root / "setup-declined.flag"
+    if marker.is_symlink() or (marker.exists() and not marker.is_file()):
+        raise RuntimeError("four-engine decline marker is not a regular file")
+    try:
+        with marker.open("x", encoding="utf-8") as stream:
+            stream.write("NiyomSilp V2.1.1 four-engine setup declined by user\\n")
+    except FileExistsError:
+        pass
+    return {"status": "declined", "marker": str(marker)}
+
+
 def provision_after_consent() -> dict:
     """Download four SHA256-pinned upstream Windows ZIPs on first consent only.
 
@@ -47,10 +96,12 @@ def provision_after_consent() -> dict:
 
     root = qa_root()
     manifest = selected_manifest()
+    declined_marker = root / "setup-declined.flag"
     if manifest.exists():
         verified = load_real_engine_manifest(manifest)
         if set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
             raise RuntimeError("existing manifest does not verify all four engines")
+        declined_marker.unlink(missing_ok=True)
         return {
             "status": "already_installed",
             "manifest": str(manifest),
@@ -70,6 +121,7 @@ def provision_after_consent() -> dict:
     verified = load_real_engine_manifest(manifest)
     if set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
         raise RuntimeError("four-engine installed manifest did not validate")
+    declined_marker.unlink(missing_ok=True)
     return {
         "status": "installed_for_offline_qa",
         "manifest": str(manifest),

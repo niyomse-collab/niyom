@@ -1,9 +1,9 @@
-"""Installer-time provisioning entry point for the V2.1.1 four-engine research set.
+"""Consent-gated setup entry point for the V2.1.1 four-engine research set.
 
-The experimental installer calls this module only after the user explicitly
-selects the one-time all-four setup task. The desktop editor never prompts or
-downloads on first launch. No download starts before installer consent, and
-subsequent eligible enhancement runs offline.
+The installer checkbox or the desktop editor's first-launch Yes/No prompt
+must authorize the one-time all-four setup before this module downloads. The
+provisioner verifies the official archives and local manifest; later eligible
+enhancement runs offline.
 """
 from __future__ import annotations
 
@@ -355,6 +355,13 @@ def _run_and_publish_success() -> dict:
         marker.unlink(missing_ok=True)
         _record("FAILED " + safe_failure_code(exc))
         raise
+
+
+def provision_after_user_consent(*, consent: bool) -> dict:
+    """Run provisioning only when the UI has an affirmative user decision."""
+    if consent is not True:
+        raise PermissionError("affirmative four-engine consent is required")
+    return _run_and_publish_success()
 
 
 def main(*, silent: bool = False, preflight_only: bool = False) -> int:

@@ -81,6 +81,9 @@ class App(tk.Tk):
         self._completed_signature = None
         self._active_index: int | None = None
         self._active_settings: EnhanceSettings | None = None
+        self._v211_setup_prompted = False
+        self._v211_setup_running = False
+        self._v211_setup_thread: threading.Thread | None = None
 
         self.viewport = PreviewViewport()
         self._preview_cache = {}
@@ -102,6 +105,8 @@ class App(tk.Tk):
         self.after(80, self._drain_events)
         self.after(1000, self._tick_elapsed)
         self._set_status("พร้อมใช้งาน")
+        # Ask once on first launch only when no verified manifest or prior decline exists.
+        self.after(600, self._offer_v211_four_ai_setup)
     def _pick_ui_font(self) -> str:
         """Choose a Thai-friendly Windows UI font and avoid italic fallback."""
         try:
@@ -1544,6 +1549,84 @@ class App(tk.Tk):
         except Exception as exc:
             messagebox.showerror(APP_NAME, str(exc))
 
+    def _offer_v211_four_ai_setup(self):
+        """Ask once before any network access; V2 remains available on No/failure."""
+        if self._v211_setup_prompted:
+            return
+        self._v211_setup_prompted = True
+        if os.name != "nt":
+            return
+        try:
+            from .v211_auto_setup import initial_setup_state, record_setup_declined
+            state = initial_setup_state()
+        except Exception:
+            self._set_status("ตรวจสอบสถานะ AI 4 ตัวไม่สำเร็จ • V2 ยังใช้งานได้")
+            return
+
+        status = state.get("status")
+        if status in {"already_installed", "declined"}:
+            return
+        if status in {"invalid_existing_manifest", "invalid_decline_marker"}:
+            self._set_status("AI 4 ตัว: ข้อมูลติดตั้งเดิมไม่ผ่านการตรวจ • ใช้ V2 เดิม")
+            messagebox.showwarning(
+                APP_NAME,
+                "พบข้อมูลติดตั้ง AI 4 ตัวที่ตรวจสอบไม่ได้\n"
+                "ระบบจะไม่ดาวน์โหลดทับหรือแก้ไขข้อมูลเดิมโดยอัตโนมัติ\n\n"
+                "NiyomSilp V2 ยังใช้งานได้ตามปกติ",
+                parent=self,
+            )
+            return
+        if status != "needs_consent":
+            return
+
+        accepted = messagebox.askyesno(
+            APP_NAME + " · V2.1.1",
+            "ต้องการดาวน์โหลดและติดตั้ง AI ทั้ง 4 ตัวจากต้นทางทางการหรือไม่?\n\n"
+            "• Real-ESRGAN, Waifu2x, Real-CUGAN และ Anime4KCPP\n"
+            "• จัดเก็บในโปรไฟล์ Windows นี้ และใช้แบบออฟไลน์ได้หลังติดตั้ง\n"
+            "• จะเริ่มดาวน์โหลดเมื่อกด Yes เท่านั้น\n"
+            "• ไม่มีการอัปโหลดภาพลูกค้า และไม่แก้ไข V1 / V2 Stable\n\n"
+            "หากเลือก No จะไม่ถามซ้ำในครั้งถัดไป",
+            parent=self,
+            default=messagebox.NO,
+        )
+        if not accepted:
+            try:
+                record_setup_declined()
+            except Exception:
+                self._set_status("ข้ามการติดตั้ง AI 4 ตัว • V2 ยังใช้งานได้")
+            else:
+                self._set_status("ข้ามการติดตั้ง AI 4 ตัว • V2 ยังใช้งานได้")
+            return
+        self._start_v211_four_ai_setup()
+
+    def _start_v211_four_ai_setup(self):
+        if self._v211_setup_running:
+            return
+        self._v211_setup_running = True
+        self._set_status("กำลังดาวน์โหลดและตรวจสอบ AI ทั้ง 4 ตัว • V2 ยังใช้งานได้")
+
+        def worker():
+            try:
+                from .v211_setup_cli import provision_after_user_consent
+                report = provision_after_user_consent(consent=True)
+            except Exception as exc:
+                try:
+                    from .v211_setup_cli import safe_failure_code
+                    failure = safe_failure_code(exc)
+                except Exception:
+                    failure = "setup_failed"
+                self._events.put(("four_ai_setup_failed", failure))
+            else:
+                self._events.put(("four_ai_setup_done", report))
+
+        self._v211_setup_thread = threading.Thread(
+            target=worker,
+            name="v211-four-ai-first-launch-setup",
+            daemon=True,
+        )
+        self._v211_setup_thread.start()
+
     def _set_status(self, text: str):
         self.status_label.configure(text=text)
 
@@ -1586,6 +1669,39 @@ class App(tk.Tk):
                     _, generation, preview_index, error = ev
                     if generation == self._preview_generation and preview_index == self.current_index:
                         self.right_caption.configure(text="Preview ผิดพลาด: " + error)
+                elif kind == "four_ai_setup_done":
+                    self._v211_setup_running = False
+                    report = ev[1] if len(ev) > 1 and isinstance(ev[1], dict) else {}
+                    names = set(report.get("verified_engine_names", ()))
+                    required = {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
+                    if names == required:
+                        self._set_status("ติดตั้งและตรวจสอบ AI ทั้ง 4 ตัวแล้ว • พร้อมใช้งานออฟไลน์")
+                        messagebox.showinfo(
+                            APP_NAME,
+                            "ติดตั้งและตรวจสอบ AI ทั้ง 4 ตัวเรียบร้อยแล้ว\n"
+                            "พร้อมใช้งานแบบออฟไลน์สำหรับงานวิจัย V2.1.1\n\n"
+                            "ไฟล์งาน V2 เดิมยังคงเป็น Master",
+                            parent=self,
+                        )
+                    else:
+                        self._set_status("AI 4 ตัว: ผลตรวจติดตั้งไม่ครบ • ใช้ V2 เดิม")
+                        messagebox.showwarning(
+                            APP_NAME,
+                            "ผลตรวจติดตั้ง AI ทั้ง 4 ตัวไม่ครบ\n"
+                            "ระบบจะไม่เปิดใช้ Four-Engine QA และ V2 เดิมยังใช้งานได้",
+                            parent=self,
+                        )
+                elif kind == "four_ai_setup_failed":
+                    self._v211_setup_running = False
+                    code = str(ev[1]) if len(ev) > 1 else "setup_failed"
+                    self._set_status("ติดตั้ง AI 4 ตัวไม่สำเร็จ • V2 ยังใช้งานได้")
+                    messagebox.showerror(
+                        APP_NAME,
+                        "ไม่สามารถดาวน์โหลดและตรวจสอบ AI ทั้ง 4 ตัวได้\n"
+                        "V2 เดิมยังใช้งานได้ และไม่มีการเปลี่ยนไฟล์งานที่อนุมัติแล้ว\n\n"
+                        "รหัสสาเหตุ: " + code,
+                        parent=self,
+                    )
                 elif kind == "result_done":
                     _, idx, path, result = ev
                     face = result.get("face_protection") or {}

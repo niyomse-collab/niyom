@@ -72,15 +72,14 @@ def test_four_engine_download_requires_affirmative_consent():
         "SaveStringToFile(FourAIPendingMarker()"
     )
     assert "FourAISetupArmed" in qa
-    # The installer is the only consent surface. If its task is skipped,
-    # the editor opens directly in accepted V2 mode and never prompts later.
-    assert "self.after(500, self._offer_v211_four_ai_setup)" not in app
-    assert "_offer_v211_four_ai_setup" not in app
-    assert "needs_initial_setup" not in app
-    assert "install_for_offline_use()" not in app
-    assert "provision_after_consent" not in app
-    assert "four_ai_setup_done" not in app
-    assert "four_ai_setup_failed" not in app
+    # Installer consent is an optional early path. If skipped, the editor asks
+    # once on first launch; a No decision writes setup-declined.flag locally.
+    assert "self.after(600, self._offer_v211_four_ai_setup)" in app
+    assert "messagebox.askyesno(" in app
+    assert "record_setup_declined()" in app
+    assert "provision_after_user_consent(consent=True)" in app
+    assert "four_ai_setup_done" in app
+    assert "four_ai_setup_failed" in app
 
 
 def test_installer_silent_mode_is_noninteractive_but_still_provisions():
