@@ -24,3 +24,11 @@ def four_engine_ui_status(status: object) -> dict[str, object] | None:
             "allow_preview": False,
         }
     return None
+
+
+def four_engine_preview_allowed(qa_file_exists: object, status: object) -> bool:
+    """Allow a QA preview only when a sidecar exists and its status is not blocked."""
+    if not bool(qa_file_exists):
+        return False
+    ui_status = four_engine_ui_status(status)
+    return ui_status is None or ui_status.get("allow_preview") is True
