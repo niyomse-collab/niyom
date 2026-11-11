@@ -25,6 +25,15 @@ def four_engine_ui_status(
 
     if value in _PREVIEW_READY_STATUSES:
         if qa_file_exists is False:
+            if value == "three_engine_priority_preview_ready":
+                return _blocked_status(
+                    "V2 สำเร็จ • AI 3 Priority ไม่พบไฟล์ QA",
+                    (
+                        "AI 3 Priority: สถานะพร้อมแต่ไม่พบไฟล์ QA "
+                        "• ไม่แสดงภาพตัวอย่าง • Anime4K ไม่ได้ร่วมในภาพนี้ "
+                        "• ใช้ภาพ V2 เดิม"
+                    ),
+                )
             return _blocked_status(
                 "V2 สำเร็จ • AI 4 ไม่พบไฟล์ QA",
                 "AI 4: สถานะพร้อมแต่ไม่พบไฟล์ QA • ไม่แสดงภาพตัวอย่าง • ใช้ภาพ V2 เดิม",
