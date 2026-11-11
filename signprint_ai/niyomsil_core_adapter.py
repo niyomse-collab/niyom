@@ -258,7 +258,9 @@ class NiyomSilpCoreAdapter:
             # and QA crop with libvips when either raster exceeds 18 MP; V2 remains
             # the master and the bridge still fails closed on unsupported limits.
             if use_ai and model_scale > 1:
-                from .v211_four_engine_bridge import maybe_run_four_engine_assist
+                from .v211_four_engine_bridge import (
+                    maybe_run_four_engine_assist, map_protected_effect_regions,
+                )
                 face_info = large_result.get("face_protection") or {}
                 mapped_faces = ()
                 selected_faces = getattr(settings, "face_regions", ()) or ()
@@ -268,15 +270,31 @@ class NiyomSilpCoreAdapter:
                         tuple(selected_faces), source_size, target_size,
                         settings.resize_mode,
                     ))
-                large_result["four_engine_research"] = maybe_run_four_engine_assist(
-                    src, dst, use_ai=use_ai, cancel=cancel,
-                    protected_regions=mapped_faces,
-                    preserve_all_v2_faces=bool(
-                        face_info.get("applied") and not mapped_faces
-                    ),
-                    progress=progress,
-                    resize_mode=settings.resize_mode,
-                )
+                try:
+                    mapped_effect_regions = map_protected_effect_regions(
+                        getattr(settings, "v211_protected_effect_regions", ()),
+                        source_size, target_size, settings.resize_mode,
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    # V2 is already durably saved. An invalid/unmappable effect
+                    # ROI must not let the large-image bridge alter styled text.
+                    large_result["four_engine_research"] = {
+                        "status": "styled_effect_protection_v2_only",
+                        "reason": "effect_region_mapping_failed",
+                        "v2_output_preserved": True,
+                        "quality_certified": False,
+                    }
+                else:
+                    large_result["four_engine_research"] = maybe_run_four_engine_assist(
+                        src, dst, use_ai=use_ai, cancel=cancel,
+                        protected_regions=mapped_faces,
+                        protected_effect_regions=mapped_effect_regions,
+                        preserve_all_v2_faces=bool(
+                            face_info.get("applied") and not mapped_faces
+                        ),
+                        progress=progress,
+                        resize_mode=settings.resize_mode,
+                    )
             else:
                 large_result["four_engine_research"] = None
 
