@@ -39,6 +39,17 @@ $env:NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR = "$qa\private-ab"
 หากไม่เปิด Flag นี้ หรือ engine ล้มเหลว ภาพ V2 ที่บันทึกแล้วต้องไม่เปลี่ยน
 ใช้ภาพที่มีสิทธิ์ทดสอบเท่านั้น และห้าม push ภาพลูกค้าขึ้น GitHub สาธารณะ
 
+## CUDA 12.8 driver compatibility for the bundled V2 core
+
+The experimental Windows build pins PyTorch 2.11.0 + CUDA 12.8. The shop diagnostic now reports the NVIDIA-SMI driver against two distinct NVIDIA Windows requirements:
+
+- CUDA 12.x minor-version compatibility floor: **528.33**.
+- CUDA 12.8 GA toolkit driver version: **570.65**.
+
+A driver below 528.33 is below the documented CUDA 12.x minor-compatibility floor. A driver from 528.33 up to 570.64 is reported as minor-compatibility-only; it is not reported as meeting the full CUDA 12.8 GA driver version. This static comparison does not prove `torch.cuda.is_available()`, successful model initialization, or inference.
+
+This check is reported separately from NCNN/Vulkan eligibility. It must not be used to block or certify Real-ESRGAN, Waifu2x or Real-CUGAN Vulkan execution. The actual Vulkan physical adapter and each native process still require their own evidence.
+
 ## ก่อน Release
 - พิสูจน์สี่ executable inference ผ่านในโปรแกรม V2.1.1 ที่ Build จริงบน GTX 1660 Ti
 - ตรวจโหมด 2x, 4x, และงานใหญ่ ไม่บังคับ GPU 6 GB จนหน่วยความจำหมด

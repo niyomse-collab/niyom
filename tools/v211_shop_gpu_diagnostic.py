@@ -57,6 +57,81 @@ def _parse_nvidia_smi_csv(value: str) -> list[dict]:
     return devices
 
 
+
+CUDA_12X_MINOR_COMPAT_WINDOWS_MIN = (528, 33, 0)
+CUDA_12_8_GA_WINDOWS_MIN = (570, 65, 0)
+
+
+def _parse_nvidia_driver_version(value: object) -> tuple[int, int, int] | None:
+    """Parse the dotted version emitted by nvidia-smi, not Device Manager's WDDM tuple."""
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"\s*(\d+)\.(\d+)(?:\.(\d+))?\s*", value)
+    if not match:
+        return None
+    return (
+        int(match.group(1)),
+        int(match.group(2)),
+        int(match.group(3) or 0),
+    )
+
+
+def _cuda_12_8_driver_compatibility(devices: list[dict]) -> dict:
+    """Report CUDA 12.8 driver floors for the bundled V2 PyTorch runtime.
+
+    This is diagnostic only: it does not gate NCNN/Vulkan engine eligibility and
+    does not claim that torch.cuda initialization or inference has succeeded.
+    """
+    matches = [
+        item for item in devices
+        if isinstance(item, dict)
+        and isinstance(item.get("name"), str)
+        and "gtx 1660 ti" in item["name"].casefold()
+    ]
+    base = {
+        "minimum_windows_driver_cuda_12x_minor_compatibility": "528.33",
+        "minimum_windows_driver_cuda_12_8_ga": "570.65",
+        "scope": "bundled PyTorch CUDA 12.8 runtime; NCNN Vulkan engines are not gated by this check",
+        "torch_cuda_runtime_initialized": False,
+    }
+    if len(matches) != 1:
+        return {
+            **base,
+            "status": "target_gpu_missing_or_ambiguous",
+            "driver_version": None,
+            "cuda_12x_minor_compatibility": False,
+            "cuda_12_8_ga_driver_requirement_met": False,
+        }
+    raw_version = matches[0].get("driver_version")
+    parsed = _parse_nvidia_driver_version(raw_version)
+    if parsed is None:
+        return {
+            **base,
+            "status": "driver_version_unparseable",
+            "driver_version": str(raw_version)[:40] if raw_version is not None else None,
+            "cuda_12x_minor_compatibility": None,
+            "cuda_12_8_ga_driver_requirement_met": None,
+        }
+    if parsed < CUDA_12X_MINOR_COMPAT_WINDOWS_MIN:
+        status = "below_cuda_12x_minor_compatibility_floor"
+        minor_compatible = False
+        full_12_8 = False
+    elif parsed < CUDA_12_8_GA_WINDOWS_MIN:
+        status = "minor_compatibility_only_full_cuda_12_8_driver_not_met"
+        minor_compatible = True
+        full_12_8 = False
+    else:
+        status = "full_cuda_12_8_ga_driver_compatible"
+        minor_compatible = True
+        full_12_8 = True
+    return {
+        **base,
+        "status": status,
+        "driver_version": str(raw_version)[:40],
+        "cuda_12x_minor_compatibility": minor_compatible,
+        "cuda_12_8_ga_driver_requirement_met": full_12_8,
+    }
+
 def _decode_vulkan_device_properties(raw: bytes, index: int) -> dict:
     """Decode the stable leading fields of VkPhysicalDeviceProperties.
 
@@ -464,6 +539,7 @@ def probe_gpu() -> dict:
     gpus = _parse_nvidia_smi_csv(nvidia.pop("stdout", ""))
     nvidia.pop("stderr", None)
     nvidia["devices"] = gpus
+    cuda_12_8_driver_compatibility = _cuda_12_8_driver_compatibility(gpus)
 
     vulkan_loader_available = _probe_vulkan_loader()
     vulkan_exe = _find_tool("vulkaninfo")
@@ -513,6 +589,7 @@ def probe_gpu() -> dict:
     target_vulkan = bool(target_vulkan_devices)
     return {
         "nvidia_smi": nvidia,
+        "cuda_12_8_driver_compatibility": cuda_12_8_driver_compatibility,
         "vulkaninfo": vulkan,
         "vulkan_device_inventory": summary["device_inventory"],
         "vulkan_device_index": (
@@ -1185,6 +1262,7 @@ def run_diagnostic(
         "manifest_present": manifest.is_file(),
         "manifest_preflight_passed": manifest_preflight_passed,
         "gpu": gpu,
+        "pytorch_cuda_12_8_driver_compatibility": gpu.get("cuda_12_8_driver_compatibility"),
         "vulkaninfo_succeeded": bool(gpu.get("vulkaninfo_succeeded")),
         "vulkan_device_inventory_succeeded": bool(gpu.get("vulkan_device_inventory_succeeded")),
         "vulkan_inventory_source": gpu.get("vulkan_inventory_source"),
@@ -1239,6 +1317,8 @@ def run_diagnostic(
         "uploads_performed": False,
         "images_retained": False,
         "notes": [
+            "The bundled V2 PyTorch CUDA 12.8 driver floor is reported separately: Windows CUDA 12.x minor compatibility starts at 528.33, while the CUDA 12.8 GA toolkit driver is 570.65; this static check does not prove torch.cuda initialization.",
+            "The CUDA 12.8 driver check does not gate NCNN/Vulkan engines; their Vulkan adapter and per-process evidence are checked separately.",
             "Only generated synthetic RGB/RGBA PNGs were processed.",
             "The report verifies native CLI execution, output dimensions, alpha, ICC and DPI only.",
             "It does not prove visual improvement, face identity, CMYK/RIP quality or print acceptance.",

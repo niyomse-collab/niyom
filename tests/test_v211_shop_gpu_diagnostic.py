@@ -14,7 +14,7 @@ def _gpu():
     return {
         "nvidia_smi": {"available": True, "success": True, "devices": [{
             "name": "NVIDIA GeForce GTX 1660 Ti",
-            "driver_version": "32.0.16.1742",
+            "driver_version": "570.65",
             "memory_total_mib": 6144,
             "memory_free_mib": 5500,
         }]},
@@ -312,7 +312,7 @@ def test_probe_gpu_uses_native_vulkan_loader_when_vulkaninfo_is_missing(
         if executable == "nvidia-smi.exe":
             return {
                 "available": True, "success": True, "status": "ok",
-                "stdout": '"NVIDIA GeForce GTX 1660 Ti", 32.0.16.1742, 6144, 5500\n',
+                "stdout": '"NVIDIA GeForce GTX 1660 Ti", 570.65, 6144, 5500\n',
                 "stderr": "",
             }
         return {"available": False, "success": False, "status": "not_found"}
@@ -341,6 +341,7 @@ def test_probe_gpu_uses_native_vulkan_loader_when_vulkaninfo_is_missing(
     assert report["vulkan_device_inventory"][0]["name"] == "NVIDIA GeForce GTX 1660 Ti"
     assert report["vulkaninfo"]["success"] is False
     assert report["vulkaninfo"]["inventory_source"] == "vulkan_loader_native"
+    assert report["cuda_12_8_driver_compatibility"]["status"] == "full_cuda_12_8_ga_driver_compatible"
     # Native loader inventory is sufficient for device binding; the optional
     # SDK command must not be falsely reported as executed.
     from tools.v211_gpu_device_binding import resolve_device_selection
@@ -1128,3 +1129,42 @@ def test_runtime_evidence_accepts_wddm_only_with_per_process_gpu_engine_activity
     telemetry["runtime_device_wddm_pdh_verified_process_count"] = 2
     telemetry["runtime_gpu_engine_adapter_luid_match"] = False
     assert diagnostic._runtime_device_evidence_verified(True, telemetry) is False
+
+
+
+@pytest.mark.parametrize(
+    ("driver", "status", "minor_compatible", "full_12_8"),
+    [
+        ("451.67", "below_cuda_12x_minor_compatibility_floor", False, False),
+        ("528.33", "minor_compatibility_only_full_cuda_12_8_driver_not_met", True, False),
+        ("560.94", "minor_compatibility_only_full_cuda_12_8_driver_not_met", True, False),
+        ("570.65", "full_cuda_12_8_ga_driver_compatible", True, True),
+        ("572.61", "full_cuda_12_8_ga_driver_compatible", True, True),
+    ],
+)
+def test_cuda_12_8_driver_compatibility_reports_windows_driver_floors(
+    driver, status, minor_compatible, full_12_8
+):
+    report = diagnostic._cuda_12_8_driver_compatibility([{
+        "name": "NVIDIA GeForce GTX 1660 Ti",
+        "driver_version": driver,
+    }])
+    assert report["status"] == status
+    assert report["cuda_12x_minor_compatibility"] is minor_compatible
+    assert report["cuda_12_8_ga_driver_requirement_met"] is full_12_8
+    assert report["torch_cuda_runtime_initialized"] is False
+
+
+def test_cuda_12_8_driver_compatibility_fails_closed_for_ambiguous_or_unknown_versions():
+    ambiguous = diagnostic._cuda_12_8_driver_compatibility([
+        {"name": "NVIDIA GeForce GTX 1660 Ti", "driver_version": "570.65"},
+        {"name": "NVIDIA GeForce GTX 1660 Ti", "driver_version": "570.65"},
+    ])
+    unknown = diagnostic._cuda_12_8_driver_compatibility([{
+        "name": "NVIDIA GeForce GTX 1660 Ti",
+        "driver_version": "32.0.16.1742",
+    }])
+    assert ambiguous["status"] == "target_gpu_missing_or_ambiguous"
+    assert unknown["status"] == "driver_version_unparseable"
+    assert ambiguous["cuda_12_8_ga_driver_requirement_met"] is False
+    assert unknown["cuda_12_8_ga_driver_requirement_met"] is None
