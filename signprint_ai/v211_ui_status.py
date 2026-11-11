@@ -144,3 +144,21 @@ def four_engine_preview_allowed(qa_file_exists: object, status: object) -> bool:
         return False
     value = str(status or "").strip()
     return value in _PREVIEW_READY_STATUSES
+
+
+
+def four_engine_preview_caption(status: object) -> str:
+    """Name the actual engine set represented by a QA preview."""
+    value = str(status or "").strip()
+    if value == "three_engine_priority_preview_ready":
+        return (
+            "QA สำรองจาก Real-ESRGAN, Waifu2x และ Real-CUGAN เท่านั้น "
+            "• Anime4K ไม่ได้ร่วมในภาพนี้ • ไฟล์ V2 เดิมยังอยู่ "
+            "• ไม่ใช่ผลรับรองคุณภาพ"
+        )
+    if value == "four_engine_fusion_preview_ready":
+        return (
+            "QA จาก AI ทั้ง 4 ตัวมีส่วนต่อพิกเซลแล้ว "
+            "• ไฟล์ V2 เดิมยังอยู่ • ไม่ใช่ผลรับรองคุณภาพ"
+        )
+    return "ภาพ QA จาก AI เสริม • ไฟล์ V2 เดิมยังอยู่ • ไม่ใช่ผลรับรองคุณภาพ"
