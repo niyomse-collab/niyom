@@ -362,3 +362,83 @@ def test_disk_tiled_v2_job_over_18mp_routes_into_disk_backed_four_engine_bridge(
     assert result["four_engine_research"]["status"] == "four_engine_fusion_preview_ready"
     assert result["four_engine_research"]["quality_certified"] is False
     assert destination.read_bytes() == b"durable large V2 raster"
+
+
+def _large_image_adapter_with_stubbed_v2(monkeypatch, destination):
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    monkeypatch.setattr(adapter_module, "image_size", lambda _path: (1200, 1200))
+    monkeypatch.setattr(adapter_module, "needs_streaming", lambda *args: True)
+    monkeypatch.setattr(adapter_module, "validate_export", lambda *args: None)
+
+    def fake_large(_adapter, _src, dst, _settings, _source_size, _target_size,
+                   _scale, _progress, _cancel, _use_ai, **kwargs):
+        Path(dst).write_bytes(b"durable large V2 raster")
+        return {"output": str(dst), "face_protection": {"applied": False}}
+
+    monkeypatch.setattr(adapter_module, "process_large", fake_large)
+    from signprint_ai import v211_blur_gate
+    monkeypatch.setattr(
+        v211_blur_gate, "select_photo_restoration",
+        lambda settings, source_path, **kwargs: (settings, None),
+    )
+    return adapter
+
+
+def test_large_image_bridge_maps_explicit_styled_effect_regions(tmp_path, monkeypatch):
+    source, destination = _source_and_v2(tmp_path)
+    adapter = _large_image_adapter_with_stubbed_v2(monkeypatch, destination)
+    observed = {}
+
+    def fake_bridge(src, v2_output, **kwargs):
+        assert Path(v2_output).read_bytes() == b"durable large V2 raster"
+        observed.update(kwargs)
+        return {
+            "status": "four_engine_fusion_preview_ready",
+            "v2_output_preserved": True,
+            "quality_certified": False,
+        }
+
+    monkeypatch.setattr(bridge, "maybe_run_four_engine_assist", fake_bridge)
+    roi = (0.25, 0.20, 0.75, 0.80)
+    settings = SimpleNamespace(
+        print_width=None, print_height=None, ai_scale=2,
+        v211_source_guided_ink=False, face_protection=False,
+        face_regions=(), resize_mode="fit",
+        v211_protected_effect_regions=(roi,),
+    )
+
+    result = adapter.process(source, destination, settings, use_ai=True)
+
+    assert observed["protected_effect_regions"] == (roi,)
+    assert observed["protected_regions"] == ()
+    assert observed["resize_mode"] == "fit"
+    assert result["four_engine_research"]["status"] == "four_engine_fusion_preview_ready"
+    assert destination.read_bytes() == b"durable large V2 raster"
+
+
+def test_large_image_bridge_fails_closed_when_styled_effect_roi_is_invalid(
+    tmp_path, monkeypatch
+):
+    source, destination = _source_and_v2(tmp_path)
+    adapter = _large_image_adapter_with_stubbed_v2(monkeypatch, destination)
+
+    def native_bridge_must_not_start(*args, **kwargs):
+        raise AssertionError("invalid styled-effect ROI must stop before native engines")
+
+    monkeypatch.setattr(bridge, "maybe_run_four_engine_assist", native_bridge_must_not_start)
+    settings = SimpleNamespace(
+        print_width=None, print_height=None, ai_scale=2,
+        v211_source_guided_ink=False, face_protection=False,
+        face_regions=(), resize_mode="stretch",
+        v211_protected_effect_regions=((0.80, 0.80, 0.20, 0.20),),
+    )
+
+    result = adapter.process(source, destination, settings, use_ai=True)
+
+    assert result["four_engine_research"] == {
+        "status": "styled_effect_protection_v2_only",
+        "reason": "effect_region_mapping_failed",
+        "v2_output_preserved": True,
+        "quality_certified": False,
+    }
+    assert destination.read_bytes() == b"durable large V2 raster"
