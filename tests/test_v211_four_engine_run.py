@@ -617,3 +617,33 @@ def test_real_engine_runner_withholds_fusion_without_runtime_gpu_proof(
         name: False for name in ENGINES
     }
     assert not (output_dir / "four_engine_fused_preview.png").exists()
+
+
+def test_safe_error_summary_requires_explicit_vulkan_initialization_failure():
+    from tools.v211_four_engine_run import _safe_error_summary
+
+    loader_failure = _safe_error_summary(
+        "RuntimeError: vkCreateInstance failed -9"
+    )
+    missing_device = _safe_error_summary(
+        "RuntimeError: Vulkan device not found"
+    )
+    invalid_index = _safe_error_summary(
+        "RuntimeError: Vulkan device index 3 does not match GTX 1660 Ti"
+    )
+    binding_failure = _safe_error_summary(
+        "RuntimeError: Vulkan adapter binding mismatch"
+    )
+    invalid_gpu_device = _safe_error_summary(
+        "RuntimeError: invalid gpu device"
+    )
+
+    assert loader_failure["error_class"] == "vulkan_initialization_failed"
+    assert missing_device["error_class"] == "vulkan_initialization_failed"
+    assert invalid_index["error_class"] == "engine_failed"
+    assert binding_failure["error_class"] == "engine_failed"
+    assert invalid_gpu_device["error_class"] == "engine_failed"
+    assert all(item["details_redacted"] is True for item in (
+        loader_failure, missing_device, invalid_index,
+        binding_failure, invalid_gpu_device,
+    ))
