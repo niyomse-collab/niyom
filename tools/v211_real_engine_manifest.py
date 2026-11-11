@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand
@@ -161,8 +163,36 @@ def _validate_args(engine: str, args: list, engine_root: Path) -> list[str]:
     return args
 
 
+def safe_manifest_path(path: Path) -> Path:
+    """Return an absolute manifest path without following symlinks/reparse points.
+
+    Inspect every existing component with lstat before any read, create or
+    replace operation. This prevents a manifest symlink (or linked parent)
+    from redirecting provisioning outside the intended user-local cache.
+    """
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    candidate = Path(os.path.abspath(os.fspath(candidate)))
+    for entry in (candidate, *candidate.parents):
+        if entry == Path(candidate.anchor):
+            continue
+        try:
+            info = entry.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise ValueError("manifest path cannot be safely inspected") from exc
+        is_reparse = bool(getattr(info, "st_file_attributes", 0) & 0x400)
+        if stat.S_ISLNK(info.st_mode) or is_reparse:
+            raise ValueError("manifest path must not traverse a symlink or reparse point")
+        if entry == candidate and not stat.S_ISREG(info.st_mode):
+            raise ValueError("manifest must be a regular file")
+    return candidate
+
+
 def load_real_engine_manifest(path: Path) -> dict[str, EngineCommand]:
-    manifest_path = Path(path)
+    manifest_path = safe_manifest_path(path)
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or set(data) != set(ENGINES):
         raise ValueError("manifest must configure exactly four engines")
