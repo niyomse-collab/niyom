@@ -30,17 +30,22 @@ def selected_manifest() -> Path:
     """
     override = os.environ.get("NIYOMSIL_V211_FOUR_AI_MANIFEST", "").strip()
     path = Path(override).expanduser() if override else default_manifest()
-    return path.resolve()
+    # Keep the final directory entry visible to lstat/is_symlink checks.
+    # Path.resolve() follows a manifest symlink and makes that check useless.
+    return Path(os.path.abspath(os.fspath(path)))
 
 
 def initial_setup_state() -> dict:
     """Inspect local state only; never download or create files."""
-    from .v211_setup_cli import _validate_four_ai_data_root
+    from .v211_setup_cli import (
+        _is_link_or_reparse_point, _validate_four_ai_data_root,
+    )
     from tools.v211_real_engine_manifest import load_real_engine_manifest
 
     root = _validate_four_ai_data_root(qa_root())
     manifest = selected_manifest()
-    if manifest.is_symlink() or (manifest.exists() and not manifest.is_file()):
+    if (_is_link_or_reparse_point(manifest)
+            or (os.path.lexists(manifest) and not manifest.is_file())):
         return {"status": "invalid_existing_manifest"}
     if manifest.exists():
         try:
@@ -66,12 +71,15 @@ def initial_setup_state() -> dict:
 
 def record_setup_declined() -> dict:
     """Persist the user's No decision locally without touching model files."""
-    from .v211_setup_cli import _validate_four_ai_data_root
+    from .v211_setup_cli import (
+        _is_link_or_reparse_point, _validate_four_ai_data_root,
+    )
 
     root = _validate_four_ai_data_root(qa_root())
     root.mkdir(parents=True, exist_ok=True)
     marker = root / "setup-declined.flag"
-    if marker.is_symlink() or (marker.exists() and not marker.is_file()):
+    if (_is_link_or_reparse_point(marker)
+            or (os.path.lexists(marker) and not marker.is_file())):
         raise RuntimeError("four-engine decline marker is not a regular file")
     try:
         with marker.open("x", encoding="utf-8") as stream:
@@ -88,16 +96,27 @@ def provision_after_consent() -> dict:
     must fail closed. Existing installs are never overwritten, even when
     only partially present; a human must review/correct their QA directory.
     """
+    from .v211_setup_cli import (
+        _is_link_or_reparse_point, _validate_four_ai_data_root,
+    )
     from tools.v211_official_assets_audit import PACKAGES
     from tools.v211_provision_four_engines import (
         ensure_verified_archive, provision_from_archives,
     )
     from tools.v211_real_engine_manifest import load_real_engine_manifest
 
-    root = qa_root()
+    root = _validate_four_ai_data_root(qa_root())
     manifest = selected_manifest()
     declined_marker = root / "setup-declined.flag"
-    if manifest.exists():
+    # Revalidate at the write boundary: the path may have changed after the
+    # first-launch status check or while the consent dialog was open.
+    if (_is_link_or_reparse_point(manifest)
+            or (os.path.lexists(manifest) and not manifest.is_file())):
+        raise RuntimeError("four-engine manifest path is not a safe regular file")
+    if (_is_link_or_reparse_point(declined_marker)
+            or (os.path.lexists(declined_marker) and not declined_marker.is_file())):
+        raise RuntimeError("four-engine decline marker is not a safe regular file")
+    if manifest.is_file():
         verified = load_real_engine_manifest(manifest)
         if set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
             raise RuntimeError("existing manifest does not verify all four engines")
