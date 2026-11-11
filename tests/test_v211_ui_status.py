@@ -73,10 +73,29 @@ def test_ready_status_without_sidecar_is_reported_as_incomplete():
     assert status["allow_preview"] is False
 
 
-def test_other_four_engine_states_keep_existing_ready_handling():
-    assert four_engine_ui_status("four_engine_fusion_preview_ready") is None
-    assert four_engine_ui_status("three_engine_priority_preview_ready") is None
+def test_ready_preview_rows_distinguish_three_and_four_engines():
+    four = four_engine_ui_status(
+        "four_engine_fusion_preview_ready", qa_file_exists=True
+    )
+    three = four_engine_ui_status(
+        "three_engine_priority_preview_ready", qa_file_exists=True
+    )
+
+    assert four is not None
+    assert "AI 4 QA พร้อม" in four["row"]
+    assert four["allow_preview"] is True
+    assert three is not None
+    assert "AI 3 Priority QA" in three["row"]
+    assert three["allow_preview"] is True
     assert four_engine_ui_status(None) is None
+
+
+def test_applied_but_unverified_raster_is_not_reported_as_qa_ready():
+    status = four_engine_ui_status("four_engine_applied_to_v2_raster")
+
+    assert status is not None
+    assert "AI 4 รอ QA" in status["row"]
+    assert status["allow_preview"] is False
 
 
 def test_preview_gate_rejects_existing_sidecar_for_blocked_statuses():
