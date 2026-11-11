@@ -96,3 +96,25 @@ def test_preview_gate_fails_closed_for_unknown_or_missing_status():
     assert four_engine_preview_allowed(True, "models_not_installed") is False
     assert four_engine_preview_allowed(True, "gpu_runtime_unverified_typo") is False
     assert four_engine_preview_allowed(True, None) is False
+
+
+
+def test_three_engine_priority_preview_is_not_mislabeled_as_four_engine():
+    from signprint_ai.v211_ui_status import four_engine_preview_caption
+
+    caption = four_engine_preview_caption("three_engine_priority_preview_ready")
+
+    assert "Real-ESRGAN" in caption
+    assert "Waifu2x" in caption
+    assert "Real-CUGAN" in caption
+    assert "Anime4K ไม่ได้ร่วม" in caption
+    assert "ไม่ใช่ผลรับรองคุณภาพ" in caption
+
+
+def test_four_engine_preview_caption_requires_four_engine_ready_status():
+    from signprint_ai.v211_ui_status import four_engine_preview_caption
+
+    caption = four_engine_preview_caption("four_engine_fusion_preview_ready")
+
+    assert "AI ทั้ง 4 ตัว" in caption
+    assert "ไม่ใช่ผลรับรองคุณภาพ" in caption
