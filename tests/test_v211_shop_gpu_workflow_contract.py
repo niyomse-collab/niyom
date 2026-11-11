@@ -114,8 +114,8 @@ def test_installed_candidate_may_only_differ_by_nonproduction_gate_files():
     assert "Where-Object { $_ -notin $allowedFiles }" in workflow
 
 
-def test_candidate_build_is_not_cancelled_by_followup_commits():
+def test_candidate_build_cancels_superseded_runs_for_the_current_branch():
     workflow = _read(".github/workflows/v211-four-engine-bridge-windows.yml")
 
-    assert "group: niyomsil-v211-bridge-windows" in workflow
-    assert "cancel-in-progress: false" in workflow
+    assert "group: niyomsil-v211-bridge-windows-${{ github.event.pull_request.head.ref || github.ref_name }}" in workflow
+    assert "cancel-in-progress: true" in workflow

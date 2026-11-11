@@ -445,3 +445,9 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - The installer checkbox remains an optional earlier consent path. If it is skipped, the editor's first-launch prompt is the consent surface. No individual per-engine buttons are added.
 - The downloaded archives remain in the current Windows user's LocalAppData, are SHA256-verified before provisioning, and are not committed or uploaded. Customer artwork is never part of setup.
 - This corrects the earlier installer-only wording. The first-launch setup path remains a V2.1.1 experimental feature and is not a shop-PC inference or image-quality certification.
+
+
+## 12 November 2026 — superseded candidate concurrency
+
+- The Windows candidate workflow now scopes its concurrency group to the PR head branch (or push branch name) and sets `cancel-in-progress: true`. Push and pull-request events for the same branch share one group, so a newer commit replaces an older candidate run instead of waiting behind a stale build from a previous commit.
+- This does not merge, release, or change V1/V2 Stable. It only changes the experimental PR #20 CI scheduling policy.
