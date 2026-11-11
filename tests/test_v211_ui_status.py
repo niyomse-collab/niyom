@@ -137,3 +137,15 @@ def test_four_engine_preview_caption_requires_four_engine_ready_status():
 
     assert "AI ทั้ง 4 ตัว" in caption
     assert "ไม่ใช่ผลรับรองคุณภาพ" in caption
+
+
+def test_missing_three_engine_sidecar_is_not_mislabeled_as_four_engine():
+    status = four_engine_ui_status(
+        "three_engine_priority_preview_ready", qa_file_exists=False
+    )
+
+    assert status is not None
+    assert "AI 3 Priority ไม่พบไฟล์ QA" in status["row"]
+    assert "Anime4K ไม่ได้ร่วมในภาพนี้" in status["caption"]
+    assert "AI 4 ไม่พบไฟล์ QA" not in status["row"]
+    assert status["allow_preview"] is False
