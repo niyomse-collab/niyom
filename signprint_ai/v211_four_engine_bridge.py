@@ -41,6 +41,37 @@ _EVIDENCE = "NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR"
 _ENGINE_NAMES = ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
 
 
+def map_protected_effect_regions(regions, source_size, target_size, resize_mode="fit"):
+    """Validate and map explicit source-normalized styled-effect ROIs to V2 pixels."""
+    if not isinstance(regions, (tuple, list)):
+        raise ValueError("styled-effect regions must be a list of normalized rectangles")
+    normalized = []
+    for coords in regions:
+        if not isinstance(coords, (tuple, list)) or len(coords) != 4:
+            raise ValueError("styled-effect ROI must contain four normalized coordinates")
+        values = []
+        for value in coords:
+            if isinstance(value, bool):
+                raise ValueError("styled-effect ROI coordinates must be numeric")
+            try:
+                number = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError("styled-effect ROI coordinates must be numeric") from exc
+            if not math.isfinite(number) or not 0.0 <= number <= 1.0:
+                raise ValueError("styled-effect ROI coordinates must be finite and within 0..1")
+            values.append(number)
+        x1, y1, x2, y2 = values
+        if x1 >= x2 or y1 >= y2:
+            raise ValueError("styled-effect ROI rectangle is inverted or empty")
+        normalized.append(tuple(values))
+    if not normalized:
+        return ()
+    from .face_module.detection import map_regions
+    return tuple(map_regions(
+        tuple(normalized), source_size, target_size, resize_mode
+    ))
+
+
 def _all_four_runtime_devices_verified(result: dict) -> bool:
     """Require live per-process proof for every native engine before QA export."""
     if not isinstance(result, dict) or result.get("runtime_device_use_verified") is not True:
@@ -276,7 +307,9 @@ def maybe_run_four_engine_assist(
     use_ai: bool = True,
     cancel: Callable[[], bool] | None = None,
     protected_regions: tuple = (),
+    protected_effect_regions: tuple = (),
     preserve_all_v2_faces: bool = False,
+    preserve_all_v2_effects: bool = False,
     progress: Callable[[int, str], None] | None = None,
     resize_mode: str = "stretch",
 ) -> dict:
@@ -297,6 +330,13 @@ def maybe_run_four_engine_assist(
         return {
             "status": "face_protection_v2_only",
             "reason": "unmapped_face_regions",
+            "v2_output_preserved": True,
+            "quality_certified": False,
+        }
+    if preserve_all_v2_effects:
+        return {
+            "status": "styled_effect_protection_v2_only",
+            "reason": "unmapped_styled_effect_regions",
             "v2_output_preserved": True,
             "quality_certified": False,
         }
@@ -396,10 +436,13 @@ def maybe_run_four_engine_assist(
 
         evidence_root = os.environ.get(_EVIDENCE, "").strip()
         guard_options = {}
-        if protected_regions or preserve_all_v2_faces:
+        if (protected_regions or protected_effect_regions or preserve_all_v2_faces
+                or preserve_all_v2_effects):
             guard_options = {
                 "protected_regions": protected_regions,
+                "protected_effect_regions": protected_effect_regions,
                 "preserve_all_v2_faces": preserve_all_v2_faces,
+                "preserve_all_v2_effects": preserve_all_v2_effects,
             }
         run_options = {**guard_options}
         if cancel is not None:
@@ -556,6 +599,8 @@ def maybe_run_four_engine_assist(
                 "mean_abs_detail_delta": fusion.get("mean_abs_detail_delta"),
                 "engine_detail_contribution_mean_abs": fusion.get("engine_detail_contribution_mean_abs"),
                 "protected_faces_preserved": fusion.get("protected_faces_preserved"),
+                "protected_effect_regions_preserved": fusion.get("protected_effect_regions_preserved"),
+                "protected_effect_region_count": fusion.get("protected_effect_region_count"),
                 "native_engine_scale": 2,
                 "engine_input_size": [padded_size[0] // 2, padded_size[1] // 2],
                 "requested_output_size": list(target_size),
@@ -570,6 +615,7 @@ def maybe_run_four_engine_assist(
             "anime4k_optional_for_priority_preview": True,
             "failures": result.get("failures", {}),
             "fusion_implemented": bool(fusion.get("fusion_implemented")),
+            "protected_effect_regions_preserved": bool(fusion.get("protected_effect_regions_preserved")),
             "all_four_engine_pixels_contributed": bool(fusion.get("all_four_engine_pixels_contributed")),
             "engine_pixel_effect_pixels": fusion.get("engine_pixel_effect_pixels"),
             "engine_pixel_effect_verified": fusion.get("engine_pixel_effect_verified"),

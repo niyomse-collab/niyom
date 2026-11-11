@@ -425,3 +425,13 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Real-ESRGAN และ Real-CUGAN ยังใช้ observed-CI archive SHA ไม่ใช่ publisher-published digest; model-weight/license certification และ redistribution approval ยังคง false.
 
 **สถานะ:** V2 ยังคง accepted master. PR #20 คง Draft/unmerged; ไม่อ้างว่าคุณภาพเหนือ V2; ไม่มีการแก้ V1/V2 Stable, ไม่มี merge/release และไม่มี binaries/weights/ภาพลูกค้าใน Git.
+
+
+## 12 พฤศจิกายน 2569 — fail-closed protection สำหรับ styled/FX text (ยังไม่ใช่ text reconstruction)
+
+- เพิ่ม V21Settings.v211_protected_effect_regions เป็น ROI พิกัด normalized จากภาพต้นฉบับ เพื่อให้ผู้เรียกที่มี ROI จากการเลือก/ตัวจำแนกที่เชื่อถือได้ส่งขอบเขตข้อความที่มี gradient, หลายชั้น stroke, glow, shadow, bevel หรือ texture มาให้ Four-Engine QA ได้
+- Adapter แปลง ROI ผ่าน transform เดียวกับ fit/stretch ไปยัง canvas V2 จริง; fusion กันพื้นที่ ROI พร้อม safety margin 6 px และคง RGB ของ V2 ในพื้นที่นั้นแบบ pixel-identical ขณะที่ยังประมวลผลพื้นที่อื่นได้
+- หาก ROI ไม่ถูกต้องหรือ map ไม่ได้ จะคง V2 และไม่เปิด native engines/ไม่สร้าง QA sidecar (fail-closed)
+- ค่าเริ่มต้นเป็น ROI ว่าง จึงยังไม่มี automatic styled-text detector; ต้องมี ROI จากผู้เรียก/ตัวจำแนกก่อน การเปลี่ยนแปลงนี้เป็น protection contract เท่านั้น ไม่ใช่ OCR, การพิมพ์ข้อความใหม่ หรือการกู้คืน gradient/effect ที่หายไป
+- เพิ่ม synthetic tests สำหรับ gradient fill, double-stroke/bevel-style region, pixel-exact protection, unprotected-region contribution และ fit/stretch mapping; ภาพ synthetic เท่านั้น ไม่ใช้ภาพลูกค้า
+- ยังต้องทำ A/B กับป้ายจริงที่ได้รับอนุญาตและตรวจ Photoshop/MainTop/RIP ก่อนอ้างคุณภาพหรือเปิดใช้จริง

@@ -112,6 +112,59 @@ def test_fake_runner_cannot_replace_v2_output(tmp_path, monkeypatch):
     assert baseline.read_bytes() == old
 
 
+def test_styled_effect_regions_are_forwarded_to_fusion_runner(tmp_path, monkeypatch):
+    source, baseline = _images(tmp_path)
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+    from tools import v211_four_engine_run
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": 4,
+            "failures": {},
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
+    regions = ((0.12, 0.18, 0.72, 0.84),)
+    result = bridge.maybe_run_four_engine_assist(
+        source, baseline, protected_effect_regions=regions
+    )
+    assert captured["protected_effect_regions"] == regions
+    assert result["v2_output_preserved"] is True
+    assert result["quality_certified"] is False
+
+
+def test_effect_roi_mapping_validates_and_uses_the_v2_resize_transform():
+    stretch = bridge.map_protected_effect_regions(
+        ((0.1, 0.2, 0.7, 0.8),), (100, 50), (300, 300), "stretch"
+    )
+    assert stretch == ((0.1, 0.2, 0.7, 0.8),)
+    fit = bridge.map_protected_effect_regions(
+        ((0.25, 0.2, 0.75, 0.8),), (200, 100), (200, 200), "fit"
+    )
+    assert fit == ((0.25, 0.35, 0.75, 0.65),)
+
+
+@pytest.mark.parametrize(
+    "regions",
+    [
+        "not-a-list",
+        ((-0.1, 0.2, 0.7, 0.8),),
+        ((0.1, 0.2, 0.1, 0.8),),
+        ((0.1, 0.2, float("nan"), 0.8),),
+        ((0.1, 0.2, 0.7),),
+    ],
+)
+def test_invalid_effect_roi_mapping_fails_closed(regions):
+    with pytest.raises(ValueError):
+        bridge.map_protected_effect_regions(
+            regions, (100, 50), (300, 300), "stretch"
+        )
+
+
 def test_faulty_engine_does_not_fail_v2_job(tmp_path, monkeypatch):
     source, baseline = _images(tmp_path)
     old = baseline.read_bytes()

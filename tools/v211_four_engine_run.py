@@ -329,7 +329,7 @@ def _restore_candidate_rgba_from_v2(candidate_path: Path, v2_reference: Path) ->
         restored.close()
 
 
-def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None, protected_regions: tuple = (), preserve_all_v2_faces: bool = False, cancel: Callable[[], bool] | None = None, progress_callback: Callable[[int, str], None] | None = None, pre_launch_check: Callable[[str], dict] | None = None) -> dict:
+def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, real_engines: bool = True, v2_reference: Path | None = None, protected_regions: tuple = (), protected_effect_regions: tuple = (), preserve_all_v2_faces: bool = False, preserve_all_v2_effects: bool = False, cancel: Callable[[], bool] | None = None, progress_callback: Callable[[int, str], None] | None = None, pre_launch_check: Callable[[str], dict] | None = None) -> dict:
     source = Path(source)
     output_dir = Path(output_dir)
     if (not isinstance(size, (tuple, list)) or len(size) != 2
@@ -551,7 +551,9 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
                     source, v2_reference, available,
                     output_dir / "four_engine_fused_preview.png",
                     protected_regions=protected_regions,
+                    protected_effect_regions=protected_effect_regions,
                     preserve_all_v2_faces=preserve_all_v2_faces,
+                    preserve_all_v2_effects=preserve_all_v2_effects,
                     cancel_check=cancel,
                 )
                 report["four_engine_fusion"] = fusion

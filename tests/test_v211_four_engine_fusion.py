@@ -144,6 +144,82 @@ def test_auto_face_without_rectangles_keeps_complete_v2(tmp_path):
         np.testing.assert_array_equal(np.asarray(base), np.asarray(fused))
 
 
+def _styled_effect_fixture(tmp_path):
+    source = tmp_path / "styled-source.png"
+    baseline = tmp_path / "styled-v2.png"
+    Image.new("RGB", (64, 64), (80, 80, 80)).save(source, dpi=(300, 300))
+    yy, xx = np.mgrid[:128, :128]
+    base = np.empty((128, 128, 3), dtype=np.uint8)
+    base[..., 0] = 35 + (xx * 40 // 127)
+    base[..., 1] = 60 + (yy * 35 // 127)
+    base[..., 2] = 120 + ((xx + yy) * 25 // 254)
+    # Two hard contours outside the protected ROI prove fusion remains active.
+    base[:, 30:34, :] = (10, 10, 10)
+    base[:, 94:98, :] = (10, 10, 10)
+    # Synthetic styled headline: multicolour fill, two outer strokes and a bevel band.
+    base[28:100, 44:84, :] = (250, 230, 150)
+    base[32:96, 48:80, :] = (160, 20, 30)
+    for x in range(52, 76):
+        t = (x - 52) / 23
+        colour = (
+            int(255 * (1 - t) + 220 * t),
+            int(70 * (1 - t) + 180 * t),
+            int(15 * (1 - t) + 35 * t),
+        )
+        base[36:92, x, :] = colour
+    base[36:40, 52:76, :] = (255, 240, 190)
+    base[88:92, 52:76, :] = (100, 20, 30)
+    Image.fromarray(base, "RGB").save(baseline, dpi=(300, 300))
+    candidates = {}
+    for name, amount in (("real_esrgan", 9), ("waifu2x", 7), ("real_cugan", 8), ("anime4k", 5)):
+        pixels = base.copy()
+        for x in (29, 30, 33, 34, 93, 94, 97, 98):
+            sign = -1 if x in (29, 33, 93, 97) else 1
+            pixels[:, x, :] = np.clip(
+                pixels[:, x, :].astype(np.int16) + sign * amount, 0, 255
+            ).astype(np.uint8)
+        path = tmp_path / (name + "-styled.png")
+        Image.fromarray(pixels, "RGB").save(path, dpi=(300, 300))
+        candidates[name] = path
+    return source, baseline, candidates
+
+
+def test_styled_effect_roi_is_copied_from_v2_pixel_for_pixel(tmp_path):
+    source, baseline, candidates = _styled_effect_fixture(tmp_path)
+    output = tmp_path / "styled-effect-safe.png"
+    roi = (0.40, 0.20, 0.60, 0.80)
+    report = fuse_four_engine_details(
+        source, baseline, candidates, output,
+        protected_effect_regions=(roi,),
+    )
+    assert report["protected_effect_regions_preserved"] is True
+    assert report["protected_effect_region_count"] == 1
+    assert report["all_four_engine_pixels_contributed"] is True
+    with Image.open(baseline) as base, Image.open(output) as fused:
+        original = np.asarray(base)
+        result = np.asarray(fused)
+        left = max(0, int(roi[0] * 128) - 6)
+        top = max(0, int(roi[1] * 128) - 6)
+        right = min(128, int(np.ceil(roi[2] * 128)) + 6)
+        bottom = min(128, int(np.ceil(roi[3] * 128)) + 6)
+        np.testing.assert_array_equal(result[top:bottom, left:right], original[top:bottom, left:right])
+        assert np.any(result[:, 28:36] != original[:, 28:36])
+        assert np.any(result[:, 92:100] != original[:, 92:100])
+
+
+def test_unmapped_styled_effects_preserve_complete_v2_without_fusion(tmp_path):
+    source, baseline, candidates = _fixture(tmp_path)
+    output = tmp_path / "styled-effects-v2-only.png"
+    report = fuse_four_engine_details(
+        source, baseline, candidates, output, preserve_all_v2_effects=True
+    )
+    assert report["preserve_all_v2_effects"] is True
+    assert report["protected_effect_regions_preserved"] is True
+    assert report["all_four_engine_pixels_contributed"] is False
+    with Image.open(baseline) as base, Image.open(output) as result:
+        np.testing.assert_array_equal(np.asarray(base), np.asarray(result))
+
+
 def test_missing_engine_fails_closed(tmp_path):
     src, v2, cands = _fixture(tmp_path)
     cands.pop("anime4k")

@@ -480,6 +480,7 @@ def _gray_highpass(region: Image.Image) -> np.ndarray:
 def _protected_mask(x0: int, y0: int, w: int, h: int,
                     size: tuple[int, int],
                     normalized_regions: tuple[tuple[float, float, float, float], ...]) -> np.ndarray:
+    """Mask normalized protected-content ROIs, with a six-pixel safety margin."""
     mask = np.zeros((h, w), dtype=bool)
     W, H = size
     for coords in normalized_regions:
@@ -505,14 +506,17 @@ def fuse_four_engine_details(
     output: Path,
     *,
     protected_regions: tuple[tuple[float, float, float, float], ...] = (),
+    protected_effect_regions: tuple[tuple[float, float, float, float], ...] = (),
     preserve_all_v2_faces: bool = False,
+    preserve_all_v2_effects: bool = False,
     cancel_check: Callable[[], bool] | None = None,
 ) -> dict:
     """Apply four previously validated model outputs to a distinct QA file.
 
     All four are mandatory. Never write over source, V2, or any candidate.
-    If a GFPGAN/Studio AI face pass ran without mapped face rectangles, keep
-    the complete V2 image as the output: an unknown face must not be altered.
+    If a GFPGAN/Studio AI face pass or styled-effect ROI mapping is unresolved,
+    keep the complete V2 image as the output: unknown protected content must
+    not be altered. Explicit effect ROIs are copied from V2 pixel-for-pixel.
     """
     if set(candidates) != set(ENGINES):
         raise ValueError("four independent AI candidates must complete before fusion")
@@ -520,8 +524,9 @@ def fuse_four_engine_details(
     inputs = [source, v2_reference, *(Path(candidates[name]) for name in ENGINES)]
     if any(output.resolve() == path.resolve() for path in inputs):
         raise ValueError("fusion may not overwrite source, V2 or AI candidates")
-    if not isinstance(protected_regions, (tuple, list)):
-        raise ValueError("face protection regions must be normalized rectangles")
+    if (not isinstance(protected_regions, (tuple, list))
+            or not isinstance(protected_effect_regions, (tuple, list))):
+        raise ValueError("face/effect protection regions must be normalized rectangles")
     # Preflight every raster from its container header before Pillow crop/load.
     # A small V2 target must not accidentally admit a huge source or stale
     # candidate into the full-image validation path.
@@ -539,6 +544,8 @@ def fuse_four_engine_details(
                 "V2 image has not been modified."
             )
     protected_regions = tuple(protected_regions)
+    protected_effect_regions = tuple(protected_effect_regions)
+    all_protected_regions = protected_regions + protected_effect_regions
 
     with ExitStack() as stack:
         base = stack.enter_context(_open_fusion_image(v2_reference))
@@ -589,7 +596,7 @@ def fuse_four_engine_details(
             # Normalized ICC is a necessity; DPI will be taken from V2.
             images[engine] = reader
         # Validate all rectangles, including when face preservation is bypassed.
-        _protected_mask(0, 0, 1, 1, (W, H), protected_regions)
+        _protected_mask(0, 0, 1, 1, (W, H), all_protected_regions)
         mean_delta_sum = 0.0
         edge_pixels = 0
         effective_contributions = {name: 0.0 for name in ENGINES}
@@ -621,7 +628,7 @@ def fuse_four_engine_details(
                     )
                     if base.mode == "RGBA" else None
                 )
-                if preserve_all_v2_faces:
+                if preserve_all_v2_faces or preserve_all_v2_effects:
                     terms = {name: np.zeros((h, w), dtype=np.float32) for name in ENGINES}
                     edge_gate = np.zeros((h, w), dtype=bool)
                 else:
@@ -647,7 +654,7 @@ def fuse_four_engine_details(
                     terms["anime4k"] = ANIME4K_DETAIL_WEIGHT * np.where(
                         anime_agrees, anime, 0.0
                     )
-                    edge_gate &= ~_protected_mask(x, y, w, h, (W, H), protected_regions)
+                    edge_gate &= ~_protected_mask(x, y, w, h, (W, H), all_protected_regions)
                     if alpha_tile is not None:
                         # Only fully opaque V2 pixels may receive new detail;
                         # semi-transparent edge pixels remain bit-identical.
@@ -717,6 +724,9 @@ def fuse_four_engine_details(
         "v2_file_not_modified": True,
         "protected_faces_preserved": bool(protected_regions) or preserve_all_v2_faces,
         "preserve_all_v2_faces": preserve_all_v2_faces,
+        "protected_effect_regions_preserved": bool(protected_effect_regions) or preserve_all_v2_effects,
+        "protected_effect_region_count": len(protected_effect_regions),
+        "preserve_all_v2_effects": preserve_all_v2_effects,
         "edge_pixels_modified_or_considered": edge_pixels,
         "mean_abs_detail_delta": round(mean_delta_sum / max(1, total_pixels), 5),
         "engine_detail_contribution_mean_abs": {

@@ -517,7 +517,9 @@ class NiyomSilpCoreAdapter:
         # a replacement for V2. Unsupported scale/format and cancellation are
         # reported without undoing the completed V2 export.
         if use_ai and model_scale > 1:
-            from .v211_four_engine_bridge import maybe_run_four_engine_assist
+            from .v211_four_engine_bridge import (
+                maybe_run_four_engine_assist, map_protected_effect_regions,
+            )
             mapped_faces = ()
             if face_info.get("applied") and getattr(settings, "face_regions", None):
                 # Fusion runs on the final V2 target raster, after fit/stretch
@@ -532,13 +534,29 @@ class NiyomSilpCoreAdapter:
                         settings.resize_mode,
                     )
                 )
-            four_engine_evidence = maybe_run_four_engine_assist(
-                src, dst, use_ai=use_ai, cancel=cancel,
-                protected_regions=mapped_faces,
-                preserve_all_v2_faces=bool(face_info.get("applied") and not mapped_faces),
-                progress=progress,
-                resize_mode=settings.resize_mode,
-            )
+            try:
+                mapped_effect_regions = map_protected_effect_regions(
+                    getattr(settings, "v211_protected_effect_regions", ()),
+                    source_size, target_size, settings.resize_mode,
+                )
+            except (TypeError, ValueError, OverflowError):
+                # V2 is already safely saved. Unknown styled-effect geometry
+                # fails closed: do not launch native engines or publish a QA sidecar.
+                four_engine_evidence = {
+                    "status": "styled_effect_protection_v2_only",
+                    "reason": "effect_region_mapping_failed",
+                    "v2_output_preserved": True,
+                    "quality_certified": False,
+                }
+            else:
+                four_engine_evidence = maybe_run_four_engine_assist(
+                    src, dst, use_ai=use_ai, cancel=cancel,
+                    protected_regions=mapped_faces,
+                    protected_effect_regions=mapped_effect_regions,
+                    preserve_all_v2_faces=bool(face_info.get("applied") and not mapped_faces),
+                    progress=progress,
+                    resize_mode=settings.resize_mode,
+                )
 
         if progress:
             progress(100, "เสร็จแล้ว")
