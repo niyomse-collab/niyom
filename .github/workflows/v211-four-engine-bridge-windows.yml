@@ -15,6 +15,7 @@ on:
       - 'requirements_v2_large_images.txt'
       - '.github/workflows/v211-four-engine-bridge-windows.yml'
       - '.github/workflows/v211-four-engine-manual-evidence.yml'
+      - '.github/workflows/v211-four-engine-real-cli-smoke.yml'
   push:
     branches:
       - work/v211-four-engine-v2-bridge-20261103
@@ -29,6 +30,7 @@ on:
       - 'requirements_v2_large_images.txt'
       - '.github/workflows/v211-four-engine-bridge-windows.yml'
       - '.github/workflows/v211-four-engine-manual-evidence.yml'
+      - '.github/workflows/v211-four-engine-real-cli-smoke.yml'
   workflow_dispatch:
 
 permissions:
