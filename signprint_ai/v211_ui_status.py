@@ -29,7 +29,17 @@ def four_engine_ui_status(
                 "V2 สำเร็จ • AI 4 ไม่พบไฟล์ QA",
                 "AI 4: สถานะพร้อมแต่ไม่พบไฟล์ QA • ไม่แสดงภาพตัวอย่าง • ใช้ภาพ V2 เดิม",
             )
-        return None
+        if value == "three_engine_priority_preview_ready":
+            return {
+                "row": "V2 สำเร็จ • AI 3 Priority QA",
+                "caption": four_engine_preview_caption(value),
+                "allow_preview": True,
+            }
+        return {
+            "row": "V2 สำเร็จ • AI 4 QA พร้อม",
+            "caption": four_engine_preview_caption(value),
+            "allow_preview": True,
+        }
 
     if not value:
         if qa_file_exists is None:
@@ -97,6 +107,12 @@ def four_engine_ui_status(
         return _blocked_status(
             "V2 สำเร็จ • AI 4 รอรองรับงานใหญ่",
             "AI 4 ตัว: งานภาพขนาดใหญ่นี้ยังไม่พร้อม • ใช้ภาพ V2 เดิม",
+        )
+
+    if value == "four_engine_applied_to_v2_raster":
+        return _blocked_status(
+            "V2 สำเร็จ • AI 4 รอ QA",
+            "AI 4 มีผลเสริมในขั้นทดลอง แต่ยังไม่มี QA Preview ที่ผ่านเกณฑ์ • ใช้ภาพ V2 เดิม",
         )
 
     if value in {
