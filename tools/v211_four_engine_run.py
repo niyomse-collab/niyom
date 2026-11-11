@@ -186,7 +186,15 @@ def _safe_error_summary(value: object) -> dict:
         else "EngineError"
     )
     lowered = raw.casefold()
-    if "vkcreateinstance failed -9" in lowered or "vulkan" in lowered:
+    # Match only explicit loader/device-initialization failures. A generic
+    # "Vulkan" mention can describe an invalid adapter index or binding bug,
+    # which must remain a candidate failure rather than a host-only skip.
+    if any(token in lowered for token in (
+        "vkcreateinstance failed",
+        "vulkan unavailable",
+        "no vulkan device",
+        "vulkan device not found",
+    )):
         error_class = "vulkan_initialization_failed"
     elif "timed out" in lowered or "timeout" in lowered:
         error_class = "timeout"
