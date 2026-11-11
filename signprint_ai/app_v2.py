@@ -1686,8 +1686,14 @@ class App(tk.Tk):
                     if face_warnings:
                         face_text = f" • Face QA เตือน {len(face_warnings)}"
 
-                    four_ai = result.get("four_engine_research") or {}
-                    ai_ui_status = four_engine_ui_status(four_ai.get("status"))
+                    four_ai_result = result.get("four_engine_research")
+                    four_ai = four_ai_result or {}
+                    qa_file = four_ai.get("four_engine_fusion_output")
+                    qa_file_exists = bool(qa_file and Path(qa_file).is_file())
+                    ai_ui_status = four_engine_ui_status(
+                        four_ai.get("status"),
+                        qa_file_exists=qa_file_exists if four_ai_result is not None else None,
+                    )
 
                     if self.tree.exists(str(idx)):
                         vals = list(self.tree.item(str(idx), "values"))
@@ -1698,9 +1704,8 @@ class App(tk.Tk):
                         self.tree.item(str(idx), values=vals)
 
                     if idx == self.current_index:
-                        qa_file = four_ai.get("four_engine_fusion_output")
                         show_ai_preview = four_engine_preview_allowed(
-                            bool(qa_file and Path(qa_file).is_file()),
+                            qa_file_exists,
                             four_ai.get("status"),
                         )
                         # Display the real combined four-AI pixels on the right
