@@ -40,10 +40,15 @@ def initial_setup_state() -> dict:
     from .v211_setup_cli import (
         _is_link_or_reparse_point, _validate_four_ai_data_root,
     )
-    from tools.v211_real_engine_manifest import load_real_engine_manifest
+    from tools.v211_real_engine_manifest import load_real_engine_manifest, safe_manifest_path
 
     root = _validate_four_ai_data_root(qa_root())
-    manifest = selected_manifest()
+    try:
+        # Validate every existing path component, not only the final manifest.
+        # A missing manifest below a symlinked parent must fail before consent UI.
+        manifest = safe_manifest_path(selected_manifest())
+    except (OSError, ValueError):
+        return {"status": "invalid_existing_manifest"}
     if (_is_link_or_reparse_point(manifest)
             or (os.path.lexists(manifest) and not manifest.is_file())):
         return {"status": "invalid_existing_manifest"}
@@ -103,10 +108,14 @@ def provision_after_consent() -> dict:
     from tools.v211_provision_four_engines import (
         ensure_verified_archive, provision_from_archives,
     )
-    from tools.v211_real_engine_manifest import load_real_engine_manifest
+    from tools.v211_real_engine_manifest import load_real_engine_manifest, safe_manifest_path
 
     root = _validate_four_ai_data_root(qa_root())
-    manifest = selected_manifest()
+    try:
+        # Reject linked/reparse-point ancestors before any archive download.
+        manifest = safe_manifest_path(selected_manifest())
+    except (OSError, ValueError) as exc:
+        raise RuntimeError("four-engine manifest path is not a safe regular file") from exc
     declined_marker = root / "setup-declined.flag"
     # Revalidate at the write boundary: the path may have changed after the
     # first-launch status check or while the consent dialog was open.

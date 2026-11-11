@@ -451,3 +451,10 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 
 - The Windows candidate workflow now scopes its concurrency group to the PR head branch (or push branch name) and sets `cancel-in-progress: true`. Push and pull-request events for the same branch share one group, so a newer commit replaces an older candidate run instead of waiting behind a stale build from a previous commit.
 - This does not merge, release, or change V1/V2 Stable. It only changes the experimental PR #20 CI scheduling policy.
+
+## 12 November 2026 — manifest parent-link preflight hardening
+
+- The manifest safety check now validates every existing component of the selected manifest path during the local-only first-launch state check, including a symlink/junction parent when the final `manifest.json` does not yet exist.
+- The same path-component validation is repeated at the consented provisioning boundary **before** any official archive is downloaded. An unsafe parent path returns an invalid setup state / raises a safe-path error without network access.
+- Added a directory-symlink regression covering both the no-network status check and the consented provisioning path. Runners that cannot create directory symlinks report the test as skipped rather than treating it as a pass.
+- This is path-safety hardening only; it does not alter engine inference, the accepted V2 output, V1, V2 Stable, GFPGAN, or the one-time consent behavior.

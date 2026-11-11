@@ -208,3 +208,36 @@ def test_consent_provisioning_rejects_manifest_symlink_before_any_download(
 
     assert downloaded == []
 
+def _create_directory_symlink_or_skip(link: Path, target: Path) -> None:
+    target.mkdir(parents=True, exist_ok=True)
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip("this runner cannot create directory symlinks: " + str(exc))
+
+
+def test_manifest_parent_symlink_is_rejected_before_prompt_and_download(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    outside = tmp_path / "outside"
+    linked_parent = tmp_path / "portable-link"
+    _create_directory_symlink_or_skip(linked_parent, outside)
+    override = linked_parent / "manifest.json"
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(override))
+
+    # The final manifest does not exist; the unsafe component is its parent.
+    assert not override.exists()
+    assert setup.initial_setup_state()["status"] == "invalid_existing_manifest"
+
+    downloaded = []
+    monkeypatch.setattr(
+        provisioning, "ensure_verified_archive",
+        lambda *args, **kwargs: downloaded.append(args),
+    )
+    with pytest.raises(RuntimeError, match="manifest path is not a safe regular file"):
+        setup.provision_after_consent()
+
+    assert downloaded == []
+    assert not (outside / "manifest.json").exists()
