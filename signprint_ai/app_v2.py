@@ -27,7 +27,7 @@ from .v2_output import output_folder as v2_output_folder, output_path as v2_outp
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
-from .v211_ui_status import four_engine_preview_allowed, four_engine_ui_status
+from .v211_ui_status import four_engine_preview_allowed, four_engine_preview_caption, four_engine_ui_status
 
 APP_NAME = "NiyomSilp Design"
 from .v21_brand import release_label
@@ -1714,10 +1714,7 @@ class App(tk.Tk):
                         self._last_result = Path(qa_file) if show_ai_preview else Path(path)
                         caption = f"ผลลัพธ์จริง: {result['output_size'][0]:,} × {result['output_size'][1]:,} px"
                         if show_ai_preview:
-                            if four_ai.get("status") == "four_engine_fusion_contribution_incomplete":
-                                caption += " • QA ยังไม่ครบ 4 ตัว: มี Engine ที่ไม่เปลี่ยนพิกเซลผลลัพธ์ • ไฟล์ V2 เดิมยังอยู่"
-                            else:
-                                caption += " • ตัวอย่าง AI 4 ตัวมีผลต่อพิกเซลแล้ว (QA) • ไฟล์ V2 เดิมยังอยู่ ไม่ใช่ผลรับรองคุณภาพ"
+                            caption += " • " + four_engine_preview_caption(four_ai.get("status"))
                         elif ai_ui_status is not None:
                             caption += " • " + str(ai_ui_status["caption"])
                         elif four_ai.get("status") == "four_engine_applied_to_v2_raster":
