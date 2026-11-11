@@ -27,7 +27,7 @@ from .v2_output import output_folder as v2_output_folder, output_path as v2_outp
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
-from .v211_ui_status import four_engine_ui_status
+from .v211_ui_status import four_engine_preview_allowed, four_engine_ui_status
 
 APP_NAME = "NiyomSilp Design"
 from .v21_brand import release_label
@@ -1699,9 +1699,9 @@ class App(tk.Tk):
 
                     if idx == self.current_index:
                         qa_file = four_ai.get("four_engine_fusion_output")
-                        show_ai_preview = bool(
-                            qa_file and Path(qa_file).is_file()
-                            and (ai_ui_status is None or ai_ui_status.get("allow_preview") is True)
+                        show_ai_preview = four_engine_preview_allowed(
+                            bool(qa_file and Path(qa_file).is_file()),
+                            four_ai.get("status"),
                         )
                         # Display the real combined four-AI pixels on the right
                         # only after all candidate processes and fusion succeed.
