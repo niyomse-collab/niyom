@@ -51,11 +51,11 @@ if IS_V211_BUILD:
             "TorchVision compatibility import required for V2.1.1 packaging"
         ) from exc
 
-    compat_name = "torchvision.transforms.functional_tensor"
-    if compat_name not in sys.modules:
-        compat_module = types.ModuleType(compat_name)
-        compat_module.rgb_to_grayscale = rgb_to_grayscale
-        sys.modules[compat_name] = compat_module
+    _compat_name = "torchvision.transforms.functional_tensor"
+    if _compat_name not in sys.modules:
+        _compat_module = types.ModuleType(_compat_name)
+        _compat_module.rgb_to_grayscale = rgb_to_grayscale
+        sys.modules[_compat_name] = _compat_module
 
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
