@@ -377,10 +377,10 @@ def maybe_run_four_engine_assist(
             return {"status": "unsupported_colour_mode", "v2_output_preserved": True}
         if source_mode not in ("RGB", "RGBA"):
             return {"status": "unsupported_source_mode", "v2_output_preserved": True}
-        # Native CLIs are fixed at 2x. Build their input from half of the
-        # exact accepted V2 canvas rather than restricting the user's original
-        # source-to-print scale. This supports custom/anisotropic dimensions
-        # while keeping the V2 raster as the authoritative colour/alpha base.
+        # Native CLIs are fixed at 2x. Build their input from exactly half of
+        # the accepted V2 canvas. The original source-to-target ratio may be
+        # custom or anisotropic: resize_mode applies the same stretch/fit
+        # geometry before each engine while V2 remains the colour/alpha base.
         padded_target_size = (
             target_size[0] + target_size[0] % 2,
             target_size[1] + target_size[1] % 2,
@@ -407,33 +407,18 @@ def maybe_run_four_engine_assist(
                 "v2_output_preserved": True,
                 "quality_certified": False,
             }
-        source_to_target_scale = next(
-            (
-                scale for scale in (2, 4, 8)
-                if target_size == (source_size[0] * scale, source_size[1] * scale)
-            ),
-            None,
-        )
-        # The runner sees only a half-target seed, so its own 2x preflight
-        # cannot detect an unsupported original-to-print scale such as 3x.
-        # Reject those geometries here, before GPU binding or any native CLI.
+        # The native model always receives a seed made from half of the
+        # accepted V2 canvas, so the native inference geometry is exactly 2x
+        # regardless of the original source-to-print ratio. Keep the large
+        # disk-backed path PNG-only, but allow 3x, custom and anisotropic
+        # target dimensions when the selected fit/stretch transform is valid.
         if large_job and (
-            source_to_target_scale not in (2, 4, 8)
-            or original.suffix.lower() != ".png"
+            original.suffix.lower() != ".png"
             or baseline.suffix.lower() != ".png"
         ):
             return {
                 "status": "unsupported_target_geometry",
-                "reason": "large_auxiliary_jobs_require_exact_2x_4x_or_8x_png_geometry",
-                "v2_output_preserved": True,
-                "quality_certified": False,
-            }
-        if source_to_target_scale is None or (
-            not large_job and source_to_target_scale not in (2, 4)
-        ):
-            return {
-                "status": "unsupported_target_geometry",
-                "reason": "source_to_v2_geometry_must_be_exact_isotropic_2x_or_4x",
+                "reason": "large_auxiliary_jobs_require_png_source_and_v2",
                 "v2_output_preserved": True,
                 "quality_certified": False,
             }

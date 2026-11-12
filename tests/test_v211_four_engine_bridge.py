@@ -183,10 +183,13 @@ def test_faulty_engine_does_not_fail_v2_job(tmp_path, monkeypatch):
     ("target_size", "expected_seed", "expected_padded"),
     [
         ((16, 16), (8, 8), (16, 16)),       # exact 2x
+        ((24, 24), (12, 12), (24, 24)),     # exact 3x via half-target seed
         ((32, 32), (16, 16), (32, 32)),     # exact 4x via half-target seed
+        ((32, 24), (16, 12), (32, 24)),    # anisotropic 4x by 3x
+        ((25, 17), (13, 9), (26, 18)),     # custom odd dimensions, edge-padded
     ],
 )
-def test_native_2x_engines_use_half_target_seed_for_supported_scale_geometry(
+def test_native_2x_engines_use_half_target_seed_for_custom_target_geometry(
     tmp_path, monkeypatch, target_size, expected_seed, expected_padded
 ):
     source, baseline = _images(tmp_path)
@@ -226,6 +229,9 @@ def test_native_2x_engines_use_half_target_seed_for_supported_scale_geometry(
     assert result["four_engine_fusion_details"]["native_engine_scale"] == 2
     assert result["four_engine_fusion_details"]["scale_policy"] == "native_2x_on_half_target_seed"
     assert calls == [(expected_seed, expected_padded, expected_padded, True)]
+    assert result["four_engine_fusion_details"]["requested_scale_from_source"] == [
+        round(target_size[0] / 8, 4), round(target_size[1] / 8, 4)
+    ]
     assert baseline.read_bytes() == before
     preview = Path(result["four_engine_fusion_output"])
     with Image.open(preview) as image, Image.open(baseline) as reference:
@@ -629,58 +635,6 @@ def test_large_four_engine_seed_and_qa_crop_use_disk_backed_vips_without_full_pi
         assert baseline.read_bytes() == before
 
 @pytest.mark.parametrize(
-    "target_size",
-    [(24, 24), (64, 64), (32, 24), (25, 17)],
-)
-def test_bridge_rejects_unsupported_small_source_to_v2_geometry_before_gpu(
-    tmp_path, monkeypatch, target_size
-):
-    source, baseline = _images(tmp_path)
-    Image.new("RGBA", target_size, (30, 40, 50, 120)).save(baseline)
-    before = baseline.read_bytes()
-    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
-    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
-
-    def forbidden(*_args, **_kwargs):
-        pytest.fail("unsupported source-to-V2 geometry must fail before GPU binding")
-
-    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
-    result = bridge.maybe_run_four_engine_assist(source, baseline)
-    assert result["status"] == "unsupported_target_geometry"
-    assert result["reason"] == "source_to_v2_geometry_must_be_exact_isotropic_2x_or_4x"
-    assert result["v2_output_preserved"] is True
-    assert baseline.read_bytes() == before
-    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
-
-
-@pytest.mark.parametrize("target_scale", [3])
-def test_large_bridge_rejects_unsupported_3x_geometry_before_gpu(
-    tmp_path, monkeypatch, target_scale
-):
-    source = tmp_path / "large-source.png"
-    baseline = tmp_path / "large-v2.png"
-    Image.new("RGB", (128, 128), (40, 80, 120)).save(source)
-    Image.new(
-        "RGB", (128 * target_scale, 128 * target_scale), (40, 80, 120)
-    ).save(baseline)
-    before = baseline.read_bytes()
-    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
-    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
-    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 1024)
-
-    def forbidden(*_args, **_kwargs):
-        pytest.fail("large unsupported-scale jobs must fail before GPU binding or native launch")
-
-    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
-    result = bridge.maybe_run_four_engine_assist(source, baseline)
-    assert result["status"] == "unsupported_target_geometry"
-    assert result["reason"] == "large_auxiliary_jobs_require_exact_2x_4x_or_8x_png_geometry"
-    assert result["v2_output_preserved"] is True
-    assert baseline.read_bytes() == before
-    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
-
-
-@pytest.mark.parametrize(
     ("source_ext", "target_ext"),
     [(".jpg", ".png"), (".tiff", ".png"), (".png", ".jpg"), (".png", ".tiff")],
 )
@@ -705,17 +659,17 @@ def test_large_bridge_rejects_non_png_source_or_v2_before_gpu(
     monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
     result = bridge.maybe_run_four_engine_assist(source, baseline)
     assert result["status"] == "unsupported_target_geometry"
-    assert result["reason"] == "large_auxiliary_jobs_require_exact_2x_4x_or_8x_png_geometry"
+    assert result["reason"] == "large_auxiliary_jobs_require_png_source_and_v2"
     assert result["v2_output_preserved"] is True
     assert baseline.read_bytes() == before
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
 
 
-@pytest.mark.parametrize("target_scale", [2, 4, 8])
-def test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_runner(
+@pytest.mark.parametrize("target_scale", [2, 3, 4, 8])
+def test_large_bridge_routes_2x_3x_4x_and_8x_png_through_streamed_seed_and_tiled_runner(
     tmp_path, monkeypatch, target_scale
 ):
-    """Exercise large 2x/4x/8x source targets through one native 2x tiled pass."""
+    """Exercise custom large output scales through one native 2x tiled pass."""
     pytest.importorskip("pyvips")
     import tools.v211_four_engine_run as runner
     import tools.v211_four_engine_fusion as fusion
@@ -767,11 +721,11 @@ def test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_ru
 
     def processor(name):
         # Anime4K keeps its weaker test edge delta and low production weight.
-        # For the 4x Lanczos-seed case, tune only the synthetic Real-ESRGAN
+        # For the 3x/4x Lanczos-seed cases, tune only the synthetic Real-ESRGAN
         # delta so the conditional Anime4K term crosses final 8-bit rounding
         # in the leave-one-engine-out attribution check.
         amount = {
-            "real_esrgan": 8 if target_scale == 4 else 9,
+            "real_esrgan": 8 if target_scale in (3, 4) else 9,
             "waifu2x": 7,
             "real_cugan": 8,
             "anime4k": 5,
