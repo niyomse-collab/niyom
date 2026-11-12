@@ -11,11 +11,12 @@ Set-Location $PSScriptRoot
 
 # Normalize the legacy V2 default before validating the workspace.
 if ($Channel -eq "v2" -and $Version -eq "1.0.1") { $Version = "2.0.0-beta.1" }
+$experimentalV211 = ($Channel -eq "v2" -and $Version -like "2.1.1*")
 
 # Never clean or replace files from a previously built/approved V1 checkout.
 # V2 should be built in an independent clean workspace. Check BEFORE venv,
 # metadata, model downloads or any build/release folder deletion.
-if ($Channel -eq "v2") {
+if ($experimentalV211) {
     $v1ReleaseFiles = @(Get-ChildItem ".\\release\\NiyomSilp-Design-v1-*" -File -ErrorAction SilentlyContinue)
     $v1Proof = ".\\dist\\NiyomsilAIEnhancer\\ARM_CORE_BUILD_PROOF.txt"
     $v1Metadata = ".\\build_info.json"
@@ -49,7 +50,7 @@ Write-Host "Build Python:"
 # The shared script removes build/, dist/ and release/. Never let a V2 build
 # erase an accepted V2 installer or an unknown workspace. Only a previous
 # V2.1.1 candidate with matching build_info + BUILD_PROOF may be replaced.
-if ($Channel -eq "v2") {
+if ($experimentalV211) {
     & $python ".\\tools\\v211_build_workspace_guard.py" --root $PSScriptRoot --requested-version $Version
     if ($LASTEXITCODE -ne 0) {
         throw "V2 build refused: existing build outputs are not verified V2.1.1 candidate artifacts. Use a clean isolated checkout; accepted V1/V2 files were preserved."
@@ -69,7 +70,6 @@ $sourceCommit = (& git rev-parse HEAD).Trim()
 @{ channel = $Channel; version = $Version; source_commit = $sourceCommit } |
     ConvertTo-Json | Set-Content ".\build_info.json" -Encoding utf8
 $proofName = if ($Channel -eq "v2") { "BUILD_PROOF.txt" } else { "ARM_CORE_BUILD_PROOF.txt" }
-$experimentalV211 = ($Channel -eq "v2" -and $Version -like "2.1.1*")
 $installerScript = if ($experimentalV211) { ".\installer_v211_experimental.iss" } elseif ($Channel -eq "v2") { ".\installer_v2.iss" } else { ".\installer.iss" }
 $installerName = if ($experimentalV211) { "NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe" } elseif ($Channel -eq "v2") { "NiyomSilp-Design-v2-Setup.exe" } else { "NiyomSilp-Design-v1-Setup.exe" }
 $installerPrefix = [System.IO.Path]::GetFileNameWithoutExtension($installerName)
