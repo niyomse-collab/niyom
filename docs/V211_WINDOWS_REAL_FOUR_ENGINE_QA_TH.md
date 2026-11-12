@@ -295,3 +295,16 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - The shop evidence workflow requires the installed `BUILD_PROOF.txt` source commit to be present in the branch history and an ancestor of the evidence workflow revision. Use the exact 40-character **Source commit** printed in the installed `BUILD_PROOF.txt` as `candidate_source_sha`, with `confirm_shop_gpu=yes`.
 - The earlier Candidate #616 artifact was built from the synthetic PR merge commit `464b33a33e1dead502a76f0b248ca03d38c30b32`, not the branch head. It remains an experimental package but is **not accepted as the source identity for the branch-ancestry-gated shop workflow**. Build a fresh candidate after this correction before running shop GPU evidence.
 - The self-hosted evidence job uses synthetic RGB/RGBA test images only, retains JSON evidence only, and never certifies visual or print quality.
+
+
+## 13 พฤศจิกายน 2569 — Candidate #644 ปัจจุบันสำหรับ shop evidence (แทน Candidate #553/#616)
+
+- Exact PR #20 source commit: `f74da870ab5d38e5069cd5f9ba8af44055f01e1b` บน `work/v211-four-engine-v2-bridge-20261103`.
+- Windows Candidate #644: [run 43283655318](https://github.com/niyomse-collab/niyom/actions/runs/43283655318) — ทั้ง bridge-tests และ frozen Windows candidate ผ่าน. ตรวจ V2 imports, no-download provisioning dispatch, isolated cache cleanup, diagnostic help, provenance verifier, BUILD_PROOF/source SHA และ installer-slice SHA256.
+- Artifact ID `13974629144`; size **2,584,568,814 bytes**; ZIP SHA256 `23d57f42a670e4893db143e2513c2b94ee6b6fb2a86992974012e976c2b85386`; installer SHA256 `eb5009350f8507083605ff2d739df821c99f87033ee0f53b4f7486ac079e2828`. [Download Candidate #644](https://github.com/niyomse-collab/niyom/actions/runs/43283655318/artifacts/13974629144). หมดอายุ **20 พ.ย. 2569 02:09 ICT**.
+- Candidate นี้ใช้เป็น source identity สำหรับ shop evidence ได้เมื่อผู้ใช้ติดตั้งใน Windows account เดียวกับ manifest และ `BUILD_PROOF.txt` ระบุ source commit ข้างต้นตรงกันเท่านั้น. ต้องยินยอมติดตั้งโมเดลทั้งสี่ก่อน.
+- Native CLI Smoke #156 [run 43283655550](https://github.com/niyomse-collab/niyom/actions/runs/43283655550) เป็น diagnostic บน Hosted Windows: Real-CUGAN/Anime4KCPP สร้าง synthetic outputs; Real-ESRGAN/Waifu2x ล้มเพราะ `vkCreateInstance failed -9`; NVML ไม่พบและ adapter verification 0/4. จึงยังต้องรันบน GTX 1660 Ti ที่ติดตั้ง Vulkan/driver จริง.
+- Core #1192 [run 43283655718](https://github.com/niyomse-collab/niyom/actions/runs/43283655718): Windows 950 passed / 1 skipped; Ubuntu 948 passed / 3 skipped; compileall ผ่าน.
+- Official Archive Audit #120 [run 43283655327](https://github.com/niyomse-collab/niyom/actions/runs/43283655327): official archives ทั้งสี่ผ่าน SHA256/archive audit/transactional manifest provision ใน ephemeral QA directory; ไม่ใช่ real inference acceptance.
+- **ยังไม่มีการอนุญาตหรือเรียก self-hosted shop workflow ในรอบนี้.** ห้ามเพิ่ม `[shop-gpu-evidence yes candidate=f74da870ab5d38e5069cd5f9ba8af44055f01e1b]` ใน commit message จนกว่าจะติดตั้ง Candidate #644 และผู้ใช้อนุมัติการทดสอบบนเครื่องร้านอย่างชัดเจน.
+- Synthetic evidence ยังคงไม่รับรอง visual quality/print quality. ไม่อัปโหลดภาพลูกค้า; artifact shop workflow ต้องเป็น JSON evidence เท่านั้น.
