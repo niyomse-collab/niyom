@@ -13,16 +13,20 @@ Do not merge/release as accepted V2.1.1 until the shop approves side-by-side ima
 - Intermediate candidate images are deleted by default; explicit NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR can retain them in a private local QA folder for A/B. Customer images must not be uploaded publicly.
 - Normal V2 export, PDF/PSD/CMYK jobs, unsupported scales, incomplete model installations and machine failures fail closed back to V2 instead of blocking the customer's completed V2 export. RGB/RGBA TIFF and JPEG are supported only as raster inputs to a separate PNG QA sidecar; the original print export remains unchanged.
 
-## Windows setup-time provisioning
+## Windows setup-time provisioning and first-launch consent
 
-The experimental installer offers an **unchecked-by-default affirmative-consent task**. The user must actively tick “I agree: download and install all four AI engines for offline use” before any network download starts. If selected, it runs the packaged setup command under the installing user's account, downloads the official upstream archives, verifies SHA256 and archive contents, then installs into %LOCALAPPDATA%\NiyomSilp\V211-FourAI-QA. The setup must finish before the installer offers to launch the editor. The desktop editor does **not** show a first-launch download prompt and never starts provisioning by itself. If the installer task is unchecked, installation remains offline and the editor opens directly in accepted V2 mode; the four-engine bridge reports models not installed. To add the engines later, rerun the experimental installer and select the same one-time task. No download starts before the affirmative installer choice. Once the task completes and the four-engine manifest validates, subsequent eligible jobs use all installed engines offline, without per-model switches.
+There are two affirmative-consent paths, both unchecked/off by default:
 
+1. The experimental installer offers an **unchecked-by-default** task: “I agree: download and install all four AI engines for offline use”. If selected, it runs the packaged setup command under the installing user's account, downloads the official upstream archives, verifies SHA256 and archive contents, then installs into %LOCALAPPDATA%\NiyomSilp\V211-FourAI-QA before offering to launch the editor.
+2. If the installer task is skipped, the editor performs a **local-only** setup-state check about 600 ms after opening. It does not access the network during this check. When no fully verified four-engine manifest and no prior decline marker exist, it asks one Yes/No question for all four engines. Only Yes starts provisioning on a background worker. No writes a local decline marker and suppresses repeat prompts. A failed download does not write the decline marker, so the user can retry later.
 
-### 11 November 2026 correction — installer-only consent
+If the installer task completes successfully, the editor finds the verified manifest and does not prompt again. If either consent path is skipped/declined, accepted V2 remains available. Once a verified manifest exists, subsequent eligible V2.1.1 jobs invoke the four installed engines automatically as one coordinated research path, offline and without per-engine switches. The bridge can be explicitly disabled with NIYOMSIL_V211_FOUR_AI=0. No download starts before affirmative consent; customer artwork is never uploaded.
 
-The earlier first-launch editor prompt has been removed to match the shop's one-install workflow. The unchecked installer task is now the sole affirmative-consent point. If it is selected, all four official packages are provisioned and verified before the editor launches; if it is skipped, the editor opens directly in V2 mode and does not ask later. This does not bundle third-party binaries/weights into the installer or upload customer images.
+### 11 November 2026 historical correction — superseded on 12 November
 
-The command is NiyomsilAIEnhancer.exe --provision-v211-four-ai; the frozen import smoke includes its CLI module. Optional environment override is NIYOMSIL_V211_FOUR_AI_MANIFEST; NIYOMSIL_V211_FOUR_AI=0 disables research explicitly.
+For a short-lived revision, the editor first-launch prompt was removed and installer consent was the only setup path. The 12 November revision restored the editor's local-only Yes/No fallback when the installer task is skipped. The current behavior is the two-path flow documented above; this historical note must not be used as the current setup instruction.
+
+The installer command is NiyomsilAIEnhancer.exe --provision-v211-four-ai. The frozen import smoke includes its CLI module. Optional environment override is NIYOMSIL_V211_FOUR_AI_MANIFEST.
 
 Real-ESRGAN, Waifu2x and Real-CUGAN were previously exercised individually on the shop Windows PC as reported by the owner. That is not proof that the newly integrated four-model fusion has passed an A/B comparison on that PC.
 
