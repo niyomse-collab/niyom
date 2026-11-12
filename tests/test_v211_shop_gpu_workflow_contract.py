@@ -119,3 +119,17 @@ def test_candidate_build_cancels_superseded_runs_for_the_current_branch():
 
     assert "group: niyomsil-v211-bridge-windows-${{ github.event.pull_request.head.ref || github.ref_name }}" in workflow
     assert "cancel-in-progress: true" in workflow
+
+def test_candidate_build_uses_pr_head_commit_for_shop_evidence_identity():
+    candidate = _read(".github/workflows/v211-four-engine-bridge-windows.yml")
+
+    expected_ref = "ref: ${{ github.event.pull_request.head.sha || github.sha }}"
+    assert "run-name: V2.1.1 Windows candidate - ${{ github.event.pull_request.head.sha || github.sha }}" in candidate
+    assert candidate.count(expected_ref) == 2
+    assert candidate.count("fetch-depth: 0") == 2
+    assert "V211_EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}" in candidate
+    assert "$checkoutSha = (git rev-parse HEAD).Trim().ToLowerInvariant()" in candidate
+    assert "$proofCommit -ne $checkoutSha" in candidate
+    assert "git merge-base --is-ancestor $expectedBaseSha $checkoutSha" in candidate
+    assert "source_commit = $checkoutSha" in candidate
+    assert "workflow_commit = $env:GITHUB_SHA" in candidate
