@@ -24,7 +24,7 @@ def test_legacy_model_download_runs_before_v211_only_cache_reuse():
     assert "V2.1.1 only: retry transient gateway/network failures" in script[reuse_start:]
 
 
-def test_v211_workspace_guards_do_not_change_legacy_v1_or_stable_v2_builds():
+def test_v211_workspace_guard_is_scoped_and_v2_still_protects_v1():
     script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(
         encoding="utf-8"
     )
@@ -34,5 +34,5 @@ def test_v211_workspace_guards_do_not_change_legacy_v1_or_stable_v2_builds():
     v1_protection = script.index("# Never clean or replace files from a previously built/approved V1 checkout.")
     workspace_protection = script.index("# The shared script removes build/, dist/ and release/.")
     assert experimental_assignment < v1_protection < workspace_protection
-    assert script.index("if ($experimentalV211)", v1_protection) < workspace_protection
+    assert script.index('if ($Channel -eq "v2")', v1_protection) < workspace_protection
     assert script.index("if ($experimentalV211)", workspace_protection) > workspace_protection
