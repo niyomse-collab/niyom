@@ -46,6 +46,7 @@ def test_frozen_v211_imports_are_excluded_from_v1_and_stable_v2():
     spec = (Path(__file__).resolve().parents[1] / "NiyomsilV2ArmCore.spec").read_text(
         encoding="utf-8"
     )
+    assert 'build_info_path.read_text(encoding="utf-8-sig")' in spec
     pattern = r"2\.1\.1(?:-beta\.\d+)?"
     assert pattern in spec
     assert re.fullmatch(pattern, "2.1.1")
