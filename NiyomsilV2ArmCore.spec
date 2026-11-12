@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(SPECPATH).resolve()
 build_info_path = ROOT / "build_info.json"
 try:
-    build_info = json.loads(build_info_path.read_text(encoding="utf-8")) if build_info_path.is_file() else {}
+    build_info = json.loads(build_info_path.read_text(encoding="utf-8-sig")) if build_info_path.is_file() else {}
 except (OSError, ValueError, TypeError):
     build_info = {}
 
