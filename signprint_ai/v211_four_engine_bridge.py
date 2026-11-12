@@ -1,4 +1,10 @@
-"""Opt-in V2.1.1 four-engine research hook, isolated from accepted V2 output.
+"""Automatic V2.1.1 four-engine research hook after one-time user consent.
+
+A verified local four-engine manifest enables the coordinated engines on
+eligible V2.1.1 jobs by default; NIYOMSIL_V211_FOUR_AI=0 is the explicit opt-out.
+The bridge runs only after the accepted V2 raster has been saved, performs no
+downloads, and writes a separate local QA sidecar. Stable V2 does not import
+this bridge, and no per-engine UI switches are introduced.
 
 Each native executable performs one 2x pass on a private seed made at half of
 the accepted V2 target canvas. The current runner accepts exact isotropic 2x
