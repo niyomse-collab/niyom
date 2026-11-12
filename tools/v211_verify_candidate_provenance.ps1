@@ -44,7 +44,7 @@ if (-not [string]::IsNullOrWhiteSpace($expectedBaseSha)) {
     if ($expectedBaseSha -notmatch '^[0-9a-f]{40}$') {
         throw 'Pull request base SHA is invalid.'
     }
-    git cat-file -e "\${expectedBaseSha}^{commit}"
+    git cat-file -e "${expectedBaseSha}^{commit}"
     if ($LASTEXITCODE -ne 0) {
         throw 'Pull request base commit is missing from the candidate checkout.'
     }
