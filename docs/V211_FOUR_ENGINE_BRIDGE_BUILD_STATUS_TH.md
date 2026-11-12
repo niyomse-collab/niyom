@@ -481,3 +481,19 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Run #1169: [Independent Core](https://github.com/niyomse-collab/niyom/actions/runs/43163620294) — Ubuntu 943 passed / 3 skipped / 1 failed; Windows ถูกยกเลิกตาม fail-fast หลัง Ubuntu ล้ม. ต้องรอ Core run ใหม่บน commit นี้.
 - Windows Candidate #625 ถูกแทนที่ได้ตาม branch-scoped concurrency เมื่อ commit แก้ regression ถูก Push; ต้องใช้ run ใหม่เท่านั้น.
 - PR #20 remains Draft/unmerged. No V1/V2 Stable changes, no shop GPU run, no merge/release, no quality certification.
+
+
+## 13 พฤศจิกายน 2569 — สถานะปัจจุบัน PR #20 / Candidate #680
+
+- ขอบเขต: เฉพาะ Draft PR #20 และสาขา `work/v211-four-engine-v2-bridge-20261103`; PR #18 ยังคงเป็นฐาน V2.1.1/GFPGAN ที่ PR #20 ต่ออยู่ ไม่มีการแก้ V1 หรือ V2 Stable
+- PR #20 HEAD: `c89770074851b990698628d8c8e96e121e105a18`; PR #20 ยัง OPEN/DRAFT และไม่ merged
+- Windows Candidate #680 [run 43314285413](https://github.com/niyomse-collab/niyom/actions/runs/43314285413) สำเร็จทั้ง bridge-tests และ windows-v2-candidate; Frozen imports, no-download provisioning check-only, isolated cache cleanup, diagnostic dispatch, PowerShell AST, source provenance, installer slice SHA256 และ artifact upload ผ่าน
+- Artifact ID `13988039912`, ขนาด **2,584,579,685 bytes**, ZIP SHA256 `cf4c9fe1c6ffd4ad0fadfd3b9b473bbef16977a1d7278bc65891417074892a55`, installer SHA256 `5f18dc8f77e4ddf714645229f76ab4676ab026f5d68f476e2f33ebe409093fd6`; [Artifact #680](https://github.com/niyomse-collab/niyom/actions/runs/43314285413/artifacts/13988039912), หมดอายุ 20 พ.ย. 2569 05:16:55 ICT
+- Independent Core #1232 [run 43314285420](https://github.com/niyomse-collab/niyom/actions/runs/43314285420): Windows **953 passed / 1 skipped**, Ubuntu **951 passed / 3 skipped**, compileall ผ่านทั้งสองระบบ
+- Official Archive Audit #135 [run 43314285394](https://github.com/niyomse-collab/niyom/actions/runs/43314285394): official archives ทั้งสี่ผ่าน SHA256, safe archive audit และ transactional provisioning ใน ephemeral QA directory; manifest มี engine ครบสี่ แต่สถานะทุกตัวเป็น archive-only / inference-not-verified
+- Native CLI Smoke #171 [run 43314285421](https://github.com/niyomse-collab/niyom/actions/runs/43314285421): Real-CUGAN และ Anime4KCPP native process จบ; Real-ESRGAN และ Waifu2x ถูกบล็อกด้วย `vkCreateInstance failed -9`; NVML ไม่พบ, adapter verification 0/4, `candidate_output_validation_complete=false`, `real_inference_verified=false`. นี่เป็น classified diagnostic SUCCESS ไม่ใช่ GPU acceptance
+- Frozen Build มี non-fatal PyInstaller warnings ว่า Hosted Runner ไม่พบ `nvcuda.dll` และ optional `tbb12.dll`; ต้องตรวจ dependency บนเครื่องร้านจริง ไม่ bundle driver DLL โดยเดา
+- Shop GPU Evidence ยังไม่ได้รัน: ไม่มี consent marker/การอนุมัติเครื่องร้านในรอบนี้. ยังไม่มีหลักฐาน Native GPU 4/4, hard VRAM cap 6 GB, peak VRAM, >18 MP native stress, cancel ระหว่าง native process, A/B เทียบ V2 หรือคุณภาพ Photoshop/MainTop/RIP
+- PR #18 protected face/GFPGAN files ที่ตรวจเทียบกับ PR #20 ยังคง byte-identical **5/5**: `face_protection.py`, `large_faces.py`, `v211_face_contract.py`, `test_v211_face_contract.py`, `face_module/__init__.py`
+- ไม่พบ executable/DLL/archive/model weights/customer images ในรายการ 68 changed files ของ PR #20. ไม่มีการ merge/release, ไม่เขียนทับ accepted V2 และไม่มีการอ้างว่าคุณภาพเหนือ V2
+- ขั้นต่อไป: ติดตั้ง Candidate #680 ในเครื่องร้านและตรวจ BUILD_PROOF/source SHA; หลังได้รับ consent จึงทำ Shop GPU Evidence ด้วย synthetic images/JSON evidence เท่านั้น จากนั้นทำ VRAM/tile/cancel stress และ A/B ที่ได้รับอนุญาต
