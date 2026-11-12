@@ -7,8 +7,8 @@ def test_legacy_model_download_runs_before_v211_only_cache_reuse():
     script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(
         encoding="utf-8"
     )
-    expected_selector = """$experimentalV211 = ($Channel -eq "v2" -and $Version -match '^2\\.1\\.1(?:-beta\\.\\d+)?$')"""
-    assert expected_selector in script
+    assert r"$experimentalV211Pattern = '^2\.1\.1(?:-beta\.\d+)?$'" in script
+    assert '$experimentalV211 = ($Channel -eq "v2" -and $Version -match $experimentalV211Pattern)' in script
 
     legacy_start = script.index("if (-not $experimentalV211)")
     reuse_start = script.index("if (Test-Path -LiteralPath $Path)", legacy_start)
@@ -30,7 +30,7 @@ def test_v211_workspace_guard_is_scoped_and_v2_still_protects_v1():
     script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(
         encoding="utf-8"
     )
-    selector = script.index("$experimentalV211 =")
+    selector = script.index("$experimentalV211Pattern =")
     v1_protection = script.index("# Never clean or replace files from a previously built/approved V1 checkout.")
     workspace_protection = script.index("# The shared script removes build/, dist/ and release/.")
 
@@ -46,7 +46,7 @@ def test_frozen_v211_imports_are_excluded_from_v1_and_stable_v2():
     spec = (Path(__file__).resolve().parents[1] / "NiyomsilV2ArmCore.spec").read_text(
         encoding="utf-8"
     )
-    pattern = r"2\\.1\\.1(?:-beta\\.\\d+)?"
+    pattern = r"2\.1\.1(?:-beta\.\d+)?"
     assert pattern in spec
     assert re.fullmatch(pattern, "2.1.1")
     assert re.fullmatch(pattern, "2.1.1-beta.653")
