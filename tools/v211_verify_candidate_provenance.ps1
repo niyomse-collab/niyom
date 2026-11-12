@@ -1,8 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
-$proofPath = '.\\dist\\NiyomsilAIEnhancer\\BUILD_PROOF.txt'
-$installer = '.\\release\\NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe'
-$sumsPath = '.\\release\\SHA256SUMS.txt'
+$proofPath = '.\dist\NiyomsilAIEnhancer\BUILD_PROOF.txt'
+$installer = '.\release\NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe'
+$sumsPath = '.\release\SHA256SUMS.txt'
 
 foreach ($required in @($proofPath, $installer, $sumsPath)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
@@ -86,7 +86,7 @@ if (-not $versionLine) {
 $verified = @()
 foreach ($line in Get-Content -LiteralPath $sumsPath) {
     if ([string]::IsNullOrWhiteSpace($line)) { continue }
-    if ($line -notmatch '^([0-9a-fA-F]{64})\\s+(.+)$') {
+    if ($line -notmatch '^([0-9a-fA-F]{64})\s+(.+)$') {
         throw 'SHA256SUMS contains a malformed entry.'
     }
     $expected = $Matches[1].ToLowerInvariant()
@@ -94,7 +94,7 @@ foreach ($line in Get-Content -LiteralPath $sumsPath) {
     if ([IO.Path]::GetFileName($name) -ne $name) {
         throw 'SHA256SUMS contains a non-local filename.'
     }
-    $file = Join-Path '.\\release' $name
+    $file = Join-Path '.\release' $name
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
         throw 'Installer slice listed in SHA256SUMS is missing.'
     }
@@ -137,6 +137,6 @@ $provenance = [ordered]@{
     quality_certified = $false
 }
 $provenance | ConvertTo-Json -Depth 6 |
-    Set-Content -LiteralPath '.\\release\\CANDIDATE_PROVENANCE.json' -Encoding utf8
+    Set-Content -LiteralPath '.\release\CANDIDATE_PROVENANCE.json' -Encoding utf8
 
 Write-Output "Candidate provenance verified for source $checkoutSha."
