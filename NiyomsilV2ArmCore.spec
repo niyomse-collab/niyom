@@ -18,7 +18,7 @@ IS_V211_BUILD = (
     isinstance(build_info, dict)
     and build_info.get("channel") == "v2"
     and re.fullmatch(
-        r"2\\.1\\.1(?:-beta\\.\\d+)?",
+        r"2\.1\.1(?:-beta\.\d+)?",
         str(build_info.get("version") or ""),
     ) is not None
 )
