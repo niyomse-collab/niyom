@@ -85,8 +85,21 @@ function Ensure-VerifiedDownload {
     $parent = Split-Path -Parent $Path
     if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
 
-    # A shared V2 workspace may already contain the accepted model files.
-    # Reuse only exact known hashes; never overwrite a different stable model.
+    # Preserve the original V1 and stable-V2 download contract exactly:
+    # always download to the established path, then verify the expected hash.
+    # The reuse/atomic-retry behavior below is strictly V2.1.1-only.
+    if (-not $experimentalV211) {
+        Invoke-WebRequest -Uri $Url -OutFile $Path
+        $actualHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $ExpectedHash.ToLowerInvariant()) {
+            throw "Downloaded $Label SHA256 mismatch: $actualHash"
+        }
+        Write-Host "Downloaded and verified ${Label}: $actualHash"
+        return $actualHash
+    }
+
+    # V2.1.1 only: reuse a previously verified regular file. Never follow
+    # reparse points or replace a different model in the isolated candidate.
     if (Test-Path -LiteralPath $Path) {
         if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
             throw "Existing $Label path is not a regular file; refusing to replace it."
@@ -101,27 +114,6 @@ function Ensure-VerifiedDownload {
         }
         Write-Host "Reusing existing verified ${Label}: $existingHash"
         return $existingHash
-    }
-
-    # Keep the legacy V1 and stable-V2 download path unchanged. The bounded
-    # retry/atomic-publish behavior below is scoped to the isolated V2.1.1
-    # experimental candidate only.
-    if (-not $experimentalV211) {
-        try {
-            Invoke-WebRequest -Uri $Url -OutFile $Path
-            $actualHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actualHash -ne $ExpectedHash.ToLowerInvariant()) {
-                Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-                throw "Downloaded $Label SHA256 mismatch: $actualHash"
-            }
-            Write-Host "Downloaded and verified ${Label}: $actualHash"
-            return $actualHash
-        } catch {
-            if (Test-Path -LiteralPath $Path -PathType Leaf) {
-                Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
-            }
-            throw
-        }
     }
 
     # V2.1.1 only: retry transient gateway/network failures into a same-folder
