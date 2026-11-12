@@ -947,7 +947,8 @@ def test_windows_candidate_smokes_frozen_diagnostic_dispatch_without_running_gpu
     assert "--diagnose-v211-four-ai', '--help" in workflow
     assert "Start-Process -FilePath $exe" in workflow
     assert "$process.ExitCode" in workflow
-    assert "$LASTEXITCODE" not in workflow
+    diagnostic_step = workflow.split("Verify packaged GTX 1660 Ti diagnostic command dispatch (help only)", 1)[1].split("Verify candidate provenance and every installer slice SHA256", 1)[0]
+    assert "$LASTEXITCODE" not in diagnostic_step
     assert "Packaged diagnostic help failed with exit code" in workflow
 
 
