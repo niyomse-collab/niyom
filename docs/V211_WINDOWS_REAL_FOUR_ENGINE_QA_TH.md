@@ -64,7 +64,7 @@ This check is reported separately from NCNN/Vulkan eligibility. It must not be u
 - เมื่อครบ 4 engines และ fusion ผ่านการตรวจ จะสร้างไฟล์ QA แยกชื่อ `*.V211-4AI-QA-*.png` และแสดงใน Preview ด้านขวา ไฟล์ V2 ไม่ถูกแทนที่
 - คำสั่ง Cancel ถูกส่งไปยัง native subprocess; บน Windows ใช้การหยุด process tree และบน POSIX หยุด process group พร้อมตรวจ Cancel ระหว่าง fusion tiles
 - หากยกเลิก/ล้มเหลว ให้ลบ partial candidates และคงไฟล์ V2 เดิม; ถ้าใช้ Evidence Directory แบบส่วนตัว โฟลเดอร์งานที่ยกเลิกจะถูกล้าง
-- ขอบเขต Four-Engine Bridge รองรับ RGB/RGBA raster (PNG/JPEG/TIFF) และมี disk-backed path สำหรับงานเกิน 18MP ผ่าน libvips, native tile runner, streamed fusion และ streamed QA crop; CMYK, PDF, PSD และไฟล์ที่ libvips อ่านไม่ได้ยังคงใช้ V2 เดิมเท่านั้น. ขีดจำกัดจริงคือไม่เกิน 1,000 MP, row buffer ไม่เกิน 64 MiB และต้องผ่าน disk-space preflight.
+- งาน Four-Engine ขนาดปกติรองรับ RGB/RGBA PNG/JPEG/TIFF เมื่อผ่านการตรวจ mode, ICC, alpha และ output contract. **Disk-backed Four-Engine สำหรับงานเกิน 18MP รองรับเฉพาะ PNG** ทั้ง source, accepted V2 reference และ native candidates; ใช้ libvips random-access regions, native tile runner, streamed fusion และ streamed QA crop. JPEG/TIFF เกิน 18MP, CMYK, PDF, PSD และไฟล์ที่ libvips อ่านไม่ได้ให้คง V2 เดิมโดยไม่เรียก auxiliary engines. ขีดจำกัด streamed path คือไม่เกิน 1,000 MP, row buffer ไม่เกิน 64 MiB และต้องผ่าน disk-space preflight.
 - ทุก Native Engine ยังประมวลผลเพียง 2x หนึ่ง pass จาก seed ครึ่งขนาดของเป้าหมาย ดังนั้นเป้าหมายภาพ 4x/8x เป็นเพียงขนาดปลายทางของ candidate ไม่ใช่ Native 4x/8x หรือ multi-pass inference
 - CI ที่ใช้ fake executables หรือ hosted runner ไม่มี Vulkan ไม่ใช่หลักฐาน real inference หรือคุณภาพบน GTX 1660 Ti; ต้องทดสอบบนเครื่องร้านและตรวจภาพ A/B จริงก่อนรับรอง
 
@@ -119,7 +119,7 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "ไม่พบ�
 
 ข้อจำกัดที่ต้องไม่สับสน:
 - เป้าหมาย 4x/8x เป็นขนาดภาพปลายทางที่สร้างจาก seed ครึ่งขนาดและใช้ Native 2x เพียงหนึ่ง pass ไม่ใช่ Native 4x/8x หรือ multi-pass inference
-- งาน RGB/RGBA raster เกิน 18MP เข้าสู่ disk-backed Four-Engine path ได้แล้วใน source branch; อย่างไรก็ตามผล CI เป็น synthetic/fake-processor evidence ไม่ใช่ real inference บน GTX 1660 Ti และยังไม่รับรอง VRAM 6GB หรือคุณภาพงานพิมพ์
+- งาน RGB/RGBA **PNG** เกิน 18MP มี disk-backed Four-Engine route ใน source branch; JPEG/TIFF ขนาดดังกล่าวยังคงใช้ V2 เท่านั้น. ผล CI เป็น synthetic/fake-processor evidence ไม่ใช่ real inference บน GTX 1660 Ti และยังไม่รับรอง VRAM 6GB หรือคุณภาพงานพิมพ์
 - รายงาน JSON นี้เป็นหลักฐานการรัน CLI เท่านั้น การยืนยันคุณภาพยังต้อง A/B ภาพ V2 เทียบ QA และให้เจ้าของร้านตรวจด้วยตา
 
 
