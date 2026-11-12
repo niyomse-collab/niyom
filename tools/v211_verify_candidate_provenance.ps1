@@ -1,8 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
-$proofPath = '.\dist\NiyomsilAIEnhancer\BUILD_PROOF.txt'
-$installer = '.\release\NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe'
-$sumsPath = '.\release\SHA256SUMS.txt'
+$proofPath = '.\\dist\\NiyomsilAIEnhancer\\BUILD_PROOF.txt'
+$installer = '.\\release\\NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe'
+$sumsPath = '.\\release\\SHA256SUMS.txt'
 
 foreach ($required in @($proofPath, $installer, $sumsPath)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
@@ -44,11 +44,27 @@ if (-not [string]::IsNullOrWhiteSpace($expectedBaseSha)) {
     if ($expectedBaseSha -notmatch '^[0-9a-f]{40}$') {
         throw 'Pull request base SHA is invalid.'
     }
-    git cat-file -e "${expectedBaseSha}^{commit}"
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Pull request base commit is missing from the candidate checkout.'
+
+    # Pass the validated 40-hex object ID directly. Avoid the ^{commit}
+    # revision suffix here: Windows native argument handling produced a
+    # leading backslash in the Git argument on the previous candidate.
+    $baseObjectType = & git cat-file -t $expectedBaseSha 2>$null
+    $baseObjectExit = $LASTEXITCODE
+    if ($baseObjectExit -ne 0) {
+        # fetch-depth: 0 normally includes the base history, but explicitly
+        # fetch this immutable PR base object if the checkout did not contain it.
+        & git fetch --no-tags origin $expectedBaseSha
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Pull request base commit could not be fetched into the candidate checkout.'
+        }
+        $baseObjectType = & git cat-file -t $expectedBaseSha 2>$null
+        $baseObjectExit = $LASTEXITCODE
     }
-    git merge-base --is-ancestor $expectedBaseSha $checkoutSha
+    if ($baseObjectExit -ne 0 -or ([string]$baseObjectType).Trim() -ne 'commit') {
+        throw 'Pull request base SHA does not resolve to a commit object.'
+    }
+
+    & git merge-base --is-ancestor $expectedBaseSha $checkoutSha
     if ($LASTEXITCODE -ne 0) {
         throw 'Pull request head must contain the current base commit before candidate packaging.'
     }
@@ -70,7 +86,7 @@ if (-not $versionLine) {
 $verified = @()
 foreach ($line in Get-Content -LiteralPath $sumsPath) {
     if ([string]::IsNullOrWhiteSpace($line)) { continue }
-    if ($line -notmatch '^([0-9a-fA-F]{64})\s+(.+)$') {
+    if ($line -notmatch '^([0-9a-fA-F]{64})\\s+(.+)$') {
         throw 'SHA256SUMS contains a malformed entry.'
     }
     $expected = $Matches[1].ToLowerInvariant()
@@ -78,7 +94,7 @@ foreach ($line in Get-Content -LiteralPath $sumsPath) {
     if ([IO.Path]::GetFileName($name) -ne $name) {
         throw 'SHA256SUMS contains a non-local filename.'
     }
-    $file = Join-Path '.\release' $name
+    $file = Join-Path '.\\release' $name
     if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
         throw 'Installer slice listed in SHA256SUMS is missing.'
     }
@@ -121,6 +137,6 @@ $provenance = [ordered]@{
     quality_certified = $false
 }
 $provenance | ConvertTo-Json -Depth 6 |
-    Set-Content -LiteralPath '.\release\CANDIDATE_PROVENANCE.json' -Encoding utf8
+    Set-Content -LiteralPath '.\\release\\CANDIDATE_PROVENANCE.json' -Encoding utf8
 
 Write-Output "Candidate provenance verified for source $checkoutSha."
