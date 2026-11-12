@@ -11,7 +11,7 @@ Set-Location $PSScriptRoot
 
 # Normalize the legacy V2 default before validating the workspace.
 if ($Channel -eq "v2" -and $Version -eq "1.0.1") { $Version = "2.0.0-beta.1" }
-$experimentalV211Pattern = '^2\.1\.1(?:-beta\.\d+)?
+$experimentalV211Pattern = '\A2\.1\.1(?:-beta\.[0-9]+)?\z'
 
 # Never clean or replace files from a previously built/approved V1 checkout.
 # V2 should be built in an independent clean workspace. Check BEFORE venv,
