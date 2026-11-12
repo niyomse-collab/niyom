@@ -129,7 +129,7 @@ def test_candidate_build_uses_pr_head_commit_for_shop_evidence_identity():
     assert candidate.count("fetch-depth: 0") == 2
     assert "V211_EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}" in candidate
     assert "V211_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in candidate
-    assert "tools/v211_verify_candidate_provenance.ps1" in candidate
+    assert "v211_verify_candidate_provenance.ps1" in candidate
     assert "Parser]::ParseFile" in candidate
     verifier = _read("tools/v211_verify_candidate_provenance.ps1")
     assert "$checkoutSha = (git rev-parse HEAD).Trim().ToLowerInvariant()" in verifier

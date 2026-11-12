@@ -473,3 +473,11 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Core #1167: [Independent Core](https://github.com/niyomse-collab/niyom/actions/runs/43154174550) — SUCCESS; Official Archive Audit #108: [Audit](https://github.com/niyomse-collab/niyom/actions/runs/43154174571) — SUCCESS; Native CLI #141: [Diagnostic](https://github.com/niyomse-collab/niyom/actions/runs/43154174540) — classified hosted Vulkan failure for Real-ESRGAN/Waifu2x, synthetic outputs only for Real-CUGAN/Anime4KCPP, physical GPU verification 0/4.
 - ต้องรอ Windows Candidate run บน commit แก้ไขนี้ให้ bridge-tests, PowerShell AST parse, provenance, installer slice SHA256 และ artifact upload ผ่านทั้งหมดก่อนใช้ Candidate บนเครื่องร้าน
 - PR #20 remains Draft/unmerged. PR #18 GFPGAN protected files remain unchanged. No V1/V2 Stable changes, no shop GPU run, no merge/release, no quality certification.
+
+## 12 พฤศจิกายน 2569 — แก้ regression assertion บน Ubuntu หลังแยก PowerShell verifier
+
+- Independent Core #1169 พบ 1 test failure บน Ubuntu: workflow-contract test มองหา path แบบ slash แต่ YAML เรียก PowerShell path แบบ Windows. ไม่ใช่ failure ของ runtime verifier หรือ image pipeline.
+- แก้ assertion ให้ตรวจ basename ของ verifier script ซึ่งใช้ได้ทั้ง path separator บน Windows และ Linux; test ยังคงตรวจว่ามี AST ParseFile step, expected PR head SHA, checkout SHA และ base-ancestor check.
+- Run #1169: [Independent Core](https://github.com/niyomse-collab/niyom/actions/runs/43163620294) — Ubuntu 943 passed / 3 skipped / 1 failed; Windows ถูกยกเลิกตาม fail-fast หลัง Ubuntu ล้ม. ต้องรอ Core run ใหม่บน commit นี้.
+- Windows Candidate #625 ถูกแทนที่ได้ตาม branch-scoped concurrency เมื่อ commit แก้ regression ถูก Push; ต้องใช้ run ใหม่เท่านั้น.
+- PR #20 remains Draft/unmerged. No V1/V2 Stable changes, no shop GPU run, no merge/release, no quality certification.
