@@ -1,12 +1,14 @@
-"""Keep V2.1.1 build hardening isolated from legacy V1/V2 model downloads."""
+"""Keep V2.1.1 build and frozen imports isolated from legacy V1/V2 paths."""
 from pathlib import Path
+import re
 
 
 def test_legacy_model_download_runs_before_v211_only_cache_reuse():
     script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(
         encoding="utf-8"
     )
-    assert '$experimentalV211 = ($Channel -eq "v2" -and $Version -match '^2\.1\.1(?:-beta\.\d+)?' in script
+    expected_selector = """$experimentalV211 = ($Channel -eq "v2" -and $Version -match '^2\\.1\\.1(?:-beta\\.\\d+)?$')"""
+    assert expected_selector in script
 
     legacy_start = script.index("if (-not $experimentalV211)")
     reuse_start = script.index("if (Test-Path -LiteralPath $Path)", legacy_start)
@@ -19,7 +21,7 @@ def test_legacy_model_download_runs_before_v211_only_cache_reuse():
     assert "$temporaryPath" not in legacy_branch
     assert "Remove-Item -LiteralPath $Path" not in legacy_branch
 
-    # Safe reuse and atomic retry remain confined to the experimental branch.
+    # Verified cache reuse and atomic retries are V2.1.1-only.
     assert "Reusing existing verified" in script[reuse_start:]
     assert "V2.1.1 only: retry transient gateway/network failures" in script[reuse_start:]
 
@@ -28,49 +30,19 @@ def test_v211_workspace_guard_is_scoped_and_v2_still_protects_v1():
     script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(
         encoding="utf-8"
     )
-    marker = '$experimentalV211 = ($Channel -eq "v2" -and $Version -like "2.1.1*")'
-    assert script.count(marker) == 1
-    experimental_assignment = script.index(marker)
+    selector = script.index("$experimentalV211 =")
     v1_protection = script.index("# Never clean or replace files from a previously built/approved V1 checkout.")
     workspace_protection = script.index("# The shared script removes build/, dist/ and release/.")
-    assert experimental_assignment < v1_protection < workspace_protection
+
+    # All V2 builds still refuse to clean a workspace containing V1 artifacts.
+    assert selector < v1_protection < workspace_protection
     assert script.index('if ($Channel -eq "v2")', v1_protection) < workspace_protection
-    assert script.index("if ($experimentalV211)", workspace_protection) > workspace_protection
-)' in script
 
-    legacy_start = script.index("if (-not $experimentalV211)")
-    reuse_start = script.index("if (Test-Path -LiteralPath $Path)", legacy_start)
-    legacy_branch = script[legacy_start:reuse_start]
-
-    # V1 and stable V2 retain the original overwrite-and-hash-check behavior.
-    assert "Invoke-WebRequest -Uri $Url -OutFile $Path" in legacy_branch
-    assert "Get-FileHash -LiteralPath $Path -Algorithm SHA256" in legacy_branch
-    assert "Reusing existing verified" not in legacy_branch
-    assert "$temporaryPath" not in legacy_branch
-    assert "Remove-Item -LiteralPath $Path" not in legacy_branch
-
-    # Safe reuse and atomic retry remain confined to the experimental branch.
-    assert "Reusing existing verified" in script[reuse_start:]
-    assert "V2.1.1 only: retry transient gateway/network failures" in script[reuse_start:]
-
-
-def test_v211_workspace_guard_is_scoped_and_v2_still_protects_v1():
-    script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(
-        encoding="utf-8"
-    )
-    marker = '$experimentalV211 = ($Channel -eq "v2" -and $Version -like "2.1.1*")'
-    assert script.count(marker) == 1
-    experimental_assignment = script.index(marker)
-    v1_protection = script.index("# Never clean or replace files from a previously built/approved V1 checkout.")
-    workspace_protection = script.index("# The shared script removes build/, dist/ and release/.")
-    assert experimental_assignment < v1_protection < workspace_protection
-    assert script.index('if ($Channel -eq "v2")', v1_protection) < workspace_protection
+    # The destructive workspace replacement guard applies only to V2.1.1.
     assert script.index("if ($experimentalV211)", workspace_protection) > workspace_protection
 
 
 def test_frozen_v211_imports_are_excluded_from_v1_and_stable_v2():
-    import re
-
     spec = (Path(__file__).resolve().parents[1] / "NiyomsilV2ArmCore.spec").read_text(
         encoding="utf-8"
     )
