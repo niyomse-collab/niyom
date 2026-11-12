@@ -139,3 +139,9 @@ def test_candidate_build_uses_pr_head_commit_for_shop_evidence_identity():
     assert "source_commit = $checkoutSha" in verifier
     assert "workflow_commit = $env:GITHUB_SHA" in verifier
     assert "BUILD_PROOF source commit does not match GITHUB_SHA" not in verifier
+
+def test_candidate_provenance_verifier_interpolates_base_sha_without_literal_backslash():
+    verifier = _read("tools/v211_verify_candidate_provenance.ps1")
+
+    assert 'git cat-file -e "${expectedBaseSha}^{commit}"' in verifier
+    assert r'git cat-file -e "\\${expectedBaseSha}^{commit}"' not in verifier
