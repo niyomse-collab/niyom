@@ -308,3 +308,48 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - Official Archive Audit #120 [run 43283655327](https://github.com/niyomse-collab/niyom/actions/runs/43283655327): official archives ทั้งสี่ผ่าน SHA256/archive audit/transactional manifest provision ใน ephemeral QA directory; ไม่ใช่ real inference acceptance.
 - **ยังไม่มีการอนุญาตหรือเรียก self-hosted shop workflow ในรอบนี้.** ห้ามเพิ่ม `[shop-gpu-evidence yes candidate=f74da870ab5d38e5069cd5f9ba8af44055f01e1b]` ใน commit message จนกว่าจะติดตั้ง Candidate #644 และผู้ใช้อนุมัติการทดสอบบนเครื่องร้านอย่างชัดเจน.
 - Synthetic evidence ยังคงไม่รับรอง visual quality/print quality. ไม่อัปโหลดภาพลูกค้า; artifact shop workflow ต้องเป็น JSON evidence เท่านั้น.
+
+
+## 13 พฤศจิกายน 2569 — Candidate #680 ปัจจุบันสำหรับการทดสอบบนเครื่องร้าน
+
+ส่วนนี้ **แทน Candidate #644** สำหรับการติดตั้งทดสอบรอบถัดไป ห้ามใช้ SHA หรือ BUILD_PROOF ของ Candidate เก่าแทนกัน
+
+### Source และ Windows Candidate
+
+- PR #20 HEAD / source commit: `c89770074851b990698628d8c8e96e121e105a18` บน `work/v211-four-engine-v2-bridge-20261103`.
+- Windows Candidate #680: [GitHub Actions run 43314285413](https://github.com/niyomse-collab/niyom/actions/runs/43314285413) — ทั้ง `bridge-tests` และ `windows-v2-candidate` สำเร็จ
+- Bridge job ผ่าน compileall, Four-Engine coordination/fusion/autorun, V2 output preservation, privacy, official archive hash, provisioning และ manifest fail-closed tests
+- Frozen job ผ่าน V2 import smoke, packaged `--provision-v211-four-ai --check-only` แบบไม่ดาวน์โหลด, isolated cache cleanup ที่เก็บไฟล์ไม่รู้จักไว้และปฏิเสธ profile อื่น, diagnostic `--help`, PowerShell AST parse, BUILD_PROOF/source provenance และ SHA256 ของ installer slices ทุกส่วน
+- Installer SHA256: `5f18dc8f77e4ddf714645229f76ab4676ab026f5d68f476e2f33ebe409093fd6`
+- Artifact ID: `13988039912`; ขนาด **2,584,579,685 bytes**; Artifact ZIP SHA256: `cf4c9fe1c6ffd4ad0fadfd3b9b473bbef16977a1d7278bc65891417074892a55`
+- [ดาวน์โหลด Candidate #680](https://github.com/niyomse-collab/niyom/actions/runs/43314285413/artifacts/13988039912) — หมดอายุ **20 พ.ย. 2569 05:16:55 น. ICT** หากหมดอายุให้สร้าง Candidate ใหม่ ห้ามใช้ลิงก์เดิม
+- Candidate นี้เป็น Frozen Package / provenance pass เท่านั้น ไม่ใช่การรับรองการติดตั้งหรือ GPU inference บนเครื่องร้าน
+
+### Regression และ Official Assets บน PR HEAD เดียวกัน
+
+- Independent Core #1232: [run 43314285420](https://github.com/niyomse-collab/niyom/actions/runs/43314285420) — Windows **953 passed / 1 skipped**; Ubuntu **951 passed / 3 skipped**; compileall ผ่านทั้งคู่
+- Official Archive Audit #135: [run 43314285394](https://github.com/niyomse-collab/niyom/actions/runs/43314285394) — checkout เป็น PR merge commit `ab7b37a` ซึ่งรวม PR head `c8977007` กับ base `288dd850`; ดาวน์โหลดและตรวจ official archives, provision ลง ephemeral QA directory และสร้าง Manifest ครบสี่ engine สำเร็จ
+- Archive SHA256 ที่ตรวจ:
+  - Real-ESRGAN v0.2.5.0: `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` — observed CI pin; ไม่มี publisher digest
+  - Waifu2x 20250915: `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` — publisher digest
+  - Real-CUGAN 20220728: `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` — observed CI pin; ไม่มี publisher digest
+  - Anime4KCPP v3.2.0: `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` — publisher digest
+- Archive audit ระบุทุก engine เป็น `archive_audited_not_inference_verified`; `real_inference_verified=false` และ redistribution approval ยังคง false
+
+### Native CLI diagnostic — ห้ามตีความเป็น GPU/คุณภาพผ่าน
+
+- Native CLI Smoke #171: [run 43314285421](https://github.com/niyomse-collab/niyom/actions/runs/43314285421) — checkout PR merge commit `ab7b37a` ที่มี source PR head `c8977007`
+- Real-CUGAN และ Anime4KCPP มี native process execution จบตามที่รายงาน แต่ actual GPU adapter ไม่ได้รับการยืนยัน
+- Real-ESRGAN และ Waifu2x ถูกบล็อกด้วย `vkCreateInstance failed -9` บน Hosted Runner
+- NVML library ไม่พบ; runtime adapter verification **0/4**; `candidate_output_validation_complete=false`; `real_inference_verified=false`
+- Workflow จบ SUCCESS เพราะจัดประเภท Vulkan limitation ที่คาดหมายได้ ไม่ใช่การผ่าน Native GPU 4/4, Four-Engine Fusion หรือ image-quality A/B
+
+### คำเตือนจาก Frozen Build
+
+- PyInstaller บน Hosted Runner รายงานว่าไม่พบ `nvcuda.dll` และ optional `tbb12.dll`; ยังไม่ใช่ build failure แต่ต้องตรวจ dependency บน Windows เครื่องร้านจริง
+- ห้ามนำ driver DLL จากเครื่องอื่นมาฝังใน Installer โดยเดา; ให้ใช้ NVIDIA driver ที่ติดตั้งบนเครื่องปลายทางและตรวจ runtime dependency จากหลักฐานจริง
+- ไม่มีการรัน self-hosted Shop GPU Evidence ในรอบนี้ ไม่มี consent marker และไม่มีการอัปโหลดภาพลูกค้า
+
+### เกณฑ์ก่อนใช้ผลจาก Candidate #680
+
+ติดตั้ง Candidate #680 ใน Windows account ที่จะทดสอบ แล้วตรวจว่า `BUILD_PROOF.txt` แสดง source commit ข้างต้นตรงตัว จากนั้นต้องได้รับความยินยอมชัดเจนก่อนเรียก Shop GPU Evidence. เก็บเฉพาะ JSON diagnostic/evidence; ทดสอบ adapter/PID, Native Engine 4/4, tiled cancel, peak VRAM และ fail-closed output ก่อน A/B. Candidate #680 ยังไม่รับรอง 6 GB hard cap, ภาพเกิน 18 MP, 4x/8x native inference, Photoshop/MainTop/RIP หรือคุณภาพเหนือ V2.
