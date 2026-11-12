@@ -16,7 +16,7 @@ $experimentalV211 = ($Channel -eq "v2" -and $Version -like "2.1.1*")
 # Never clean or replace files from a previously built/approved V1 checkout.
 # V2 should be built in an independent clean workspace. Check BEFORE venv,
 # metadata, model downloads or any build/release folder deletion.
-if ($experimentalV211) {
+if ($Channel -eq "v2") {
     $v1ReleaseFiles = @(Get-ChildItem ".\\release\\NiyomSilp-Design-v1-*" -File -ErrorAction SilentlyContinue)
     $v1Proof = ".\\dist\\NiyomsilAIEnhancer\\ARM_CORE_BUILD_PROOF.txt"
     $v1Metadata = ".\\build_info.json"
