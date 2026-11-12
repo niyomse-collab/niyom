@@ -353,3 +353,20 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 ### เกณฑ์ก่อนใช้ผลจาก Candidate #680
 
 ติดตั้ง Candidate #680 ใน Windows account ที่จะทดสอบ แล้วตรวจว่า `BUILD_PROOF.txt` แสดง source commit ข้างต้นตรงตัว จากนั้นต้องได้รับความยินยอมชัดเจนก่อนเรียก Shop GPU Evidence. เก็บเฉพาะ JSON diagnostic/evidence; ทดสอบ adapter/PID, Native Engine 4/4, tiled cancel, peak VRAM และ fail-closed output ก่อน A/B. Candidate #680 ยังไม่รับรอง 6 GB hard cap, ภาพเกิน 18 MP, 4x/8x native inference, Photoshop/MainTop/RIP หรือคุณภาพเหนือ V2.
+
+
+## 13 พฤศจิกายน 2569 — Candidate #681 ล่าสุดสำหรับรอบทดสอบถัดไป
+
+ส่วนนี้แทน Candidate #680 สำหรับการทดสอบติดตั้งรอบถัดไป; Candidate #680/#644 เป็นหลักฐานย้อนหลังเท่านั้น.
+
+- Source commit: `128c0eb0b8093630b3a7c9ce2a4ba7f1b9418f37`.
+- Windows Candidate #681: [run 43328241363](https://github.com/niyomse-collab/niyom/actions/runs/43328241363) — bridge-tests และ windows-v2-candidate ผ่าน.
+- Artifact ID `13995566000`, ขนาด **2,584,549,542 bytes**, ZIP SHA256 `cb4697045895a331ef6c0859b79bb95b28a2dd1f3aa01e6b5ab7db7a52ebf992`, installer SHA256 `b4e0553d845e2f29b944b85d8dc6caed212404d2a0a97c7ba548c371f1ade6b3`.
+- [ดาวน์โหลด Candidate #681](https://github.com/niyomse-collab/niyom/actions/runs/43328241363/artifacts/13995566000) — หมดอายุ **20 พ.ย. 2569 06:42:51 น. ICT**.
+- Independent Core #1235: [run 43328241217](https://github.com/niyomse-collab/niyom/actions/runs/43328241217) — Windows 953 passed / 1 skipped; Ubuntu 951 passed / 3 skipped.
+- Official Archive Audit #136: [run 43328241206](https://github.com/niyomse-collab/niyom/actions/runs/43328241206) — official archives 4/4 SHA256/archive audit/transactional provision ผ่าน; ไม่ใช่ native inference.
+- Native CLI Smoke #172: [run 43328241400](https://github.com/niyomse-collab/niyom/actions/runs/43328241400) — Real-CUGAN/Anime4KCPP native synthetic outputs ผ่าน; Real-ESRGAN/Waifu2x hosted runner Vulkan blocked; physical adapter verification 0/4; `real_inference_verified=false`.
+- Candidate #681 มี PyInstaller warning `nvcuda.dll` และ `tbb12.dll`. ห้ามนำ NVIDIA driver DLL หรือ TBB runtime จากแหล่งที่ไม่ตรวจสอบมาฝังเอง. `nvcuda.dll` ต้องมาจาก NVIDIA driver ที่ติดตั้งบนเครื่อง; `tbb12.dll` เป็น optional Numba TBB threading backend และยังไม่มีหลักฐานว่าจำเป็นต่อ default app path.
+- **ตรวจ driver ก่อน Shop GPU acceptance:** Candidate ใช้ PyTorch 2.11.0+cu128. Diagnostic ระบุขั้นต่ำ Windows CUDA 12.x minor compatibility 528.33 และ CUDA 12.8 GA 570.65. Driver ร้านล่าสุดที่บันทึก 5 พ.ย. 2569 คือ 451.67 (nvidia-smi CUDA 11.0); หากยังไม่อัปเดตจะต่ำกว่า CUDA 12.x compatibility floor และ PyTorch CUDA core อาจใช้ DirectML/CPU แทน CUDA. NCNN/Vulkan engine eligibility เป็นคนละเส้นทางและต้องตรวจแยก.
+- ก่อนเริ่มทดสอบจริง ตรวจ `nvidia-smi` และ driver ปัจจุบัน, CUDA runtime/device selection, Vulkan GTX 1660 Ti inventory, per-process PID-to-adapter, VRAM และ 4-engine bridge. ห้ามเริ่ม Shop GPU Evidence จนมี affirmative consent/candidate marker ที่อนุมัติอย่างชัดเจน.
+- ไม่มี self-hosted shop run ในรอบนี้; ไม่มีภาพลูกค้าใน CI/artifact. Candidate นี้ยังไม่รับรอง real inference 4/4, 6 GB peak VRAM, >18 MP stress, A/B quality หรือ Photoshop/MainTop/RIP.
