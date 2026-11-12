@@ -128,8 +128,14 @@ def test_candidate_build_uses_pr_head_commit_for_shop_evidence_identity():
     assert candidate.count(expected_ref) == 2
     assert candidate.count("fetch-depth: 0") == 2
     assert "V211_EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}" in candidate
-    assert "$checkoutSha = (git rev-parse HEAD).Trim().ToLowerInvariant()" in candidate
-    assert "$proofCommit -ne $checkoutSha" in candidate
-    assert "git merge-base --is-ancestor $expectedBaseSha $checkoutSha" in candidate
-    assert "source_commit = $checkoutSha" in candidate
-    assert "workflow_commit = $env:GITHUB_SHA" in candidate
+    assert "V211_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in candidate
+    assert "tools/v211_verify_candidate_provenance.ps1" in candidate
+    assert "Parser]::ParseFile" in candidate
+    verifier = _read("tools/v211_verify_candidate_provenance.ps1")
+    assert "$checkoutSha = (git rev-parse HEAD).Trim().ToLowerInvariant()" in verifier
+    assert "$proofCommit -ne $checkoutSha" in verifier
+    assert "$proofCommit -ne $expectedHeadSha" in verifier
+    assert "git merge-base --is-ancestor $expectedBaseSha $checkoutSha" in verifier
+    assert "source_commit = $checkoutSha" in verifier
+    assert "workflow_commit = $env:GITHUB_SHA" in verifier
+    assert "BUILD_PROOF source commit does not match GITHUB_SHA" not in verifier

@@ -462,3 +462,14 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - The same path-component validation is repeated at the consented provisioning boundary **before** any official archive is downloaded. An unsafe parent path returns an invalid setup state / raises a safe-path error without network access.
 - Added a directory-symlink regression covering both the no-network status check and the consented provisioning path. Runners that cannot create directory symlinks report the test as skipped rather than treating it as a pass.
 - This is path-safety hardening only; it does not alter engine inference, the accepted V2 output, V1, V2 Stable, GFPGAN, or the one-time consent behavior.
+
+## 12 พฤศจิกายน 2569 — แก้ Windows Candidate #623 ที่ล้มใน PowerShell parser
+
+- ตรวจ Run #623 แล้วพบว่า bridge-tests ผ่าน แต่ windows-v2-candidate ล้มในขั้นตรวจ BUILD_PROOF/installer slices หลัง Frozen Build, packaged import, provisioning check-only, cache cleanup และ diagnostic help ผ่านทั้งหมด
+- Root cause เป็น PowerShell syntax error ใน inline provenance block: มีคำสั่ง throw สำหรับตรวจ GITHUB_SHA และวงเล็บปีกกาปิดที่หลงเหลือหลังเปลี่ยนจาก synthetic PR merge SHA มาใช้ PR head SHA ทำให้เกิด ParserError: Unexpected token '}' ก่อนตรวจ SHA256 จริง
+- แก้โดยย้าย provenance verifier ไป tools/v211_verify_candidate_provenance.ps1, เพิ่ม PowerShell AST parse step ก่อนยอมรับ Candidate และตรวจ BUILD_PROOF กับ checkout SHA และ V211_EXPECTED_HEAD_SHA แทนการเทียบกับ GITHUB_SHA (ซึ่งเป็น synthetic merge SHA ใน pull_request event); ยังคงตรวจ Base SHA เป็น ancestor และ SHA256 ทุก installer slice
+- เพิ่ม regression assertions ให้ workflow ต้อง parse verifier script และผูก expected PR head SHA อย่างชัดเจน
+- Run #623: [Windows Candidate](https://github.com/niyomse-collab/niyom/actions/runs/43154174531) — FAILED ที่ provenance script parse; ไม่มี artifact upload และไม่มี Candidate ที่รับรองจาก Run นี้
+- Core #1167: [Independent Core](https://github.com/niyomse-collab/niyom/actions/runs/43154174550) — SUCCESS; Official Archive Audit #108: [Audit](https://github.com/niyomse-collab/niyom/actions/runs/43154174571) — SUCCESS; Native CLI #141: [Diagnostic](https://github.com/niyomse-collab/niyom/actions/runs/43154174540) — classified hosted Vulkan failure for Real-ESRGAN/Waifu2x, synthetic outputs only for Real-CUGAN/Anime4KCPP, physical GPU verification 0/4.
+- ต้องรอ Windows Candidate run บน commit แก้ไขนี้ให้ bridge-tests, PowerShell AST parse, provenance, installer slice SHA256 และ artifact upload ผ่านทั้งหมดก่อนใช้ Candidate บนเครื่องร้าน
+- PR #20 remains Draft/unmerged. PR #18 GFPGAN protected files remain unchanged. No V1/V2 Stable changes, no shop GPU run, no merge/release, no quality certification.
