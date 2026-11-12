@@ -30,7 +30,8 @@ def test_v211_build_dispatch_and_workflow_only_publish_unique_installer():
     ps = (ROOT / "build_windows.ps1").read_text(encoding="utf-8")
     workflow = (ROOT / ".github" / "workflows" /
                 "v211-four-engine-bridge-windows.yml").read_text(encoding="utf-8")
-    assert '$Version -like "2.1.1*"' in ps
+    assert r"$experimentalV211Pattern = '\A2\.1\.1(?:-beta\.[0-9]+)?\z'" in ps
+    assert "$Version -match $experimentalV211Pattern" in ps
     assert 'installer_v211_experimental.iss' in ps
     assert 'NiyomSilp-Design-v211-EXPERIMENTAL-Setup' in ps
     assert 'release/NiyomSilp-Design-v211-EXPERIMENTAL-Setup*' in workflow
@@ -109,7 +110,12 @@ def test_frozen_spec_installs_basicsr_compat_before_static_package_discovery():
     assert spec.index(registration) < spec.index(discovery_import)
     assert "discover_package_modules(Path(package_spec.origin).parent, package)" in spec
     assert '"tools.v211_four_engine_tiled_inference"' in spec
-    assert "collect_submodules(" not in spec
+    conditional = spec.index("if IS_V211_BUILD:")
+    fallback = spec.index("else:", conditional)
+    v211_block = spec[conditional:fallback]
+    legacy_block = spec[fallback:]
+    assert "collect_submodules(" not in v211_block
+    assert "collect_submodules(" in legacy_block
     assert 'runtime_hooks=[str(ROOT / "pyi_rth_basicsr_compat.py")]' in spec
 
 
