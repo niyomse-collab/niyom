@@ -286,3 +286,12 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - เพิ่มตำแหน่งค้นหา `nvml.dll` ของ Windows Standard Driver ที่ `Program Files\\NVIDIA Corporation\\NVSMI` นอกเหนือจาก DLL search path และ `System32`
 - เพิ่ม Regression สำหรับ target mismatch, adapter ambiguity, memory unavailable, PID ไม่ปรากฏ, WDDM PID ที่ไม่มี PDH activity, PID mismatch ใน counter instance และ tiled child process ที่มีเพียงบาง process ผ่าน. Frozen spec และ Windows Candidate CI รวม module/test ใหม่แล้ว
 - ไม่มีการแก้ V1, V2 Stable, GFPGAN, accepted V2 output, installer model payload หรือ model weights; ไม่เพิ่ม network access และไม่อัปโหลดภาพ
+
+## Candidate source identity for shop GPU evidence — 12 พฤศจิกายน 2569
+
+- The Windows Candidate workflow now checks out the exact PR head SHA for `pull_request` events (and `github.sha` for push/manual dispatch), with full Git history.
+- `BUILD_PROOF.txt` records the checked-out source commit. Candidate provenance stores this as `source_commit` and records the Actions event SHA separately as `workflow_commit`.
+- For pull requests, the workflow verifies that the current PR base SHA is an ancestor of the checked-out PR head. If the branch is behind its base, packaging fails rather than producing an ambiguous candidate.
+- The shop evidence workflow requires the installed `BUILD_PROOF.txt` source commit to be present in the branch history and an ancestor of the evidence workflow revision. Use the exact 40-character **Source commit** printed in the installed `BUILD_PROOF.txt` as `candidate_source_sha`, with `confirm_shop_gpu=yes`.
+- The earlier Candidate #616 artifact was built from the synthetic PR merge commit `464b33a33e1dead502a76f0b248ca03d38c30b32`, not the branch head. It remains an experimental package but is **not accepted as the source identity for the branch-ancestry-gated shop workflow**. Build a fresh candidate after this correction before running shop GPU evidence.
+- The self-hosted evidence job uses synthetic RGB/RGBA test images only, retains JSON evidence only, and never certifies visual or print quality.
