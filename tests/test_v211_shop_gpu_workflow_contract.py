@@ -144,4 +144,4 @@ def test_candidate_provenance_verifier_interpolates_base_sha_without_literal_bac
     verifier = _read("tools/v211_verify_candidate_provenance.ps1")
 
     assert 'git cat-file -e "${expectedBaseSha}^{commit}"' in verifier
-    assert '\\\\${expectedBaseSha}' not in verifier
+    assert chr(92) + "${expectedBaseSha}" not in verifier
