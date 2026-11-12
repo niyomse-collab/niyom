@@ -680,6 +680,37 @@ def test_large_bridge_rejects_unsupported_3x_geometry_before_gpu(
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
 
 
+@pytest.mark.parametrize(
+    ("source_ext", "target_ext"),
+    [(".jpg", ".png"), (".tiff", ".png"), (".png", ".jpg"), (".png", ".tiff")],
+)
+def test_large_bridge_rejects_non_png_source_or_v2_before_gpu(
+    tmp_path, monkeypatch, source_ext, target_ext
+):
+    """Large disk-backed auxiliary inference is PNG-only on both sides."""
+    source = tmp_path / ("large-source" + source_ext)
+    baseline = tmp_path / ("accepted-v2" + target_ext)
+    Image.new("RGB", (128, 128), (40, 80, 120)).save(source)
+    Image.new("RGB", (256, 256), (40, 80, 120)).save(baseline)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv(
+        "NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json")
+    )
+    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 1024)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("large non-PNG jobs must fail before GPU binding or native launch")
+
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+    assert result["status"] == "unsupported_target_geometry"
+    assert result["reason"] == "large_auxiliary_jobs_require_exact_2x_4x_or_8x_png_geometry"
+    assert result["v2_output_preserved"] is True
+    assert baseline.read_bytes() == before
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+
+
 @pytest.mark.parametrize("target_scale", [2, 4, 8])
 def test_large_bridge_routes_2x_4x_and_8x_png_through_streamed_seed_and_tiled_runner(
     tmp_path, monkeypatch, target_scale
