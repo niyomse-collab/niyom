@@ -7,15 +7,18 @@ downloads, and writes a separate local QA sidecar. Stable V2 does not import
 this bridge, and no per-engine UI switches are introduced.
 
 Each native executable performs one 2x pass on a private seed made at half of
-the accepted V2 target canvas. The current runner accepts exact isotropic 2x
-or 4x source geometry for small jobs; 4x uses a half-target seed followed by
-one native 2x pass, not native 4x inference or a multi-pass workflow. Jobs
-above 18 MP accept exact isotropic 2x, 4x or 8x PNG source-to-V2 geometry
-through disk-backed tiles. Each route executes one native 2x pass on a
-half-target seed; large 4x uses a 2x seed and large 8x uses a 4x seed. Neither
-is native 4x/8x or multi-pass inference. 3x, custom, anisotropic and non-PNG
-jobs remain unsupported and fail before native inference. Small jobs require a seed of at least 2x2;
-disk-backed large jobs require at least 64x64. Pixel/row/disk limits fail closed.
+the accepted V2 target canvas. The bridge first maps the source to the exact V2
+canvas using the selected fit/stretch transform, then downsamples that canvas
+to the half-target seed. Therefore the original source-to-print geometry may
+be 2x, 3x, 4x, 8x, custom, or anisotropic without changing the native 2x pass.
+These are not native 3x/4x/8x inference or multi-pass AI.
+
+Jobs above 18 MP use the disk-backed PNG RGB/RGBA path, subject to pixel,
+row-buffer, disk-space and minimum-tile bounds; large non-PNG jobs remain
+V2-only. Small jobs require a seed of at least 2x2 and disk-backed large jobs
+require at least 64x64. Every candidate remains local QA only, requires all
+four native processes to be verified on the selected GPU before publication,
+and never replaces the accepted V2 raster.
 
 No candidate is silently used as the printed deliverable: quality approval is a
 separate release gate.
