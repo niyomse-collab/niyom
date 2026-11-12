@@ -7,7 +7,7 @@ def test_legacy_model_download_runs_before_v211_only_cache_reuse():
     script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(
         encoding="utf-8"
     )
-    assert r"$experimentalV211Pattern = '^2\.1\.1(?:-beta\.\d+)?$'" in script
+    assert r"$experimentalV211Pattern = '\A2\.1\.1(?:-beta\.[0-9]+)?\z'" in script
     assert '$experimentalV211 = ($Channel -eq "v2" -and $Version -match $experimentalV211Pattern)' in script
 
     legacy_start = script.index("if (-not $experimentalV211)")
