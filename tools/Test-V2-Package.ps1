@@ -13,7 +13,7 @@ $flags = @{
     ui = "NIYOMSIL_UI_SMOKE";
     face = "NIYOMSIL_FACE_BACKEND_SMOKE";
     processing = "NIYOMSIL_PACKAGE_SMOKE";
-    v211-tiff = "NIYOMSIL_V211_TIFF_SMOKE"
+    "v211-tiff" = "NIYOMSIL_V211_TIFF_SMOKE"
 }
 $flag = $flags[$Mode]
 Set-Item "Env:$flag" "1"
