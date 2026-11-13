@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 
-_V211_VERSION = re.compile(r"^2\.1\.1-beta\.\d+$")
+_V211_VERSION = re.compile(r"^2\.1\.1(?:-beta\.\d+)?$")
 _SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 _PROOF_HEADER = "NIYOMSIL DESIGN v2 - VERIFIED INSTALLER BUILD PROOF"
 _INSTALLER_PREFIX = "NiyomSilp-Design-v211-EXPERIMENTAL-Setup"
