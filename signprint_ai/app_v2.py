@@ -28,6 +28,7 @@ from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
 from .v211_ui_status import four_engine_preview_allowed, four_engine_preview_caption, four_engine_ui_status
+from .v211_cuda_compat import format_cuda_driver_status, probe_cuda_12_8_driver_compatibility
 
 APP_NAME = "NiyomSilp Design"
 from .v21_brand import release_label
@@ -105,6 +106,7 @@ class App(tk.Tk):
         self.after(80, self._drain_events)
         self.after(1000, self._tick_elapsed)
         self._set_status("พร้อมใช้งาน")
+        self._start_cuda_driver_compatibility_probe()
         # Ask once on first launch only when no verified manifest or prior decline exists.
         self.after(600, self._offer_v211_four_ai_setup)
     def _pick_ui_font(self) -> str:
@@ -209,6 +211,25 @@ class App(tk.Tk):
         except Exception:
             pass
         return info
+
+    def _start_cuda_driver_compatibility_probe(self):
+        """Show a non-blocking CUDA 12.8 driver hint; never gate native Vulkan engines."""
+        if os.name != "nt":
+            return
+
+        def worker():
+            try:
+                report = probe_cuda_12_8_driver_compatibility()
+            except Exception:
+                report = {"status": "driver_probe_failed", "driver_version": None}
+            self._events.put(("cuda_compatibility", report))
+
+        self._cuda_compatibility_thread = threading.Thread(
+            target=worker,
+            name="NiyomSilpCudaDriverCompatibility",
+            daemon=True,
+        )
+        self._cuda_compatibility_thread.start()
 
     def _tick_elapsed(self):
         try:
@@ -557,13 +578,20 @@ class App(tk.Tk):
         ttk.Button(row9, text="เลือกโฟลเดอร์", command=self.choose_output_dir).pack(side="left", padx=(6, 0))
 
         # ===== STATUS BAR =====
-        status = tk.Frame(root, bg="#071016", height=31)
+        status = tk.Frame(root, bg="#071016", height=50)
         status.grid(row=3, column=0, columnspan=2, sticky="ew")
         status.grid_propagate(False)
         status.columnconfigure(2, weight=1)
 
         self.status_label = tk.Label(status, text="", bg="#071016", fg="#DDE6EC", anchor="w")
         self.status_label.grid(row=0, column=0, sticky="w", padx=(10, 8))
+        self.runtime_warning_label = tk.Label(
+            status, text="", bg="#071016", fg="#FFB74D", anchor="w",
+            font=(self.ui_font_family, 8, "bold"),
+        )
+        self.runtime_warning_label.grid(
+            row=1, column=0, columnspan=5, sticky="ew", padx=10, pady=(0, 3)
+        )
         tk.Label(
             status,
             text=f"GPU: {self.hardware_info['gpu']}  |  AI Engine: {self.hardware_info['engine']}  |  Device: {self.hardware_info['device']}",
@@ -1647,6 +1675,10 @@ class App(tk.Tk):
                             bars = max(0, min(10, round(file_progress / 10)))
                             vals[4] = f"{'█' * bars}{'░' * (10 - bars)}  {file_progress}%"
                             self.tree.item(str(idx), values=vals)
+                elif kind == "cuda_compatibility":
+                    report = ev[1] if len(ev) > 1 and isinstance(ev[1], dict) else {}
+                    warning_text, warning_colour = format_cuda_driver_status(report)
+                    self.runtime_warning_label.configure(text=warning_text, fg=warning_colour)
                 elif kind == "row_status":
                     i, st = ev[1], ev[2]
                     if self.tree.exists(str(i)):
