@@ -636,12 +636,12 @@ def test_large_four_engine_seed_and_qa_crop_use_disk_backed_vips_without_full_pi
 
 @pytest.mark.parametrize(
     ("source_ext", "target_ext"),
-    [(".jpg", ".png"), (".tiff", ".png"), (".png", ".jpg"), (".png", ".tiff")],
+    [(".jpg", ".png"), (".png", ".jpg")],
 )
-def test_large_bridge_rejects_non_png_source_or_v2_before_gpu(
+def test_large_bridge_rejects_jpeg_source_or_v2_before_gpu(
     tmp_path, monkeypatch, source_ext, target_ext
 ):
-    """Large disk-backed auxiliary inference is PNG-only on both sides."""
+    """Large JPEG auxiliary jobs remain V2-only; no GPU work may start."""
     source = tmp_path / ("large-source" + source_ext)
     baseline = tmp_path / ("accepted-v2" + target_ext)
     Image.new("RGB", (128, 128), (40, 80, 120)).save(source)
@@ -654,14 +654,140 @@ def test_large_bridge_rejects_non_png_source_or_v2_before_gpu(
     monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 1024)
 
     def forbidden(*_args, **_kwargs):
-        pytest.fail("large non-PNG jobs must fail before GPU binding or native launch")
+        pytest.fail("large JPEG jobs must fail before GPU binding or native launch")
 
     monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
     result = bridge.maybe_run_four_engine_assist(source, baseline)
     assert result["status"] == "unsupported_target_geometry"
-    assert result["reason"] == "large_auxiliary_jobs_require_png_source_and_v2"
+    assert result["reason"] == "large_auxiliary_jobs_require_png_or_single_page_tiff_source_and_v2"
     assert result["v2_output_preserved"] is True
     assert baseline.read_bytes() == before
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+
+
+@pytest.mark.parametrize("bigtiff", [False, True])
+@pytest.mark.parametrize(
+    ("source_ext", "target_ext"),
+    [(".tiff", ".tiff"), (".tiff", ".png"), (".png", ".tiff")],
+)
+def test_large_single_page_tiff_and_bigtiff_use_streamed_png_intermediates(
+    tmp_path, monkeypatch, bigtiff, source_ext, target_ext
+):
+    """Single-page RGB TIFF/BigTIFF inputs are streamed to private PNG tiles."""
+    pytest.importorskip("pyvips")
+    tifffile = pytest.importorskip("tifffile")
+    from tools import v211_four_engine_run
+
+    source = tmp_path / ("source" + source_ext)
+    baseline = tmp_path / ("accepted-v2" + target_ext)
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+
+    def save_raster(path, size, colour):
+        width, height = size
+        if path.suffix.lower() == ".png":
+            Image.new("RGB", size, colour).save(
+                path, dpi=(300, 300), icc_profile=profile
+            )
+            return
+        pixels = np.empty((height, width, 3), dtype=np.uint8)
+        pixels[:] = colour
+        tifffile.imwrite(
+            path,
+            pixels,
+            bigtiff=bigtiff,
+            photometric="rgb",
+            resolution=(300, 300),
+            resolutionunit="INCH",
+            extratags=[(34675, "B", len(profile), profile, False)],
+        )
+
+    save_raster(source, (128, 128), (40, 80, 120))
+    save_raster(baseline, (256, 256), (40, 80, 120))
+    original_v2 = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv(
+        "NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json")
+    )
+    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 1024)
+
+    def fake_run(src, output_dir, manifest, size, *, real_engines, v2_reference, **kwargs):
+        assert real_engines is True
+        assert Path(src).suffix.lower() == ".png"
+        assert Path(v2_reference).suffix.lower() == ".png"
+        with Image.open(src) as seed, Image.open(v2_reference) as reference:
+            assert seed.size == (128, 128)
+            assert reference.size == (256, 256)
+            assert seed.info.get("icc_profile") == profile
+            assert reference.info.get("icc_profile") == profile
+            assert seed.info.get("dpi")[0] == pytest.approx(300, abs=0.1)
+            assert reference.info.get("dpi")[1] == pytest.approx(300, abs=0.1)
+            fused = Path(output_dir) / "four_engine_fused_preview.png"
+            reference.save(fused, format="PNG")
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": 4,
+            "runtime_device_use_verified": True,
+            "per_engine_runtime_device_use_verified": {
+                name: True for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
+            },
+            "failures": {},
+            "four_engine_fusion": {
+                "fusion_implemented": True,
+                "all_four_engine_pixels_contributed": True,
+                "output": str(fused),
+            },
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+
+    assert result["status"] == "four_engine_fusion_preview_ready", result
+    assert result["v2_output_preserved"] is True
+    assert result["quality_certified"] is False
+    assert baseline.read_bytes() == original_v2
+    qa = Path(result["four_engine_fusion_output"])
+    assert qa.is_file()
+    assert ".V211-4AI-QA-" in qa.name
+    with Image.open(qa) as preview:
+        assert preview.size == (256, 256)
+        assert preview.mode == "RGB"
+        assert preview.info.get("icc_profile") == profile
+        assert preview.info.get("dpi")[0] == pytest.approx(300, abs=0.1)
+
+
+@pytest.mark.parametrize("multi_page_role", ["source", "v2"])
+def test_large_bridge_rejects_multipage_tiff_before_gpu_and_preserves_v2(
+    tmp_path, monkeypatch, multi_page_role
+):
+    """A TIFF/BigTIFF container with multiple pages must never be truncated to page one."""
+    tifffile = pytest.importorskip("tifffile")
+    pixels = np.zeros((32, 32, 3), dtype=np.uint8)
+    multi_page = tmp_path / "multi-page-bigtiff.tiff"
+    with tifffile.TiffWriter(multi_page, bigtiff=True) as writer:
+        writer.write(pixels, photometric="rgb")
+        writer.write(pixels, photometric="rgb")
+    valid = tmp_path / "valid.png"
+    Image.new("RGB", (128, 128), (40, 80, 120)).save(valid)
+    source, baseline = (
+        (multi_page, valid) if multi_page_role == "source"
+        else (valid, multi_page)
+    )
+    original_v2 = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv(
+        "NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json")
+    )
+    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 1024)
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("multipage TIFF must be rejected before GPU binding")
+
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+    assert result["status"] == "error"
+    assert result["error_type"] == "ValueError"
+    assert result["v2_output_preserved"] is True
+    assert baseline.read_bytes() == original_v2
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
 
 
