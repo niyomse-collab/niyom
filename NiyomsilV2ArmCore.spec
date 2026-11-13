@@ -64,6 +64,7 @@ if IS_V211_BUILD:
     hiddenimports += [
         "signprint_ai.v211_four_engine_bridge",
         "signprint_ai.v211_large_image_bridge",
+        "tifffile",
         "signprint_ai.v211_background_fusion",
         "tools.v211_four_engine_run",
         "tools.v211_four_engine_coordinator",
