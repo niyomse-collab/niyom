@@ -94,5 +94,77 @@ if __name__ == "__main__":
             assert bytes(pixels[:3]) == bytes((17, 31, 47))
             assert bytes(pixels[-3:]) == bytes((17, 31, 47))
             del region, disk_image
+
+        # Exercise the optional scientific-runtime imports that PyInstaller
+        # warned about. This is CPU-only and runs only in the explicit package
+        # smoke mode; it does not initialize CUDA, load a native AI model, or
+        # download anything. Numba's optional TBB backend is deliberately not
+        # required: the smoke verifies its bundled workqueue fallback instead.
+        try:
+            import json
+            import math
+            import numpy as np
+            import scipy
+            from scipy import special
+
+            erf_value = float(special.erf(1.0))
+            if not math.isfinite(erf_value) or erf_value <= 0:
+                raise RuntimeError("SciPy special-function smoke returned an invalid value")
+
+            os.environ["NUMBA_THREADING_LAYER"] = "workqueue"
+            import numba
+
+            @numba.njit(parallel=True)
+            def _numba_workqueue_sum(values):
+                total = 0
+                for index in numba.prange(values.size):
+                    total += values[index]
+                return total
+
+            probe_values = np.arange(32, dtype=np.int64)
+            parallel_sum = int(_numba_workqueue_sum(probe_values))
+            threading_layer = numba.threading_layer()
+            if parallel_sum != 496 or threading_layer != "workqueue":
+                raise RuntimeError("Numba workqueue fallback smoke failed")
+
+            import cffi
+            import pycparser
+
+            ffi = cffi.FFI()
+            ffi.cdef(
+                "typedef unsigned long v211_smoke_size_t; "
+                "int v211_smoke_add(int left, int right);"
+            )
+
+            dependency_report = {
+                "scipy_version": scipy.__version__,
+                "scipy_special_erf_finite": True,
+                "scipy_special_erf_1": erf_value,
+                "numba_version": numba.__version__,
+                "numba_threading_layer": threading_layer,
+                "numba_workqueue_parallel_sum": parallel_sum,
+                "cffi_version": cffi.__version__,
+                "pycparser_version": pycparser.__version__,
+                "pycparser_cffi_cdef_parse": True,
+                "gpu_runtime_initialized": False,
+                "native_ai_engines_started": False,
+                "network_access": False,
+            }
+            report_path = Path(os.environ["NIYOMSIL_SMOKE_OUTPUT"]) / (
+                "optional-runtime-dependency-smoke.json"
+            )
+            report_path.write_text(
+                json.dumps(dependency_report, indent=2), encoding="utf-8"
+            )
+        except Exception as exc:
+            error_path = Path(os.environ["NIYOMSIL_SMOKE_OUTPUT"]) / (
+                "package-smoke-error.txt"
+            )
+            error_path.write_text(
+                "Optional runtime dependency smoke failed: "
+                + type(exc).__name__ + ": " + str(exc),
+                encoding="utf-8",
+            )
+            raise
         raise SystemExit(0)
     main()
