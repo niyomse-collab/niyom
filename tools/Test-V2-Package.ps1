@@ -36,6 +36,25 @@ try {
         if (-not $report.passed -or $report.release.channel -ne "v2") { throw "Invalid processing report" }
         Get-Content $reportFile
     }
+    if ($Mode -eq "imports") {
+        # Verify the scientific/runtime warnings against the actual frozen EXE,
+        # not merely the PyInstaller analysis report.
+        $dependencyReportPath = Join-Path $outputPath "optional-runtime-dependency-smoke.json"
+        if (-not (Test-Path $dependencyReportPath)) {
+            throw "Missing optional runtime dependency smoke report"
+        }
+        $dependencyReport = Get-Content $dependencyReportPath -Raw | ConvertFrom-Json
+        if (-not $dependencyReport.scipy_special_erf_finite -or
+            $dependencyReport.numba_threading_layer -ne "workqueue" -or
+            $dependencyReport.numba_workqueue_parallel_sum -ne 496 -or
+            -not $dependencyReport.pycparser_cffi_cdef_parse -or
+            $dependencyReport.gpu_runtime_initialized -or
+            $dependencyReport.native_ai_engines_started -or
+            $dependencyReport.network_access) {
+            throw "Frozen optional runtime dependency smoke report is invalid"
+        }
+        Get-Content $dependencyReportPath
+    }
     Write-Host "Packaged $Mode test passed"
 } finally {
     Remove-Item "Env:$flag" -ErrorAction SilentlyContinue
