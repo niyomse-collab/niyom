@@ -417,3 +417,59 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - ยังไม่เรียก self-hosted `niyom-shop-gpu` runner ในการตรวจครั้งนี้. Workflow ต้องมีการติดตั้ง Candidate #696 ใน Windows account เดียวกับ Manifest และต้องส่ง `confirm_shop_gpu=yes` พร้อม Source commit 40 ตัวจาก `BUILD_PROOF.txt`; push-marker route ต้องใช้ marker ที่อนุมัติชัดเจน. การอัปเดตเอกสารนี้ไม่ใส่ consent marker และไม่ schedule self-hosted job.
 - Shop diagnostic ใช้ synthetic RGB/RGBA เท่านั้น; เก็บ JSON evidence เท่านั้น; ห้ามอัปโหลดภาพลูกค้า. Synthetic GPU acceptance ไม่รับรอง visual/print quality.
 - V2 ยังคงเป็น accepted Master; `quality_certified=false`. PR #20 คง OPEN/DRAFT/UNMERGED; ไม่แก้ V1/V2 Stable, ไม่ merge และไม่ release.
+
+
+## 13 พฤศจิกายน 2569 15:02 ICT — Candidate #697 exact-head verification
+
+ส่วนนี้บันทึกผลจาก GitHub Actions สำหรับ PR HEAD `50eeefb2f4c6511f17220d9016f5a51caf653e5c` โดยไม่เปลี่ยน runtime source หรือยกระดับผล Hosted Runner ให้เป็น Shop GPU acceptance
+
+### Exact source / Windows Candidate
+
+- PR #20 HEAD: `50eeefb2f4c6511f17220d9016f5a51caf653e5c` (`50eeefb`); PR #20 ยังคง OPEN/DRAFT/UNMERGED และ PR #18 ยังคง OPEN/DRAFT/UNMERGED
+- Windows Candidate #697: [Actions run 43386712354](https://github.com/niyomse-collab/niyom/actions/runs/43386712354), สำเร็จทั้ง `bridge-tests` และ `windows-v2-candidate` (2/2 jobs)
+- Bridge/Fusion/coordination: **326 passed**; privacy/provisioning/hash: **63 passed**
+- Frozen checks ผ่าน: V2 import smoke, packaged provisioning `--check-only` แบบไม่ดาวน์โหลด/ไม่เขียน Manifest, isolated consented cache cleanup, packaged diagnostic `--help`, BUILD_PROOF/source identity และ installer-slice SHA256 ทุกส่วน
+- Installer SHA256: `9fca96d6b6d37a5f8d7fff966abcdb7194425307c27718f0d554ec951f0e8564`
+- Artifact ID `14020137320`; size **2,584,555,121 bytes**; ZIP SHA256 `57c8016f62d37506bb39c21195bf1ffe7c455961a115e044321b2d7aed261d4d`; expires **20 พ.ย. 2569 14:59:19 ICT**.
+- [Experimental Candidate #697](https://github.com/niyomse-collab/niyom/actions/runs/43386712354/artifacts/14020137320). เป็นแพ็กเกจทดลอง ไม่ใช่ Release และไม่ใช่การรับรองติดตั้ง/คุณภาพบนเครื่องร้าน
+
+### Independent Core regression
+
+- [Core run 43386712415](https://github.com/niyomse-collab/niyom/actions/runs/43386712415) checkout PR merge commit `9952252` ซึ่งรวม PR HEAD `50eeefb` เข้ากับฐาน PR #18
+- Windows: **975 passed / 1 skipped**; Ubuntu: **973 passed / 3 skipped**; `compileall` ผ่านทั้งสองระบบ
+
+### Official archives / provenance
+
+- [Official Archive Audit #144](https://github.com/niyomse-collab/niyom/actions/runs/43386712353) ดาวน์โหลด ZIP ทางการทั้งสี่ ตรวจ SHA256, ตรวจสมาชิก ZIP/path, provision แบบ transactional ใน QA ชั่วคราว และสร้าง Manifest ที่โหลดครบ `real_esrgan, waifu2x, real_cugan, anime4k`
+- Real-ESRGAN v0.2.5.0: `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (observed CI pin; ไม่มี publisher digest)
+- Waifu2x 20250915: `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (published digest)
+- Real-CUGAN 20220728: `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (observed CI pin; ไม่มี publisher digest)
+- Anime4KCPP v3.2.0: `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (published digest)
+- Audit คง `license_redistribution_approved=false`; ไม่ bundle/commit binaries หรือ weights
+
+### Native CLI Smoke #180 — diagnostic only
+
+- [Actions run 43386712362](https://github.com/niyomse-collab/niyom/actions/runs/43386712362) ใช้ภาพ Synthetic RGB และ RGBA พร้อม ICC/300 DPI; เก็บเฉพาะ JSON evidence
+- Real-CUGAN และ Anime4KCPP: native process exit 0 และ synthetic output/metadata checks ผ่านทั้งสองกรณี แต่ actual physical adapter ยังไม่ verified
+- Real-ESRGAN: `vkCreateInstance failed -9`, exit `0xFFFFFFFF`
+- Waifu2x: `vkCreateInstance failed -9` ร่วมกับ exit `0xC0000005`; classification คือ `vulkan_initialization_failed_with_access_violation`
+- Physical adapter verification **0/4**; `real_inference_verified=false`, `runtime_device_use_verified=false`, `quality_improvement_verified=false`
+- Workflow SUCCESS หมายถึงจัดประเภทข้อจำกัด Hosted Runner ได้ ไม่ใช่ Four-Engine GPU acceptance หรือคุณภาพเหนือ V2
+
+### Frozen build warnings
+
+- PyInstaller เตือน hidden imports `pycparser.lextab`, `pycparser.yacctab`, `scipy.special._cdflib` ไม่พบ และไม่พบ `nvcuda.dll` / optional `tbb12.dll` บน Hosted Runner
+- Build และ packaged dispatch ยังผ่าน; ห้ามคัดลอก NVIDIA driver DLL หรือ TBB runtime จากแหล่งที่ไม่ตรวจสอบเข้า Installer. `nvcuda.dll` ต้องมาจาก NVIDIA driver ที่ติดตั้งบนเครื่องปลายทาง; ตรวจ optional TBB dependency บนเครื่องจริงก่อนตัดสินใจ
+
+### Shop gate / remaining acceptance
+
+- ไม่มี self-hosted `niyom-shop-gpu` job ในรอบนี้. Workflow ต้องมี Candidate ติดตั้งใน Windows account เดียวกับ Manifest และต้องมี explicit consent พร้อม Source SHA 40 ตัว; commit นี้ไม่มี `[shop-gpu-evidence yes candidate=...]` marker
+- Driver ร้านที่บันทึกครั้งล่าสุดใน QA record คือ 451.67 (5 พ.ย. 2569); ตรวจ `nvidia-smi` ปัจจุบันก่อนทดสอบ เพราะต่ำกว่า compatibility floor ที่ระบุสำหรับ PyTorch cu128. CUDA และ Vulkan ต้องตรวจแยกกัน
+- >18 MP auxiliary path ยังคง PNG RGB/RGBA เท่านั้น; Native inference เป็น 2x หนึ่ง pass. เป้าหมาย 4x/8x ไม่ใช่ Native 4x/8x multi-pass. VRAM preflight 2,048 MiB และ reserve 512 MiB ไม่ใช่ hard 6 GB cap
+- A/B ภาพจริง, per-process GPU 4/4, peak VRAM, large-image stress, Photoshop/MainTop/RIP และ print quality ยังไม่ผ่านการรับรอง
+
+### Preservation
+
+- PR #18 vs PR #20 protected face/GFPGAN Blob SHA ยังคงตรงกัน **5/5**: `signprint_ai/face_module/face_protection.py`, `signprint_ai/face_module/__init__.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`
+- Optional HAT Assist execution route ยังคง disabled ใน PR #20 และเป็น compatibility difference ที่ต้อง review แยกก่อน merge
+- ไม่มี V1/V2 Stable changes, customer images, binaries หรือ weights committed; V2 ยังคง accepted Master; `quality_certified=false`. ไม่มี merge/release
