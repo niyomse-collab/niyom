@@ -64,7 +64,8 @@ def test_frozen_v211_imports_are_excluded_from_v1_and_stable_v2():
     conditional = spec.index("if IS_V211_BUILD:")
     fallback = spec.index("else:", conditional)
     v211_block = spec[conditional:fallback]
-    legacy_block = spec[fallback:]
+    dynamic_files = spec.index("dynamic_files = []", fallback)
+    legacy_block = spec[fallback:dynamic_files]
     assert "signprint_ai.v211_four_engine_bridge" in v211_block
     assert "signprint_ai.v211_large_image_bridge" in v211_block
     assert '"tifffile"' in v211_block
