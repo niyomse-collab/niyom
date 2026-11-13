@@ -55,7 +55,7 @@ def classify_cuda_12_8_driver_compatibility(devices: list[dict]) -> dict:
     base = {
         "minimum_windows_driver_cuda_12x_minor_compatibility": "528.33",
         "minimum_windows_driver_cuda_12_8_ga": "570.65",
-        "scope": "V2.1.1 bundled PyTorch CUDA 12.8 only; native Vulkan engines are not gated",
+        "scope": "V2.1.1 bundled PyTorch CUDA 12.8 only; native engine backends are checked separately",
         "torch_cuda_runtime_initialized": False,
     }
     if len(matches) != 1:
@@ -160,13 +160,13 @@ def format_cuda_driver_status(report: dict) -> tuple[str, str]:
     if status == "below_cuda_12x_minor_compatibility_floor":
         return (
             f"คำเตือน CUDA: Driver {driver} ต่ำกว่า 528.33 — PyTorch CUDA 12.8 ของ V2/GFPGAN อาจเริ่มไม่ได้; "
-            "V2 ยังใช้ได้ และ Native Vulkan AI 4 ตัวไม่ถูกปิดโดยคำเตือนนี้",
+            "V2 ยังใช้ได้; คำเตือนนี้ไม่ปิด Native Engines ซึ่งตรวจ Backend แยก",
             "#FF7777",
         )
     if status == "minor_compatibility_only_full_cuda_12_8_driver_not_met":
         return (
             f"CUDA Driver {driver}: ผ่าน Minor Compatibility (≥528.33) แต่ต่ำกว่า CUDA 12.8 GA (570.65) — "
-            "ต้องทดสอบ Torch CUDA จริง; Native Vulkan AI ตรวจแยก",
+            "ต้องทดสอบ Torch CUDA จริง; Native Engine Backends ตรวจแยก",
             "#FFB74D",
         )
     if status == "full_cuda_12_8_ga_driver_compatible":
@@ -184,6 +184,6 @@ def format_cuda_driver_status(report: dict) -> tuple[str, str]:
     else:
         detail = "เรียกตรวจ nvidia-smi ไม่สำเร็จ"
     return (
-        f"CUDA: {detail} — ยังไม่ยืนยัน PyTorch CUDA 12.8; V2 ยังใช้ได้ และ Native Vulkan AI ตรวจแยก",
+        f"CUDA: {detail} — ยังไม่ยืนยัน PyTorch CUDA 12.8; V2 ยังใช้ได้ และ Native Engine Backends ตรวจแยก",
         "#FFB74D",
     )
