@@ -43,7 +43,7 @@ def test_classify_cuda_driver_floor_is_diagnostic_only(driver, expected_status, 
     assert report["cuda_12x_minor_compatibility"] is minor
     assert report["cuda_12_8_ga_driver_requirement_met"] is full
     assert report["torch_cuda_runtime_initialized"] is False
-    assert "Vulkan" in report["scope"]
+    assert "backends are checked separately" in report["scope"]
 
 
 def test_classify_fails_closed_for_missing_ambiguous_or_unparseable_target():
