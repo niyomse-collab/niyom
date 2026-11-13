@@ -605,3 +605,44 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - PyInstaller emitted non-fatal missing-module/library warnings for `pycparser.lextab/yacctab`, `scipy.special._cdflib`, driver-provided `nvcuda.dll` and optional `tbb12.dll`; do not bundle driver/optional DLLs by guess. Verify runtime relevance on the shop PC.
 - PR #18 versus PR #20 protected GFPGAN/face-contract Blob SHA remains identical **5/5**. The optional HAT Assist route remains separately disabled in PR #20 and requires compatibility review; it was not silently restored.
 - No affirmative shop-GPU consent marker was supplied, so no self-hosted shop runner was scheduled. No V1/V2 Stable changes, no customer images or engine binaries/weights committed, no merge/release, and no quality-superiority claim. V2 remains the accepted master.
+
+---
+
+## 14 พฤศจิกายน 2569 — Large TIFF/BigTIFF และ Frozen Import Audit
+
+### การเปลี่ยนแปลงใน PR #20
+
+- `signprint_ai/v211_large_image_bridge.py` เพิ่มการตรวจ TIFF/BigTIFF ด้วย `tifffile.TiffFile` และนับจำนวนหน้า ก่อนเปิด raster หรือเริ่ม GPU; ไฟล์เสียหรือ TIFF หลายหน้าถูกปฏิเสธแบบ fail-closed
+- `signprint_ai/v211_four_engine_bridge.py` อนุญาต large-job source และ accepted V2 raster เป็น PNG หรือ single-page RGB/RGBA 8-bit TIFF/BigTIFF; libvips สร้าง private PNG seed/reference ให้ Native Engines และ QA sidecar ยังคงเป็น PNG แยกไฟล์
+- JPEG/WebP, multipage TIFF, CMYK และ bit depth ที่ไม่รองรับยังคงใช้ V2-only; ไฟล์ V2 เดิมไม่ถูกเขียนทับ
+- พบช่องว่างใน Frozen Build: TIFF reader ถูก import แบบ dynamic; เพิ่ม `tifffile` ใน V2.1.1-only `hiddenimports`, เพิ่ม `tifffile` ใน `NIYOMSIL_IMPORT_SMOKE` และเพิ่ม test ป้องกันไม่ให้ hidden import นี้ไหลไป V1/V2 Stable
+- การเปลี่ยนแปลงทั้งหมดอยู่ใน Draft PR #20 สาขา `work/v211-four-engine-v2-bridge-20261103`; ไม่มีการแก้ V1 หรือ V2 Stable
+
+### หลักฐานทดสอบบน HEAD `251c65136168e24fb843fbc67994c36a29571d71`
+
+- Windows Candidate #735: bridge test 333 passed และ privacy/provision/hash test 63 passed; รวม compileall ผ่าน
+- Core Regression #1298: Windows 986 passed / 1 skipped; Ubuntu 984 passed / 3 skipped; compileall ผ่านทั้งสองระบบ
+- เพิ่ม synthetic 24MP BigTIFF test (6001×4001 baseline, 3000×1000 source): ใช้ libvips disk-backed path, ห้าม Pillow full-raster decode, ตรวจ ICC/DPI และ SHA256 ของ accepted V2 TIFF ก่อน/หลังให้ตรงกัน
+- TIFF/BigTIFF matrix ยังมี test สำหรับ classic TIFF, BigTIFF, PNG↔TIFF source/V2 combinations และการปฏิเสธ multipage TIFF ก่อน GPU
+- ข้อจำกัดหลักฐาน: 24MP BigTIFF test ยืนยัน seed preparation/QA crop เท่านั้น ไม่ได้ยืนยัน Native Engine inference จริงบน GPU หรือคุณภาพภาพ
+
+### Workflow ล่าสุด
+
+- [Windows Candidate #735](https://github.com/niyomse-collab/niyom/actions/runs/43496718532) — bridge tests ผ่าน; Windows frozen build ยังอยู่ระหว่างขั้น Build V2-based experimental candidate ณ เวลาบันทึกนี้; ยังไม่มี Artifact ให้รับรอง
+- [Independent Core #1298](https://github.com/niyomse-collab/niyom/actions/runs/43496718750) — SUCCESS
+- [Official Archive Audit #164](https://github.com/niyomse-collab/niyom/actions/runs/43496718704) — SUCCESS; ตรวจ official source/license/SHA256 ของทั้งสี่แพ็กเกจ
+- [Native CLI Smoke #211](https://github.com/niyomse-collab/niyom/actions/runs/43496718489) — Diagnostic workflow SUCCESS แต่มี Native process ที่ทำงานได้เพียง 2/4 บน Hosted Runner; NVML/Physical GPU verification 0/4; จึงไม่ใช่หลักฐานว่าเครื่องร้านใช้ GPU จริง
+- Candidate #729 และ #733 ถูก supersede/cancel หลังพบและแก้ช่องว่าง Frozen `tifffile` import และขอบเขต test assertion; ไม่ใช่ test failure ของ Candidate #735
+
+### ข้อจำกัดที่ยังเปิดอยู่
+
+- Native CLI #211: Real-CUGAN และ Anime4KCPP สร้าง output ได้; Real-ESRGAN และ Waifu2x ล้มบน Hosted Runner ด้วย Vulkan `vkCreateInstance failed -9` (Waifu2x มี `0xC0000005` เพิ่มเติม); ผลนี้ไม่หักล้างผลราย Engine ที่ผู้ใช้รายงานบน Windows 11 GTX 1660 Ti แต่ยังไม่มี integrated 4-engine run จากเครื่องร้าน
+- GPU policy ปัจจุบันกำหนด free VRAM ก่อนเริ่มอย่างน้อย 2048 MiB และ runtime reserve 512 MiB; ยังไม่ใช่ผลวัด peak VRAM หรือ hard-cap stress test บนการ์ด 6 GB
+- ยังไม่มี A/B visual QA ที่รับรองว่า V2.1.1 ดีกว่า V2; `quality_certified=false` และ V2 ยังคงเป็น Master
+- Archive audit ตรวจ source/license/SHA256 ได้ แต่ `license_redistribution_approved=false`; จึงไม่ bundle native binaries หรือ model weights ใน installer และยังไม่ commit binaries/weights/ภาพลูกค้า
+
+### การคงสภาพ PR และ GFPGAN
+
+- PR #20 ยังคง Open/Draft, HEAD code/test `251c65136168e24fb843fbc67994c36a29571d71`, base `288dd8501c230a118d9a7e60d2522a2cc7411bcc`
+- PR #18 ยังคง Open/Draft ที่ base เดิม; protected GFPGAN/face-contract files ตรงกัน 5/5 Blob SHA ระหว่าง PR #18 และ #20; ไม่มี Review Thread ค้าง
+- ห้าม merge/release จนกว่าจะมีผล GPU QA จริงและผู้ใช้อนุมัติ
