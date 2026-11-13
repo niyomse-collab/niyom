@@ -71,7 +71,7 @@ def validate_v211_build_workspace(
     """Validate that a V2 build may safely clean this workspace.
 
     A clean checkout is always safe. Existing build outputs may be reused only
-    for another V2.1.1 beta build with matching build_info.json and BUILD_PROOF.
+    for another V2.1.1 experimental build (stable or beta) with matching build_info.json and BUILD_PROOF.
     No accepted V2 stable output or unknown release file is ever deleted.
     """
     root = Path(root).resolve()
