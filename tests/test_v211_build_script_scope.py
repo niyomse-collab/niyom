@@ -66,6 +66,9 @@ def test_frozen_v211_imports_are_excluded_from_v1_and_stable_v2():
     v211_block = spec[conditional:fallback]
     legacy_block = spec[fallback:]
     assert "signprint_ai.v211_four_engine_bridge" in v211_block
+    assert "signprint_ai.v211_large_image_bridge" in v211_block
+    assert '"tifffile"' in v211_block
+    assert '"tifffile"' not in legacy_block
     assert "tools.v211_four_engine_fusion" in v211_block
     assert "discover_package_modules" in v211_block
     assert "collect_submodules" in legacy_block
