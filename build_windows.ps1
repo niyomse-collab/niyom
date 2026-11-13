@@ -126,8 +126,13 @@ function Ensure-VerifiedDownload {
             "." + [System.IO.Path]::GetFileName($Path) + "." +
             [guid]::NewGuid().ToString("N") + ".part"
         )
+        $requestInProgress = $true
         try {
             Invoke-WebRequest -Uri $Url -OutFile $temporaryPath -TimeoutSec 90
+            # PowerShell 7 can wrap an abrupt remote close as IOException.
+            # Stop classifying request failures once the body has been received:
+            # hash, destination and atomic-publish failures must never be retried.
+            $requestInProgress = $false
             if (-not (Test-Path -LiteralPath $temporaryPath -PathType Leaf)) {
                 throw "Download did not create a regular temporary file for $Label."
             }
@@ -148,15 +153,34 @@ function Ensure-VerifiedDownload {
             }
             $statusCode = 0
             try { $statusCode = [int]$downloadError.Exception.Response.StatusCode } catch { }
-            $webException = $downloadError.Exception -as [System.Net.WebException]
             $transientNetwork = $false
-            if ($null -ne $webException) {
-                $transientNetwork = $webException.Status -in @(
-                    [System.Net.WebExceptionStatus]::Timeout,
-                    [System.Net.WebExceptionStatus]::ConnectFailure,
-                    [System.Net.WebExceptionStatus]::ReceiveFailure,
-                    [System.Net.WebExceptionStatus]::ConnectionClosed
-                )
+            if ($requestInProgress) {
+                # Walk the exception chain. Invoke-WebRequest may surface the
+                # same remote transport close as IOException (not WebException),
+                # which previously bypassed the V2.1.1 retry loop.
+                $exception = $downloadError.Exception
+                while ($null -ne $exception) {
+                    if ($exception -is [System.Net.WebException]) {
+                        if ($exception.Status -in @(
+                            [System.Net.WebExceptionStatus]::Timeout,
+                            [System.Net.WebExceptionStatus]::ConnectFailure,
+                            [System.Net.WebExceptionStatus]::ReceiveFailure,
+                            [System.Net.WebExceptionStatus]::ConnectionClosed
+                        )) {
+                            $transientNetwork = $true
+                            break
+                        }
+                    }
+                    $exceptionType = $exception.GetType().FullName
+                    $exceptionMessage = [string]$exception.Message
+                    if (($exception -is [System.IO.IOException] -and
+                         $exceptionMessage -match '(?i)(transport connection|forcibly closed|connection (was )?(closed|reset|aborted)|unexpected (end|eof)|underlying connection)') -or
+                        $exceptionType -eq "System.Net.Http.HttpRequestException") {
+                        $transientNetwork = $true
+                        break
+                    }
+                    $exception = $exception.InnerException
+                }
             }
             $transientHttp = $statusCode -in @(408, 425, 429, 500, 502, 503, 504)
             if (-not ($transientHttp -or $transientNetwork) -or $attempt -ge $maxAttempts) {
