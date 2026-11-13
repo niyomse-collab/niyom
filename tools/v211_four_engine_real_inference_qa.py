@@ -50,14 +50,8 @@ def _classify_engine_failure(
     if isinstance(exc, FileNotFoundError):
         return "executable_missing", False
     exit_code = process_record.get("exit_code") if isinstance(process_record, dict) else None
-    if (
-        isinstance(exit_code, int)
-        and not isinstance(exit_code, bool)
-        and (exit_code & 0xFFFFFFFF) == 0xC0000005
-    ):
-        return "windows_access_violation", False
     message = str(exc).lower()
-    if any(token in message for token in (
+    explicit_vulkan_error = any(token in message for token in (
         # A generic "invalid gpu device" can indicate a bad CLI index or
         # adapter-binding regression. Only explicit Vulkan loader/device
         # initialization failures are retryable host limitations.
@@ -65,7 +59,19 @@ def _classify_engine_failure(
         "vulkan unavailable",
         "no vulkan device",
         "vulkan device not found",
-    )):
+    ))
+    if (
+        isinstance(exit_code, int)
+        and not isinstance(exit_code, bool)
+        and (exit_code & 0xFFFFFFFF) == 0xC0000005
+    ):
+        # Preserve the access violation as a distinct observed failure. When
+        # explicit Vulkan initialization text is also present, classify it as
+        # a host-limited compound failure and retry only on a Vulkan-capable host.
+        if explicit_vulkan_error:
+            return "vulkan_initialization_failed_with_access_violation", True
+        return "windows_access_violation", False
+    if explicit_vulkan_error:
         return "vulkan_initialization_failed", True
     return "subprocess_or_candidate_failure", False
 
@@ -357,7 +363,12 @@ def run(
                     if key in process_telemetry.get(engine, {})
                 },
             }
-            if "vkcreateinstance failed" in str(exc).lower():
+            if any(token in str(exc).lower() for token in (
+                "vkcreateinstance failed",
+                "vulkan unavailable",
+                "no vulkan device",
+                "vulkan device not found",
+            )):
                 failure["vulkan_error_observed"] = True
             if retry_on_vulkan_host:
                 failure["retry_on_vulkan_capable_host"] = True
