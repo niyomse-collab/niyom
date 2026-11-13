@@ -473,3 +473,15 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - PR #18 vs PR #20 protected face/GFPGAN Blob SHA ยังคงตรงกัน **5/5**: `signprint_ai/face_module/face_protection.py`, `signprint_ai/face_module/__init__.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`
 - Optional HAT Assist execution route ยังคง disabled ใน PR #20 และเป็น compatibility difference ที่ต้อง review แยกก่อน merge
 - ไม่มี V1/V2 Stable changes, customer images, binaries หรือ weights committed; V2 ยังคง accepted Master; `quality_certified=false`. ไม่มี merge/release
+
+
+### Consent-flow correction — verified against current app source (13 พ.ย. 2569)
+
+การตรวจ Source ซ้ำพบว่า current HEAD มี **สองช่องทางยินยอมสำหรับชุด AI ทั้งสี่** ไม่ใช่ installer-only:
+
+1. **Installer consent:** Inno Setup task `installfourai` เป็น unchecked-by-default. หากผู้ใช้เลือก task จะเรียก packaged provisioning ก่อนเปิด Editor; เปิด Editor อัตโนมัติเฉพาะเมื่อมี completion marker ใหม่และไม่มี pending marker
+2. **Editor first-launch consent:** หากข้าม task ใน Installer และยังไม่มี Manifest ที่ตรวจครบ/decline marker, `app_v2.py` เรียก `_offer_v211_four_ai_setup` หลังหน้าต่างเริ่มทำงาน. `initial_setup_state()` ตรวจเฉพาะ local files โดยไม่เริ่ม network; Yes/No dialog มีค่าเริ่มต้น No. Yes เริ่ม provisioning บน background worker; No เขียน `setup-declined.flag` เพื่อไม่ถามซ้ำ
+
+เมื่อ Manifest ผ่านการตรวจแล้ว Editor ไม่ถามซ้ำ และงาน V2.1.1 ที่เข้าเงื่อนไขเรียกทั้งสี่แบบ coordinated path อัตโนมัติ ไม่มีปุ่มเลือก Engine แยก. `NIYOMSIL_V211_FOUR_AI=0` เป็น explicit opt-out. หากผู้ใช้ปฏิเสธหรือ setup ล้มเหลว V2 เดิมยังใช้งานได้; ไม่มี network download ก่อน affirmative consent.
+
+**Correction:** ข้อความใน comment วันที่ 11 พ.ย. 2569 ที่ระบุว่า Editor first-launch prompt ถูกถอดออกและ Installer เป็น consent surface เพียงจุดเดียว เป็นสถานะชั่วคราวใน commit `f250184`; source ปัจจุบันและการเปลี่ยนแปลงวันที่ 12 พ.ย. ได้นำ Editor first-launch consent กลับมาแล้ว. ให้ยึด Source ที่ตรวจใน PR HEAD `50eeefb` และ regression tests ปัจจุบันแทนข้อความย้อนหลังดังกล่าว.
