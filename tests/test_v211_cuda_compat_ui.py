@@ -118,7 +118,8 @@ def test_warning_explains_cuda_scope_and_keeps_vulkan_engines_independent():
     message, colour = compat.format_cuda_driver_status(report)
     assert "PyTorch CUDA 12.8" in message
     assert "V2 ยังใช้ได้" in message
-    assert "Native Vulkan AI 4 ตัวไม่ถูกปิด" in message
+    assert "คำเตือนนี้ไม่ปิด Native Engines" in message
+    assert "ตรวจ Backend แยก" in message
     assert colour == "#FF7777"
 
 
