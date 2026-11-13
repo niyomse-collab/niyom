@@ -20,7 +20,7 @@ def parse_nvidia_driver_version(value: object) -> tuple[int, int, int] | None:
     """Parse the dotted version emitted by nvidia-smi, not Device Manager's WDDM tuple."""
     if not isinstance(value, str):
         return None
-    match = re.fullmatch(r"\\s*(\\d+)\\.(\\d+)(?:\\.(\\d+))?\\s*", value)
+    match = re.fullmatch(r"\s*(\d+)\.(\d+)(?:\.(\d+))?\s*", value)
     if not match:
         return None
     return (
