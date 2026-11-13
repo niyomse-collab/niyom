@@ -13,9 +13,10 @@ to the half-target seed. Therefore the original source-to-print geometry may
 be 2x, 3x, 4x, 8x, custom, or anisotropic without changing the native 2x pass.
 These are not native 3x/4x/8x inference or multi-pass AI.
 
-Jobs above 18 MP use the disk-backed PNG RGB/RGBA path, subject to pixel,
-row-buffer, disk-space and minimum-tile bounds; large non-PNG jobs remain
-V2-only. Small jobs require a seed of at least 2x2 and disk-backed large jobs
+Jobs above 18 MP use disk-backed PNG or single-page RGB/RGBA 8-bit TIFF/BigTIFF
+inputs and accepted V2 rasters, converted to private PNG seed/reference files by
+libvips; JPEG/WebP and multipage/CMYK/unsupported-depth jobs remain V2-only.
+Small jobs require a seed of at least 2x2 and disk-backed large jobs
 require at least 64x64. Every candidate remains local QA only, requires all
 four native processes to be verified on the selected GPU before publication,
 and never replaces the accepted V2 raster.
