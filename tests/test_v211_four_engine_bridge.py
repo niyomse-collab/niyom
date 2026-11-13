@@ -1113,3 +1113,82 @@ def test_large_24mp_bigtiff_seed_and_qa_crop_use_disk_backed_vips_without_full_p
             assert qa_header.info["icc_profile"] == profile
             assert qa_header.info["dpi"][0] == pytest.approx(300, abs=0.1)
     assert file_sha256(baseline) == before_sha
+
+
+@pytest.mark.parametrize(
+    ("target_size", "expected_scale"),
+    [
+        ((256, 256), (4.0, 4.0)),
+        ((512, 512), (8.0, 8.0)),
+        ((256, 192), (4.0, 3.0)),
+        ((257, 193), (4.0156, 3.0156)),
+    ],
+)
+def test_large_disk_backed_bridge_supports_custom_print_scales_without_extra_native_pass(
+    tmp_path, monkeypatch, target_size, expected_scale
+):
+    """Large jobs resize to a half-target seed, then make one native 2x pass."""
+    pytest.importorskip("pyvips")
+    source = tmp_path / "large-source.png"
+    baseline = tmp_path / "accepted-v2.png"
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    Image.new("RGB", (64, 64), (20, 30, 40)).save(
+        source, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    Image.new("RGB", target_size, (30, 40, 50)).save(
+        baseline, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    before = baseline.read_bytes()
+
+    # Force the disk-backed branch with small synthetic rasters. The production
+    # threshold remains 18 MP; the smaller threshold keeps this regression fast.
+    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 4096)
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
+
+    from tools import v211_four_engine_run
+    observed = []
+
+    def fake_run(seed_path, output_dir, manifest, size, *, real_engines, v2_reference, **kwargs):
+        with Image.open(seed_path) as seed, Image.open(v2_reference) as reference:
+            observed.append((seed.size, reference.size, tuple(size), real_engines))
+            fused = Path(output_dir) / "four_engine_fused_preview.png"
+            reference.save(fused, format="PNG")
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": 4,
+            "runtime_device_use_verified": True,
+            "per_engine_runtime_device_use_verified": {
+                name: True for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
+            },
+            "failures": {},
+            "four_engine_fusion": {
+                "fusion_implemented": True,
+                "all_four_engine_pixels_contributed": True,
+                "output": str(fused),
+            },
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+
+    padded = (target_size[0] + target_size[0] % 2, target_size[1] + target_size[1] % 2)
+    expected_seed = (padded[0] // 2, padded[1] // 2)
+    assert observed == [(expected_seed, padded, padded, True)]
+    assert result["status"] == "four_engine_fusion_preview_ready"
+    assert result["four_engine_fusion_details"]["native_engine_scale"] == 2
+    assert result["four_engine_fusion_details"]["scale_policy"] == "native_2x_on_half_target_seed"
+    assert result["four_engine_fusion_details"]["engine_input_size"] == list(expected_seed)
+    assert result["four_engine_fusion_details"]["requested_output_size"] == list(target_size)
+    assert result["four_engine_fusion_details"]["requested_scale_from_source"] == list(expected_scale)
+    assert result["v2_output_preserved"] is True
+    assert result["quality_certified"] is False
+    assert baseline.read_bytes() == before
+
+    preview = Path(result["four_engine_fusion_output"])
+    with Image.open(preview) as image:
+        assert image.size == target_size
+        assert image.mode == "RGB"
+        assert image.info.get("icc_profile") == profile
+        assert image.info.get("dpi", (0, 0))[0] == pytest.approx(300, abs=0.1)
