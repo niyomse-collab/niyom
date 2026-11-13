@@ -95,9 +95,26 @@ def _header_exif_orientation(image) -> int | None:
     return orientation
 
 
+def _assert_single_page_tiff(path: Path) -> None:
+    """Reject multi-page TIFF/BigTIFF before opening the raster or starting GPU work."""
+    if Path(path).suffix.lower() not in (".tif", ".tiff"):
+        return
+    try:
+        import tifffile
+        with tifffile.TiffFile(str(path)) as tiff:
+            page_count = len(tiff.pages)
+    except Exception as exc:
+        # A malformed or unsupported TIFF container must not be treated as a
+        # single-page image just because a decoder can expose its first page.
+        raise ValueError("TIFF container could not be safely inspected") from exc
+    if page_count != 1:
+        raise ValueError("large four-engine TIFF/BigTIFF must contain exactly one page")
+
+
 def inspect_image(path: Path, *, orient: bool = False) -> tuple[tuple[int, int], str, dict]:
     """Read dimensions/mode/print metadata without decoding customer pixels."""
     path = Path(path)
+    _assert_single_page_tiff(path)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", Image.DecompressionBombWarning)
