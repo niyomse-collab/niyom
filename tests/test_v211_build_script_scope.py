@@ -33,6 +33,20 @@ def test_legacy_model_download_runs_before_v211_only_cache_reuse():
     assert "Reusing existing verified" in script[reuse_start:]
     assert "V2.1.1 only: retry transient gateway/network failures" in script[reuse_start:]
 
+    # PowerShell 7 can report a dropped GitHub release connection as IOException.
+    # Retry only while Invoke-WebRequest is active; do not retry hash/publish errors.
+    retry_branch = script[reuse_start:script.index("& $py -m pip", reuse_start)]
+    request_start = retry_branch.index("$requestInProgress = $true")
+    request_end = retry_branch.index("$requestInProgress = $false", request_start)
+    hash_check = retry_branch.index("$actualHash = (Get-FileHash", request_end)
+    assert request_start < request_end < hash_check
+    assert "if ($requestInProgress)" in retry_branch
+    assert "$exception -is [System.IO.IOException]" in retry_branch
+    assert "transport connection" in retry_branch
+    assert "System.Net.Http.HttpRequestException" in retry_branch
+    assert "Downloaded $Label SHA256 mismatch" in retry_branch
+    assert "Destination appeared during $Label download" in retry_branch
+
 
 def test_v211_workspace_guard_is_scoped_and_v2_still_protects_v1():
     script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(
