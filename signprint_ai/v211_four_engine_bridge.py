@@ -119,6 +119,7 @@ AUXILIARY_MAX_PIXELS = 18_000_000
 _AUXILIARY_MAX_PIXELS = AUXILIARY_MAX_PIXELS
 _SOURCE_FORMATS = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}
 _V2_RASTER_FORMATS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+_LARGE_STREAMED_FORMATS = {".png", ".tif", ".tiff"}
 
 
 def _metadata(image: Image.Image) -> dict:
@@ -412,16 +413,17 @@ def maybe_run_four_engine_assist(
             }
         # The native model always receives a seed made from half of the
         # accepted V2 canvas, so the native inference geometry is exactly 2x
-        # regardless of the original source-to-print ratio. Keep the large
-        # disk-backed path PNG-only, but allow 3x, custom and anisotropic
-        # target dimensions when the selected fit/stretch transform is valid.
+        # regardless of the original source-to-print ratio. The streamed path
+        # accepts PNG or single-page RGB/RGBA 8-bit TIFF/BigTIFF containers;
+        # libvips converts them to private PNG seed/reference intermediates.
+        # JPEG/WebP, multipage TIFF, CMYK and unsupported bit depths remain V2-only.
         if large_job and (
-            original.suffix.lower() != ".png"
-            or baseline.suffix.lower() != ".png"
+            original.suffix.lower() not in _LARGE_STREAMED_FORMATS
+            or baseline.suffix.lower() not in _LARGE_STREAMED_FORMATS
         ):
             return {
                 "status": "unsupported_target_geometry",
-                "reason": "large_auxiliary_jobs_require_png_source_and_v2",
+                "reason": "large_auxiliary_jobs_require_png_or_single_page_tiff_source_and_v2",
                 "v2_output_preserved": True,
                 "quality_certified": False,
             }
