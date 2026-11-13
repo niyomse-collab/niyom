@@ -266,21 +266,31 @@ def test_waifu2x_access_violation_is_not_masked_by_vulkan_stderr(tmp_path, monke
     assert result["real_inference_verified"] is False
     assert result["completed_engine_count"] == 3
     failure = result["failures"]["waifu2x"]
-    assert failure["error_class"] == "windows_access_violation"
+    assert failure["error_class"] == "vulkan_initialization_failed_with_access_violation"
     assert failure["process"]["exit_code"] == 0xC0000005
     assert failure["process"]["exit_code_hex"] == "0xC0000005"
     assert failure["vulkan_error_observed"] is True
-    assert "retry_on_vulkan_capable_host" not in failure
+    assert failure["retry_on_vulkan_capable_host"] is True
 
 
 @pytest.mark.parametrize("exit_code", (0xC0000005, -1073741819))
-def test_access_violation_ntstatus_is_normalized_before_vulkan_classification(exit_code):
+def test_access_violation_without_vulkan_error_remains_a_native_crash(exit_code):
     error_class, retryable = qa._classify_engine_failure(
-        RuntimeError("engine exited with code: vkCreateInstance failed -9"),
+        RuntimeError("native process terminated unexpectedly"),
         {"exit_code": exit_code},
     )
     assert error_class == "windows_access_violation"
     assert retryable is False
+
+
+@pytest.mark.parametrize("exit_code", (0xC0000005, -1073741819))
+def test_access_violation_with_vulkan_error_is_a_distinct_host_limited_failure(exit_code):
+    error_class, retryable = qa._classify_engine_failure(
+        RuntimeError("engine stderr: vkCreateInstance failed -9"),
+        {"exit_code": exit_code},
+    )
+    assert error_class == "vulkan_initialization_failed_with_access_violation"
+    assert retryable is True
 
 
 def test_non_vulkan_native_failure_remains_a_candidate_failure(tmp_path, monkeypatch):
