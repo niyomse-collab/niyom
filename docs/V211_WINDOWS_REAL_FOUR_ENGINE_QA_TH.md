@@ -370,3 +370,50 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - **ตรวจ driver ก่อน Shop GPU acceptance:** Candidate ใช้ PyTorch 2.11.0+cu128. Diagnostic ระบุขั้นต่ำ Windows CUDA 12.x minor compatibility 528.33 และ CUDA 12.8 GA 570.65. Driver ร้านล่าสุดที่บันทึก 5 พ.ย. 2569 คือ 451.67 (nvidia-smi CUDA 11.0); หากยังไม่อัปเดตจะต่ำกว่า CUDA 12.x compatibility floor และ PyTorch CUDA core อาจใช้ DirectML/CPU แทน CUDA. NCNN/Vulkan engine eligibility เป็นคนละเส้นทางและต้องตรวจแยก.
 - ก่อนเริ่มทดสอบจริง ตรวจ `nvidia-smi` และ driver ปัจจุบัน, CUDA runtime/device selection, Vulkan GTX 1660 Ti inventory, per-process PID-to-adapter, VRAM และ 4-engine bridge. ห้ามเริ่ม Shop GPU Evidence จนมี affirmative consent/candidate marker ที่อนุมัติอย่างชัดเจน.
 - ไม่มี self-hosted shop run ในรอบนี้; ไม่มีภาพลูกค้าใน CI/artifact. Candidate นี้ยังไม่รับรอง real inference 4/4, 6 GB peak VRAM, >18 MP stress, A/B quality หรือ Photoshop/MainTop/RIP.
+
+
+## 13 พฤศจิกายน 2569 11:35 ICT — Candidate #696 exact-head update
+
+ส่วนนี้เป็นข้อมูลล่าสุดสำหรับ Candidate ที่ใช้ติดตั้งทดสอบรอบถัดไป แทน Candidate #681; Candidate เก่าเก็บไว้เป็นประวัติเท่านั้น
+
+### Source identity และ Windows package
+
+- PR #20 branch HEAD / Candidate source commit: `7e806ecae371dec7a07a71ec1ea9d28cff39bd58`.
+- Windows Candidate #696: [Actions run 43344275797](https://github.com/niyomse-collab/niyom/actions/runs/43344275797) — `bridge-tests` และ `windows-v2-candidate` ผ่านครบ 2/2 jobs.
+- Bridge/privacy suites: 321 + 63 tests ผ่าน. Frozen V2 import smoke, packaged provisioning `--check-only` (ไม่ดาวน์โหลด/ไม่เขียน Manifest), isolated consented cache cleanup, diagnostic `--help`, PowerShell AST, BUILD_PROOF/source identity, installer-slice SHA256 และ artifact upload ผ่าน.
+- Installer SHA256: `acea9ec24309a14ca36946f9db32dcc803823fa6b1431a77ad24347b136ab1b7`.
+- Artifact ID `14001449540`; size **2,584,420,453 bytes**; ZIP SHA256 `6be6507218ff4ff589759c440100a7edafbc86974b8514a710e630d3c87b63b`.
+- [ดาวน์โหลด Experimental Candidate #696](https://github.com/niyomse-collab/niyom/actions/runs/43344275797/artifacts/14001449540) — ตรวจ ณ 13 พ.ย. 2569 11:35 ICT ว่า artifact ยังไม่หมดอายุ; GitHub ระบุวันหมดอายุ **20 พ.ย. 2569 08:47 ICT**.
+- Candidate workflow checkout exact PR head SHA; ห้ามใช้ synthetic merge SHA หรือ BUILD_PROOF จาก Candidate เก่ามาแทน.
+
+### Exact-head regression และ official archives
+
+- Independent Core #1252: [Actions run 43344275807](https://github.com/niyomse-collab/niyom/actions/runs/43344275807) — Windows **970 passed / 1 skipped**, Ubuntu **968 passed / 3 skipped**; compileall ผ่านทั้งคู่.
+- Official Archive Audit #143: [Actions run 43344275907](https://github.com/niyomse-collab/niyom/actions/runs/43344275907) — official ZIP ทั้งสี่ผ่าน archive/hash audit และ transactional provision ใน ephemeral QA directory; Manifest มีครบ 4 engines. สถานะยังเป็น `archive_audited_not_inference_verified`.
+- Real-ESRGAN และ Real-CUGAN ใช้ recorded CI SHA256 pins เพราะไม่มี publisher-published release digest; Waifu2x และ Anime4KCPP มี publisher digest. `license_redistribution_approved=false` ยังคงเดิม; ห้ามฝัง Binary/Weights หรือแจกจ่ายต่อโดยไม่มีสิทธิ์ที่ยืนยันแล้ว.
+
+### Native CLI smoke — diagnostic เท่านั้น
+
+- Native CLI Smoke #179: [Actions run 43344275898](https://github.com/niyomse-collab/niyom/actions/runs/43344275898).
+- Real-CUGAN และ Anime4KCPP native processes สร้าง synthetic outputs ที่ผ่าน output/metadata checks ใน Hosted Windows.
+- Real-ESRGAN และ Waifu2x ถูก block ด้วย `vkCreateInstance failed -9` บน Hosted Runner.
+- NVML ไม่พร้อมใช้งาน; physical adapter verification **0/4**; `real_inference_verified=false`, `runtime_device_use_verified=false`, `quality_improvement_verified=false`. Workflow SUCCESS หมายถึง diagnostic จัดประเภท Vulkan host limitation ได้ ไม่ใช่ Four-Engine GPU acceptance.
+
+### Frozen build warnings ที่ตรวจจาก job log
+
+- PyInstaller บันทึก missing `nvcuda.dll` (เป็น NVIDIA driver-provided runtime บนเครื่องปลายทาง), `tbb12.dll` (dependency ของ optional Numba TBB backend), และ hidden imports `pycparser.lextab`, `pycparser.yacctab`, `scipy.special._cdflib`; ยังไม่มีหลักฐานว่า warning เหล่านี้ทำให้ Candidate import/provision dispatch ล้ม.
+- ห้ามคัดลอก `nvcuda.dll` หรือ `tbb12.dll` จากเครื่องอื่นมาใส่ Installer โดยเดา; ตรวจ dependency/runtime บนเครื่องจริงก่อน และไม่ bundle NVIDIA driver DLL.
+- Last recorded shop NVIDIA driver remains **451.67 (5 พ.ย. 2569)**. หากยังไม่เปลี่ยน จะต่ำกว่า CUDA 12.x Windows minor-compatibility floor 528.33 และ CUDA 12.8 GA floor 570.65 ของ PyTorch `cu128` path. ต้องตรวจ Driver ปัจจุบันก่อน; CUDA compatibility เป็นคนละเรื่องกับ Vulkan eligibility ของ native NCNN engines.
+
+### ขอบเขต large-image และ GPU ที่ยังไม่รับรอง
+
+- Large auxiliary path >18 MP ยังจำกัด PNG RGB/RGBA + accepted V2 PNG; JPEG/TIFF/CMYK/PDF/PSD ขนาดใหญ่คง V2-only.
+- Large path ทำ native 2x pass แบบ tiled; 4x/8x เป็น target geometry จาก half-target seed + native 2x pass ไม่ใช่ native 4x/8x หรือ multi-pass.
+- Prelaunch free-VRAM threshold 2,048 MiB และ runtime whole-device reserve 512 MiB; ยังไม่ใช่ hard 6 GB cap หรือผล peak-VRAM stress บน GTX 1660 Ti.
+- ยังไม่มีผลติดตั้ง Candidate #696 บน shop PC, per-child-PID-to-GPU 4/4, >18 MP real GPU/cancel stress, A/B ภาพจริง, Photoshop/MainTop/RIP.
+
+### Shop evidence gate
+
+- ยังไม่เรียก self-hosted `niyom-shop-gpu` runner ในการตรวจครั้งนี้. Workflow ต้องมีการติดตั้ง Candidate #696 ใน Windows account เดียวกับ Manifest และต้องส่ง `confirm_shop_gpu=yes` พร้อม Source commit 40 ตัวจาก `BUILD_PROOF.txt`; push-marker route ต้องใช้ marker ที่อนุมัติชัดเจน. การอัปเดตเอกสารนี้ไม่ใส่ consent marker และไม่ schedule self-hosted job.
+- Shop diagnostic ใช้ synthetic RGB/RGBA เท่านั้น; เก็บ JSON evidence เท่านั้น; ห้ามอัปโหลดภาพลูกค้า. Synthetic GPU acceptance ไม่รับรอง visual/print quality.
+- V2 ยังคงเป็น accepted Master; `quality_certified=false`. PR #20 คง OPEN/DRAFT/UNMERGED; ไม่แก้ V1/V2 Stable, ไม่ merge และไม่ release.
