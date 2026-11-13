@@ -137,3 +137,24 @@ def test_workspace_guard_does_not_treat_other_versions_as_v211(tmp_path: Path):
 
     with pytest.raises(BuildWorkspaceError):
         validate_v211_build_workspace(tmp_path, "2.1.10")
+
+
+def test_frozen_bigtiff_smoke_is_v211_candidate_only_and_checks_v2_preservation(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    run_source = (root / "run.py").read_text(encoding="utf-8")
+    package_script = (root / "tools" / "Test-V2-Package.ps1").read_text(encoding="utf-8")
+    workflow = (root / ".github" / "workflows" / "v211-four-engine-bridge-windows.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "NIYOMSIL_V211_TIFF_SMOKE" in run_source
+    assert "_run_v211_tiff_smoke" in run_source
+    assert "prepare_native_2x_inputs_streamed" in run_source
+    assert "save_cropped_png_streamed" in run_source
+    assert "multipage_rejected" in run_source
+    assert "accepted_v2_sha256_unchanged" in run_source
+    assert "network_access" in run_source and "gpu_runtime_initialized" in run_source
+    assert '"v211-tiff"' in package_script
+    assert "NIYOMSIL_V211_TIFF_SMOKE" in package_script
+    assert "-Mode v211-tiff" in workflow
+    assert "Verify frozen single-page BigTIFF" in workflow
