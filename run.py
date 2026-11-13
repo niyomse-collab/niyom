@@ -62,6 +62,7 @@ if __name__ == "__main__":
             "signprint_ai.v211_setup_cli",
             "signprint_ai.v211_four_engine_bridge",
             "signprint_ai.v211_large_image_bridge",
+            "tifffile",
             "signprint_ai.v211_background_fusion",
             "tools.v211_provision_four_engines",
             "tools.v211_four_engine_run",
