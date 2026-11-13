@@ -106,6 +106,10 @@ jobs:
         shell: powershell
         run: |
           .\tools\Test-V2-Package.ps1 -Exe '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe' -OutputDir package-smoke -Mode imports -TimeoutSeconds 180
+      - name: Verify frozen single-page BigTIFF and streamed libvips QA path
+        shell: powershell
+        run: |
+          .\tools\Test-V2-Package.ps1 -Exe '.\dist\NiyomsilAIEnhancer\NiyomsilAIEnhancer.exe' -OutputDir package-tiff-smoke -Mode v211-tiff -TimeoutSeconds 180
       - name: Verify packaged four-engine provisioning dispatch without downloads
         shell: pwsh
         run: |
