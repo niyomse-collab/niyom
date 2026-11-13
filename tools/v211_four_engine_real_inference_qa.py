@@ -32,12 +32,16 @@ def sha256(path: Path) -> str:
 
 
 
-def _classify_engine_failure(exc: Exception) -> tuple[str, bool]:
-    """Separate Vulkan host initialization blocks from engine/output regressions.
+def _classify_engine_failure(
+    exc: Exception,
+    process_record: dict | None = None,
+) -> tuple[str, bool]:
+    """Separate host Vulkan blocks from native crashes and output regressions.
 
-    A Vulkan initialization error is environment-dependent: it must be retried
-    on a host with a working Vulkan loader/device. It is not evidence of model
-    quality and must never be counted as successful inference.
+    Windows STATUS_ACCESS_VIOLATION (0xC0000005) takes precedence over Vulkan
+    text in stderr: the process crashed, so it is not safely retryable as only
+    a missing-host-Vulkan condition. Preserve the exit code in the private-safe
+    process record so the two failure modes remain distinguishable.
     """
     if isinstance(exc, InterruptedError):
         return "cancelled", False
@@ -45,6 +49,13 @@ def _classify_engine_failure(exc: Exception) -> tuple[str, bool]:
         return "timeout", False
     if isinstance(exc, FileNotFoundError):
         return "executable_missing", False
+    exit_code = process_record.get("exit_code") if isinstance(process_record, dict) else None
+    if (
+        isinstance(exit_code, int)
+        and not isinstance(exit_code, bool)
+        and (exit_code & 0xFFFFFFFF) == 0xC0000005
+    ):
+        return "windows_access_violation", False
     message = str(exc).lower()
     if any(token in message for token in (
         # A generic "invalid gpu device" can indicate a bad CLI index or
@@ -114,7 +125,11 @@ def _safe_process_record(value: dict | None) -> dict | None:
         "runtime_adapter_name",
         "runtime_adapter_index", "runtime_adapter_backend_apis",
     )
-    return {key: value[key] for key in allowed if key in value}
+    result = {key: value[key] for key in allowed if key in value}
+    exit_code = value.get("exit_code")
+    if isinstance(exit_code, int) and not isinstance(exit_code, bool):
+        result["exit_code_hex"] = f"0x{exit_code & 0xFFFFFFFF:08X}"
+    return result
 
 
 def _native_process_execution_verified(value: dict | None) -> bool:
@@ -309,7 +324,9 @@ def run(
             destination.unlink(missing_ok=True)
             # Save only type and a bounded generic description. Windows error
             # stderr may contain local paths or other private information.
-            failure_class, retry_on_vulkan_host = _classify_engine_failure(exc)
+            failure_class, retry_on_vulkan_host = _classify_engine_failure(
+                exc, failure_process_record
+            )
             failure_process_record = _safe_process_record(process_telemetry.get(engine))
             failure = {
                 "error_type": type(exc).__name__,
@@ -340,6 +357,8 @@ def run(
                     if key in process_telemetry.get(engine, {})
                 },
             }
+            if "vkcreateinstance failed" in str(exc).lower():
+                failure["vulkan_error_observed"] = True
             if retry_on_vulkan_host:
                 failure["retry_on_vulkan_capable_host"] = True
             # ONLY the public GitHub workflow's deliberately synthetic test
