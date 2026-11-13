@@ -1027,3 +1027,89 @@ def test_four_engine_qa_is_withheld_without_runtime_adapter_proof(
     assert result["quality_certified"] is False
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
     assert baseline.read_bytes() == before
+
+def test_large_24mp_bigtiff_seed_and_qa_crop_use_disk_backed_vips_without_full_pillow_decode(
+    tmp_path, monkeypatch
+):
+    """A real >18 MP BigTIFF uses libvips regions and keeps the accepted V2 file intact."""
+    pytest.importorskip("pyvips")
+    tifffile = pytest.importorskip("tifffile")
+    import hashlib
+    import shutil
+    from PIL import TiffImagePlugin
+    from signprint_ai.v211_large_image_bridge import (
+        prepare_native_2x_inputs_streamed,
+        save_cropped_png_streamed,
+    )
+
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source = tmp_path / "large-source-bigtiff.tif"
+    baseline = tmp_path / "accepted-large-v2-bigtiff.tif"
+
+    def write_bigtiff(path, size, colour):
+        width, height = size
+        pixels = np.empty((height, width, 3), dtype=np.uint8)
+        pixels[:] = colour
+        tifffile.imwrite(
+            path,
+            pixels,
+            bigtiff=True,
+            photometric="rgb",
+            resolution=(300, 300),
+            resolutionunit="INCH",
+            extratags=[(34675, "B", len(profile), profile, False)],
+        )
+
+    write_bigtiff(source, (3000, 1000), (220, 30, 40))
+    write_bigtiff(baseline, (6001, 4001), (255, 255, 255))
+
+    def file_sha256(path):
+        with Path(path).open("rb") as stream:
+            return hashlib.file_digest(stream, "sha256").hexdigest()
+
+    before_sha = file_sha256(baseline)
+    original_load = TiffImagePlugin.TiffImageFile.load
+    forbidden_sizes = {(3000, 1000), (6001, 4001), (6002, 4002)}
+
+    def reject_full_customer_raster_decode(image, *args, **kwargs):
+        if image.size in forbidden_sizes:
+            raise AssertionError("large BigTIFF must use libvips, not full Pillow raster decode")
+        return original_load(image, *args, **kwargs)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(
+            TiffImagePlugin.TiffImageFile, "load", reject_full_customer_raster_decode
+        )
+        work = tmp_path / "large-bigtiff-work"
+        seed, reference, target, padded, source_size, metadata = (
+            prepare_native_2x_inputs_streamed(
+                source, baseline, work, resize_mode="fit"
+            )
+        )
+        assert source_size == (3000, 1000)
+        assert target == (6001, 4001)
+        assert padded == (6002, 4002)
+        with Image.open(seed) as seed_header, Image.open(reference) as reference_header:
+            assert seed_header.size == (3001, 2001)
+            assert reference_header.size == padded
+            assert seed_header.info["icc_profile"] == profile
+            assert reference_header.info["icc_profile"] == profile
+            assert seed_header.info["dpi"][0] == pytest.approx(300, abs=0.1)
+            assert reference_header.info["dpi"][1] == pytest.approx(300, abs=0.1)
+
+        fused = work / "four_engine_fused_preview.png"
+        shutil.copyfile(reference, fused)
+        qa = tmp_path / "accepted-large-v2-bigtiff.V211-4AI-QA-streamed.png"
+        save_cropped_png_streamed(
+            fused,
+            qa,
+            target_size=target,
+            padded_size=padded,
+            mode="RGB",
+            metadata=metadata,
+        )
+        with Image.open(qa) as qa_header:
+            assert qa_header.size == target
+            assert qa_header.info["icc_profile"] == profile
+            assert qa_header.info["dpi"][0] == pytest.approx(300, abs=0.1)
+    assert file_sha256(baseline) == before_sha
