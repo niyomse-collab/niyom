@@ -324,10 +324,10 @@ def run(
             destination.unlink(missing_ok=True)
             # Save only type and a bounded generic description. Windows error
             # stderr may contain local paths or other private information.
+            failure_process_record = _safe_process_record(process_telemetry.get(engine))
             failure_class, retry_on_vulkan_host = _classify_engine_failure(
                 exc, failure_process_record
             )
-            failure_process_record = _safe_process_record(process_telemetry.get(engine))
             failure = {
                 "error_type": type(exc).__name__,
                 "error_class": failure_class,
