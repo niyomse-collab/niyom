@@ -515,3 +515,65 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - ไม่มีการเรียก self-hosted Shop GPU Evidence ในรอบนี้ เพราะไม่มี consent marker/การอนุมัติเครื่องร้าน. ใช้เฉพาะ synthetic PNG/JSON evidence ใน CI; ไม่มีภาพลูกค้าหรือ model weights ใน artifact.
 - PR #18 vs PR #20 protected face/GFPGAN files ยัง byte-identical **5/5**: `face_protection.py`, `large_faces.py`, `v211_face_contract.py`, `test_v211_face_contract.py`, `face_module/__init__.py`. Optional HAT Assist route ยังคงเป็น compatibility difference แยกต่างหาก.
 - ไม่แก้ V1/V2 Stable, ไม่เขียนทับ accepted V2, ไม่ merge/release และไม่อ้างคุณภาพเหนือ V2. Candidate #681 เป็น Frozen Package/provenance pass เท่านั้น.
+
+## 13 พฤศจิกายน 2569 21:41 ICT — Exact PR HEAD e0eace2 / Windows Candidate #714
+
+ขอบเขตยังคงจำกัดเฉพาะ Draft PR #20 / `work/v211-four-engine-v2-bridge-20261103`; PR #18 ใช้ตรวจรักษา V2/GFPGAN เท่านั้น ไม่มีการแก้ V1 หรือ V2 Stable, ไม่มี Merge/Release และไม่มีการรับรองคุณภาพเหนือ V2
+
+### Source identity และการตรวจ diff
+
+- PR #20 HEAD: `e0eace2c5e31fd98adfadf70a5e879ed088ff585`; base และ PR #18 HEAD: `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- Git compare: **800 ahead / 0 behind**, **71 changed files**. Candidate #714 ผูกกับ HEAD นี้โดยตรงจาก artifact metadata (`head_sha=e0eace2...`).
+- เทียบจาก Candidate #644 source `f74da870` ถึง HEAD นี้มี 49 commits / 14 changed paths เพิ่มเติม รวมการแยก PyInstaller hidden-import graph สำหรับ V2.1.1, workspace guard สำหรับ build แบบทดลอง, CUDA-driver diagnostic แบบ read-only และ regression tests; Candidate #714 เป็น Candidate ที่ใหม่กว่า #644 และสร้างจาก source ปัจจุบัน.
+- Audit รายการ 71 paths ไม่พบ .exe, .dll, ZIP/archive, model weights หรือ path ของ V1.
+
+### Windows Candidate #714 — SUCCESS (2/2 jobs)
+
+[GitHub Actions #714](https://github.com/niyomse-collab/niyom/actions/runs/43409506477)
+
+- `bridge-tests`: syntax, V2-output preservation/four-engine coordination, privacy, model hashes และ official provisioning contracts ผ่าน.
+- `windows-v2-candidate`: frozen build, V2 import smoke, packaged provisioning `--check-only` แบบไม่ดาวน์โหลด/ไม่เขียนไฟล์, isolated consented cache-cleanup, diagnostic `--help`, PowerShell provenance verifier, BUILD_PROOF/source SHA, installer-slice SHA256 และ artifact upload ผ่าน.
+- Artifact ID `14030826269`; ขนาด **2,584,539,260 bytes**; ZIP SHA256 `7ad69afa81fd5c34fcfe8f287fddf592af467d29f45413fad9d729d104b662e4`.
+- [ดาวน์โหลด Experimental Candidate #714](https://github.com/niyomse-collab/niyom/actions/runs/43409506477/artifacts/14030826269); หมดอายุ **20 พ.ย. 2569 18:00:41 ICT**.
+- นี่คือ Frozen-package/build-provenance pass ไม่ใช่การติดตั้งแบบ interactive/uninstall บนเครื่องร้าน และไม่ใช่ GPU/quality acceptance.
+
+### Independent Core #1275
+
+[GitHub Actions #1275](https://github.com/niyomse-collab/niyom/actions/runs/43409506571)
+
+- Windows และ Ubuntu: **SUCCESS** ทั้งคู่.
+- `pytest` และ `compileall` ผ่านตาม Job Steps ของ exact PR HEAD.
+
+### Official Archive Audit #154
+
+[GitHub Actions #154](https://github.com/niyomse-collab/niyom/actions/runs/43409506460)
+
+- ดาวน์โหลด ZIP ทางการทั้งสี่, ตรวจ SHA256 และ safe archive structure, แล้ว provision แบบ transactional ลง ephemeral QA directory; ไม่ commit archive, executable หรือ weights.
+- Audit ยังคงไม่อนุมัติ redistribution; Real-ESRGAN และ Real-CUGAN ใช้ recorded CI SHA256 pins ไม่ใช่ publisher-published digest. การผ่าน archive/provisioning ไม่ใช่การรับรองสิทธิ์ redistributing model weights.
+
+### Native CLI Smoke #196 — อ่าน JSON Artifact แล้ว; diagnostic only
+
+[GitHub Actions #196](https://github.com/niyomse-collab/niyom/actions/runs/43409506333) · [JSON evidence artifact](https://github.com/niyomse-collab/niyom/actions/runs/43409506333/artifacts/14029295757)
+
+- Synthetic RGB และ RGBA/ICC/300-DPI: Real-CUGAN และ Anime4KCPP native process จบด้วย exit code 0 และสร้าง output 2x ที่ผ่าน size/mode/ICC/DPI checks; RGBA alpha ตรงกับ source.
+- Real-ESRGAN: `vkCreateInstance failed -9`, exit `0xFFFFFFFF`.
+- Waifu2x: `vkCreateInstance failed -9`, exit `0xC0000005` (Access Violation).
+- Hosted Runner ไม่มี NVML; physical adapter verification **0/4**. ทั้งสองรายงานกำหนด `real_inference_verified=false`, `runtime_device_use_verified=false`, `quality_improvement_verified=false`.
+- Workflow SUCCESS หมายถึงจำแนก hosted Vulkan limitation และเก็บ JSON ได้ ไม่ใช่การทดสอบ GPU 4/4 หรือคุณภาพบน GTX 1660 Ti.
+
+### CUDA driver hint และ build isolation ที่เพิ่มหลัง Candidate #644
+
+- `signprint_ai/v211_cuda_compat.py` อ่าน NVIDIA-SMI แบบ read-only และแสดงคำเตือน PyTorch CUDA 12.8 แบบ non-blocking; ไม่ initialize Torch CUDA, ไม่ดาวน์โหลด driver และไม่ใช้ CUDA hint ไปปิด NCNN/Vulkan engines.
+- เกณฑ์ที่โค้ดบันทึกจาก NVIDIA CUDA 12.8 Release Notes: Windows CUDA 12.x minor-compatibility floor **528.33** และ CUDA 12.8 GA toolkit driver **570.65** ([NVIDIA CUDA 12.8 Release Notes](https://docs.nvidia.com/cuda/archive/12.8.0/cuda-toolkit-release-notes/index.html)).
+- ข้อมูลเครื่องร้านล่าสุดที่เคยได้รับเมื่อ 5 พ.ย. คือ Driver **451.67**; เป็นข้อมูลย้อนหลัง ไม่ใช่การอ่าน Driver ปัจจุบัน. ต้องตรวจ `nvidia-smi` และ Torch runtime บนเครื่องร้านอีกครั้งก่อนอ้างว่า V2 PyTorch core ใช้ CUDA 12.8 ได้. ประเด็นนี้แยกจาก Vulkan eligibility ของ native engines.
+- `build_windows.ps1` และ `NiyomsilV2ArmCore.spec` แยก V2.1.1 graph/installer path ด้วย build metadata; regression tests ตรวจว่า V1 และ stable-V2 ใช้ legacy hidden-import path และไม่รับ V2.1.1 modules. Workspace guard ปฏิเสธการลบ output ที่ไม่มี V2.1.1 provenance ที่ตรวจสอบได้.
+
+### สิ่งที่ยังเป็น release blockers
+
+- ยังไม่มี self-hosted shop GPU run: ไม่มี affirmative shop-GPU consent marker; ไม่ schedule เครื่องร้านโดยอัตโนมัติ.
+- ยังไม่มี native physical-adapter proof 4/4, peak VRAM, hard per-process 6 GB cap หรือ stress test บน GTX 1660 Ti.
+- >18 MP auxiliary route รองรับเฉพาะ PNG RGB/RGBA แบบ disk-backed; streamed ceiling 1,000 MP / row buffer 64 MiB / disk preflight. JPEG/TIFF/CMYK/PDF/PSD ขนาดใหญ่ยัง V2-only.
+- Large target 4x/8x ยังเป็นหนึ่ง native 2x pass จาก half-target seed; ไม่ใช่ native 4x/8x หรือ multi-pass. Cancel ระหว่าง process/tile มี contract tests แต่ยังไม่มี shop stress evidence.
+- ยังไม่มี visual A/B ที่เจ้าของร้านรับรองสำหรับใบหน้า, สัตว์, วัตถุ, กรอบ, ลายไทย, ไทย/อังกฤษ/จีน, flat color, gradient, RGBA และไฟล์พิมพ์ Photoshop/MainTop/RIP.
+- PR #18 เทียบ PR #20: protected GFPGAN/face-contract Blob SHA ตรงกัน **5/5**. Optional HAT Assist route ยังคง disabled ใน PR #20 และเป็น compatibility difference แยกที่ต้อง review ก่อน merge.
+- V2 remains accepted Master; no quality-superiority claim. PR #20 remains OPEN/DRAFT/UNMERGED; no V1/V2 Stable changes, no merge and no release.
