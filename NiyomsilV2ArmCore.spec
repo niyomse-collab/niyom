@@ -78,6 +78,7 @@ if IS_V211_BUILD:
         "tools.v211_official_assets_audit",
         "tools.v211_provision_four_engines",
         "tools.v211_shop_gpu_diagnostic",
+        "signprint_ai.v211_cuda_compat",
         "tools.v211_gpu_device_binding",
         "tools.v211_gpu_process_telemetry",
     ]
