@@ -172,3 +172,22 @@ def test_frozen_bigtiff_smoke_is_v211_candidate_only_and_checks_v2_preservation(
     assert "NIYOMSIL_V211_TIFF_SMOKE" in package_script
     assert "-Mode v211-tiff" in workflow
     assert "Verify frozen single-page BigTIFF" in workflow
+
+def test_v211_download_retry_fault_injection_is_wired_before_candidate_build():
+    root = Path(__file__).resolve().parents[1]
+    harness = (root / "tools" / "Test-V211-DownloadRetry.ps1").read_text(encoding="utf-8")
+    workflow = (
+        root / ".github" / "workflows" / "v211-four-engine-bridge-windows.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "Ensure-VerifiedDownload" in harness
+    assert "System.IO.IOException" in harness
+    assert "System.Net.Http.HttpRequestException" in harness
+    assert "hash-mismatch" in harness
+    assert "destination-race" in harness
+    assert "verified-cache" in harness
+    assert "https://invalid.test/no-network" in harness
+    assert "Test-V211-DownloadRetry.ps1" in workflow
+    assert workflow.index("Fault-inject V2.1.1 verified-download retry") < workflow.index(
+        "Build V2-based experimental candidate"
+    )
