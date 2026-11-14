@@ -701,3 +701,32 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - ผล synthetic GPU acceptance จะยืนยันได้เฉพาะ native execution / adapter / metadata / bridge contract; ไม่ใช่ visual-quality หรือ print certification. `quality_improvement_verified=false`, `visual_quality_certified=false`, `print_quality_certified=false` ต้องคงไว้
 - การแก้ไข commit นี้เป็นเอกสารเท่านั้น; ไม่มี Source/Test/Spec/Installer/Workflow code เปลี่ยน, ไม่แตะ V1/V2 Stable, ไม่ Merge/Release
 
+---
+
+## 14 พฤศจิกายน 2569 20:19 ICT — Exact-head verification: PR #20 HEAD d678eef / Windows Candidate #813
+
+### ขอบเขตและการแก้ไข
+- PR #20 HEAD ที่ตรวจ: `d678eef845bb44bf049de9ee79f2b0dd8a28bfca`, branch `work/v211-four-engine-v2-bridge-20261103`, base `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- พบว่า `tools/v211_four_engine_run.py::_safe_execution_record` เดิม whitelist ค่าเพดาน VRAM แบบ canonical `runtime_vram_max_allowed_device_used_mib` ไม่ครบ ทำให้รายงาน Four-Engine อาจทำค่าขอบเขตที่ QA ต้องใช้หล่นหาย
+- แก้ใน commit `959efff4e9b2b7fbc22d5550b4445528eb1e1b63` ให้เก็บทั้ง canonical field และ legacy alias โดยยังคง whitelist-only และไม่คัดลอก private path/argv/raw process output
+- เพิ่ม regression ใน commit `d678eef845bb44bf049de9ee79f2b0dd8a28bfca`: `test_safe_execution_record_keeps_canonical_vram_ceiling_field`; ตรวจ canonical + legacy field และยืนยันว่า private path ไม่ถูกคัดลอก
+
+### Exact-head CI
+- Windows Candidate **#813**: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43591999969) — **SUCCESS 2/2 jobs** จาก exact source SHA `d678eef`: `bridge-tests` และ `windows-v2-candidate`.
+- Bridge/Fusion/coordination suite: **358 passed**; privacy/provisioning/hash suite: **63 passed**.
+- Frozen package checks ผ่าน: V2 imports, single-page BigTIFF + streamed libvips QA path, packaged four-engine provisioning `--check-only` โดยไม่ดาวน์โหลด, consented cache cleanup บน synthetic data, packaged diagnostic `--help`, BUILD_PROOF exact source SHA, และ installer slice SHA256 verification.
+- Installer SHA256 จาก Windows build log: `dfb297b9278d0dcc82cef33545fd063eb3f9aac0021e353bc586e33e7eb0bac6`.
+- Experimental artifact ID `14113796471`; size **2,584,555,187 bytes**; artifact ZIP SHA256 `7b987465dfe6e437265c73aad940cbf91125abd4a6321982c7f3802236aec4fc`; expires **21 พ.ย. 2569 19:15 ICT**. [Download Candidate #813](https://github.com/niyomse-collab/niyom/actions/runs/43591999969/artifacts/14113796471).
+- Candidate #813 เป็น frozen package/provenance acceptance เท่านั้น ไม่ได้ยืนยัน interactive install/uninstall บนเครื่องร้าน, Vulkan adapter use, native GPU 4/4, peak VRAM หรือ print quality.
+
+### Independent Core / Archive / Native CLI
+- Independent Core **#1388**: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43591999925) — Windows **1015 passed / 1 skipped**; Ubuntu **1013 passed / 3 skipped**; compileall ผ่านทั้งสองระบบ.
+- Official Archive Audit **#203**: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43591999959) — ดาวน์โหลด official Windows archives ทั้งสี่, ตรวจ digest และ archive safety, provision ลง ephemeral QA directory ผ่าน. Publisher digest มีสำหรับ Waifu2x/Anime4KCPP; Real-ESRGAN/Real-CUGAN ยังคงเป็น observed CI pins. Model-weight/license certification และ redistribution approval ยังไม่ผ่าน จึงไม่ bundle native binaries/weights.
+- Native CLI Smoke **#264**: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43591999924), JSON artifact [14112711724](https://github.com/niyomse-collab/niyom/actions/runs/43591999924/artifacts/14112711724). บน synthetic RGB และ RGBA/ICC/300-DPI: Real-CUGAN และ Anime4KCPP สร้าง native 2x output ที่ผ่าน metadata/alpha validation; Real-ESRGAN และ Waifu2x ถูก block โดย hosted-runner Vulkan `vkCreateInstance failed -9` (Waifu2x เพิ่มเติม `0xC0000005`). NVML ไม่พบ, physical adapter verification **0/4**.
+- Smoke #264 ระบุ `runtime_vram_guard_requested=false`, `runtime_vram_budget_passed=false`, `runtime_device_use_verified=false`; ดังนั้น run นี้ไม่ใช่หลักฐาน VRAM 6GB หรือ GPU acceptance แม้ diagnostic workflow จะจบ SUCCESS เพราะจัดประเภทข้อจำกัดของ Hosted Runner ได้ถูกต้อง.
+- `real_inference_verified=false`, `quality_improvement_verified=false`; ไม่มี A/B ภาพจริงหรือ print certification.
+
+### V2/GFPGAN protection และข้อจำกัดการทดสอบร้าน
+- Protected files ระหว่าง PR #18 head `288dd8501c230a118d9a7e60d2522a2cc7411bcc` และ PR #20 HEAD `d678eef` ตรงกัน **5/5 Blob SHA**: `face_protection.py`, `large_faces.py`, `v211_face_contract.py`, `test_v211_face_contract.py`, `test_v211_large_face_audit.py`.
+- Manual shop workflow มี consent gate และต้องตรวจ BUILD_PROOF ของ Candidate SHA ที่ได้รับอนุญาตตรงกัน; เอกสารก่อนหน้านี้อนุญาต synthetic-only shop GPU evidence สำหรับ Candidate #771 (`c1cb569`) เท่านั้น. Candidate #813 เป็น SHA ใหม่ จึง **ไม่ได้ trigger self-hosted shop GPU run** และไม่ถือว่ามีการอนุญาตติดตั้ง/ทดสอบ Candidate ใหม่นี้บนเครื่องร้าน.
+- PR #20 และ PR #18 ยังคง OPEN/DRAFT/UNMERGED; ไม่มี V1/V2 Stable changes, merge/release, customer images หรือ native binaries/weights committed. V2 remains accepted master; quality certification remains false.
