@@ -610,3 +610,12 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - รายงาน JSON จะแสดง budget, maximum device-used, peak sampled device-used, minimum free และสถานะต่อ Engine. Shop GPU Evidence ต้องมีอย่างน้อยสอง sample ต่อ Engine และผ่านทั้งสี่ตัว.
 - **ข้อจำกัดสำคัญ:** นี่เป็น sampled monitor-and-terminate guard ไม่ใช่ driver-level hard allocation quota; GPU อาจใช้หน่วยความจำเกินชั่วคราวระหว่าง sample ได้. ต้องทดสอบ peak VRAM/การยกเลิกระหว่างโหลดบนเครื่องร้านจริงก่อนรับรอง.
 - การเปลี่ยนแปลงนี้อยู่เฉพาะ PR #20 และไม่เปลี่ยน V1/V2 Stable. V2 ที่บันทึกแล้วคงเป็น accepted master หาก guard ปฏิเสธงานเสริม.
+
+
+## 14 พฤศจิกายน 2569 — แยกค่า VRAM ที่วัดได้ออกจากเพดานนโยบาย
+
+- `runtime_vram_peak_used_mib` คือค่าสูงสุดของหน่วยความจำ GPU ที่สังเกตได้จากตัวอย่าง NVML ระหว่าง Process ทำงาน เป็น sampled peak ไม่ใช่ hardware trace แบบทุก microsecond
+- `runtime_vram_max_allowed_device_used_mib` คือเพดานการใช้งานที่อนุญาตตามนโยบาย 6,144 MiB budget หัก 512 MiB reserve (สูงสุด 5,632 MiB บน Adapter 6 GiB) ไม่ใช่ค่าการใช้งานจริง
+- ฟิลด์เดิม `runtime_vram_max_device_used_mib` ยังคงอยู่เป็น alias เพื่อความเข้ากันได้กับรายงานเก่า แต่ตัวตรวจรับรองใหม่ต้องใช้ชื่อ `runtime_vram_max_allowed_device_used_mib` เท่านั้น
+- รายงาน `shop_gpu_diagnostic.json` ใช้ชื่อ `maximum_allowed_device_used_mib` เพื่อไม่ให้ตีความเพดานนโยบายเป็น Peak VRAM ที่วัดได้
+- การตรวจยังเป็น sampled monitor-and-terminate guard แบบ Device-wide; ไม่ใช่ Driver-enforced per-process hard quota และอาจ overshoot ระหว่าง sample ได้
