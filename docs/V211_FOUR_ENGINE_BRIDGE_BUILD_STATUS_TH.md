@@ -690,3 +690,14 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - PR #20 และ PR #18 ยังคง OPEN/DRAFT/UNMERGED; V1/V2 Stable ไม่เปลี่ยน; ไม่มี customer images, native binaries หรือ model weights commit
 - Candidate #770 เป็น frozen packaging/provenance + synthetic smoke pass เท่านั้น ไม่รับรอง interactive install/uninstall, GPU inference 4/4 บน GTX 1660 Ti, peak VRAM 6 GB, A/B ภาพจริง, Photoshop/MainTop/RIP หรือคุณภาพงานพิมพ์
 - `real_inference_verified=false`, `quality_certified=false`; V2 ยังคงเป็น accepted master; ห้าม merge/release จนกว่าผู้ใช้ตรวจ GPU/visual/print evidence และอนุมัติ
+
+
+## 14 พฤศจิกายน 2569 12:14 ICT — อนุญาต Synthetic-only shop GPU evidence สำหรับ Candidate #771
+
+- ขอบเขตคำสั่ง: ทดสอบ native CLI ทั้งสี่และ end-to-end bridge บน Windows 11 shop GPU ด้วยภาพสังเคราะห์ RGB/RGBA เท่านั้น; ไม่อ่านภาพลูกค้า, ไม่อัปโหลดภาพ, ไม่แก้ V2 output และเก็บเฉพาะ JSON evidence
+- Candidate source ที่อนุญาต: `c1cb569935ebbd165b49c3f1c08855d7c713d6a0` (Candidate #771); workflow ต้องตรวจ `BUILD_PROOF.txt` ของ EXE ที่ติดตั้งให้ตรง SHA นี้ก่อนรัน
+- การทดสอบต้องผ่าน NVIDIA-SMI/Vulkan inventory, unique GTX 1660 Ti binding, per-engine VRAM preflight และ live PID-to-adapter telemetry สำหรับทั้ง 4 engine; ถ้าเงื่อนไขใดไม่ผ่านให้ fail closed และคง V2 เป็น output ที่ยอมรับ
+- Workflow ที่ใช้: [V2.1.1 shop GPU evidence gate](https://github.com/niyomse-collab/niyom/actions/workflows/v211-four-engine-manual-evidence.yml); evidence job ทำงานได้เฉพาะ self-hosted Windows runner label `niyom-shop-gpu`. หาก runner ไม่พร้อม จะไม่มี hosted-runner fallback และไม่ถือว่าได้ทดสอบ GPU จริง
+- ผล synthetic GPU acceptance จะยืนยันได้เฉพาะ native execution / adapter / metadata / bridge contract; ไม่ใช่ visual-quality หรือ print certification. `quality_improvement_verified=false`, `visual_quality_certified=false`, `print_quality_certified=false` ต้องคงไว้
+- การแก้ไข commit นี้เป็นเอกสารเท่านั้น; ไม่มี Source/Test/Spec/Installer/Workflow code เปลี่ยน, ไม่แตะ V1/V2 Stable, ไม่ Merge/Release
+
