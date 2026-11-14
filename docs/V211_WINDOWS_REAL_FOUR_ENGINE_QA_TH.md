@@ -600,3 +600,13 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - >18 MP native GPU stress, 6 GB hard cap/peak VRAM, cancel-under-load, visual A/B (people/animals/objects/Thai/English/Chinese/flat/gradient/alpha), Photoshop/MainTop/RIP และ physical print quality ยังไม่รับรอง.
 - PR #18 protected GFPGAN/face files remain byte-identical **5/5** against PR #20 (Blob SHA checked at exact HEAD); optional HAT Assist execution remains a separate compatibility difference, not silently restored.
 - PR #20 / PR #18 remain OPEN / DRAFT / UNMERGED. V1/V2 Stable unchanged; no customer images, native binaries or weights committed; no merge/release. V2 remains accepted master; `quality_certified=false`.
+
+
+## 14 พฤศจิกายน 2569 — Runtime VRAM device-wide budget guard
+
+- เพิ่มเพดานการใช้งานหน่วยความจำ GPU แบบ device-wide **6,144 MiB** และรักษาพื้นที่สำรอง **512 MiB**; บน GTX 1660 Ti ที่รายงานหน่วยความจำ 6 GiB จะยอมรับค่า device-used สูงสุดที่ตรวจวัดได้ **5,632 MiB**.
+- งบนี้นับรวม Windows Desktop, Photoshop และโปรแกรม GPU อื่นทั้งหมด ไม่ใช่โควตาเฉพาะ process ของ AI. หากเครื่องมี VRAM รวมต่ำกว่า 6 GiB เพดานใช้งานจะลดตามความจุจริง.
+- Native subprocess จะสุ่มตรวจ NVML ระหว่างทำงาน (รอบ polling ประมาณ 50 ms); หาก telemetry หาย, free ต่ำกว่า reserve หรือ device-used เกิน budget จะหยุด process tree, ลบ partial output และไม่เผยแพร่ QA candidate.
+- รายงาน JSON จะแสดง budget, maximum device-used, peak sampled device-used, minimum free และสถานะต่อ Engine. Shop GPU Evidence ต้องมีอย่างน้อยสอง sample ต่อ Engine และผ่านทั้งสี่ตัว.
+- **ข้อจำกัดสำคัญ:** นี่เป็น sampled monitor-and-terminate guard ไม่ใช่ driver-level hard allocation quota; GPU อาจใช้หน่วยความจำเกินชั่วคราวระหว่าง sample ได้. ต้องทดสอบ peak VRAM/การยกเลิกระหว่างโหลดบนเครื่องร้านจริงก่อนรับรอง.
+- การเปลี่ยนแปลงนี้อยู่เฉพาะ PR #20 และไม่เปลี่ยน V1/V2 Stable. V2 ที่บันทึกแล้วคงเป็น accepted master หาก guard ปฏิเสธงานเสริม.
