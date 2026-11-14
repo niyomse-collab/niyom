@@ -99,6 +99,9 @@ jobs:
       - name: Install Windows installer compiler
         shell: pwsh
         run: choco install innosetup -y --no-progress
+      - name: Fault-inject V2.1.1 verified-download retry without network
+        shell: pwsh
+        run: pwsh -NoProfile -File .\tools\Test-V211-DownloadRetry.ps1
       - name: Build V2-based experimental candidate
         shell: powershell
         run: .\build_windows.ps1 -Channel v2 -Version 2.1.1-beta.${{ github.run_number }}
