@@ -191,6 +191,7 @@ jobs:
             'all_four_native_cli_outputs_validated_on_both_synthetic_cases',
             'four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host',
             'runtime_device_use_verified',
+            'runtime_vram_budget_passed',
             'shop_gpu_acceptance_passed'
           )
           foreach ($field in $requiredTrue) {
