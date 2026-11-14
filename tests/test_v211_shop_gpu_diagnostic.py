@@ -991,10 +991,15 @@ def test_manual_shop_gpu_evidence_workflow_is_self_hosted_and_fail_closed():
 
 
 
-def _runtime_verified_runner(manifest, source, output, *, timeout_seconds):
+def _runtime_verified_runner(
+    manifest, source, output, *, timeout_seconds, runtime_vram_guard=False
+):
+    assert runtime_vram_guard is True
     result = _successful_runner(
         manifest, source, output, timeout_seconds=timeout_seconds
     )
+    result["runtime_vram_guard_requested"] = True
+    result["runtime_vram_budget_passed"] = True
     result["engines"] = {
         name: {
             **item,
@@ -1012,6 +1017,16 @@ def _runtime_verified_runner(manifest, source, output, *, timeout_seconds):
                 "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
                 "runtime_adapter_index": 0,
                 "runtime_adapter_backend_apis": ["graphics"],
+            },
+            "process": {
+                "runtime_vram_guard_enabled": True,
+                "runtime_vram_guard_status": "within_budget",
+                "runtime_vram_sample_count": 2,
+                "runtime_vram_peak_used_mib": 4200.0,
+                "runtime_vram_min_free_mib": 1944.0,
+                "runtime_vram_max_device_used_mib": 5632.0,
+                "runtime_vram_reserve_mib": 512,
+                "runtime_vram_budget_mib": 6144,
             },
         }
         for name, item in result["engines"].items()
@@ -1047,6 +1062,7 @@ def _runtime_verified_bridge_runner(source, baseline, *, use_ai, resize_mode):
             "runtime_vram_peak_used_mib": 4200.0,
             "runtime_vram_min_free_mib": 1944.0,
             "runtime_vram_max_device_used_mib": 5632.0,
+            "runtime_vram_reserve_mib": 512,
             "runtime_vram_budget_mib": 6144,
         })
     report_path.write_text(json.dumps(report), encoding="utf-8")
