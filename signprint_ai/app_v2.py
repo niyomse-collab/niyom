@@ -813,7 +813,6 @@ class App(tk.Tk):
         self._queued_indices.clear()
         self._reserved_output_paths.clear()
         self._effect_reviews.clear()
-        self._update_effect_region_status()
         while True:
             try:
                 self._job_queue.get_nowait()
@@ -821,6 +820,7 @@ class App(tk.Tk):
             except queue.Empty:
                 break
         self.current_index = None
+        self._update_effect_region_status()
         self._last_result = None
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -1335,7 +1335,8 @@ class App(tk.Tk):
 
         Never rely on the mutable Settings object itself: the user may move a
         slider or choose a new format/ICC/output folder after the first export.
-        Keep this separate from per-file face rectangles assigned at enqueue.
+        Per-file face/effect rectangles are assigned at enqueue; include the
+        complete ROI map here so changing one file's protection forces a rerun.
         """
         return (type(settings).__qualname__,
                 tuple((field.name, repr(getattr(settings, field.name)))
