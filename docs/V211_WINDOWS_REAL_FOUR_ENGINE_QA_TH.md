@@ -533,3 +533,38 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - >18 MP auxiliary route ยังคง PNG RGB/RGBA only; JPEG/TIFF/CMYK/PDF/PSD ขนาดใหญ่ยัง V2-only. Native tile pass เป็น 2x บน half-target seed; ไม่ใช่ native 4x/8x multi-pass. VRAM preflight 2,048 MiB + reserve 512 MiB ไม่ใช่ hard 6 GB cap.
 - Per-process GPU 4/4, peak VRAM, real >18 MP stress/cancel, visual A/B, Photoshop/MainTop/RIP และ print quality ยังไม่ผ่านการรับรอง.
 - V2 remains accepted Master; `quality_certified=false`. ไม่แก้ V1/V2 Stable, ไม่ merge และไม่ release.
+
+
+## 14 พฤศจิกายน 2569 13:24 ICT — Candidate #772 และ Shop GPU Evidence Gate
+
+### Exact PR / Candidate
+- PR #20 ยังคง OPEN / DRAFT / UNMERGED; HEAD 4d01c56bd378e45eca0b8d015b948f97983a80a7; base 288dd8501c230a118d9a7e60d2522a2cc7411bcc, ตรงกับ PR #18 HEAD.
+- Windows Candidate #772 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43561005867) สร้างจาก source SHA 4d01c56 และสำเร็จ 2/2 jobs.
+- Bridge/Fusion/coordination: **348 passed**; privacy/provisioning/manifest/hash: **63 passed**.
+- Frozen V2 imports, packaged provisioning --check-only, isolated consented-cache cleanup, diagnostic --help, BigTIFF/libvips smoke, provenance และ installer-slice SHA256 ผ่าน.
+- Installer SHA256: 525db9a252ef0b1ff63b1a5cbce8e0ef84ce6d730305daeffcc998430d97deca.
+- Artifact ID 14101246519, size **2,584,661,964 bytes**, ZIP SHA256 924e46926df4c94b9f2fe51b19ccb9cd6dcbdfaceaf7017a107ff591e58d00e0; [Experimental Candidate #772](https://github.com/niyomse-collab/niyom/actions/runs/43561005867/artifacts/14101246519), expires **21 พ.ย. 2569 12:44:06 ICT**.
+- Candidate #772 เป็น frozen package/provenance pass เท่านั้น ไม่รับรองการติดตั้ง/ถอนการติดตั้งจริง, native GPU 4/4 หรือคุณภาพภาพ.
+
+### Regression / Official assets / Native diagnostic
+- Independent Core #1342 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43561005894): Windows **1005 passed / 1 skipped**; Ubuntu **1003 passed / 3 skipped**; compileall ผ่านทั้งสองระบบ.
+- Official Archive Audit #184 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43561005888): official archives ทั้ง 4 ผ่าน SHA256, safe audit และ transactional provisioning ใน ephemeral QA; all_archives_audited=true, แต่ all_upstream_digests_pinned=false เพราะ Real-ESRGAN/Real-CUGAN ไม่มี publisher digest. license_redistribution_approved=false; ไม่ bundle binaries/weights.
+- Native CLI Smoke #232 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43561005862): Real-CUGAN และ Anime4KCPP สร้าง synthetic 2x outputs; Real-ESRGAN/Waifu2x ล้มบน Hosted Runner ด้วย vkCreateInstance failed -9 (Waifu2x มี 0xC0000005). NVML ไม่พร้อม, physical adapter verification **0/4**, real_inference_verified=false, runtime_device_use_verified=false, quality_improvement_verified=false. Workflow SUCCESS เป็น diagnostic classification ไม่ใช่ GPU/quality acceptance.
+- PyInstaller มี non-fatal warnings สำหรับ driver-provided nvcuda.dll และ optional tbb12.dll; ไม่ bundle DLL เหล่านี้จากการคาดเดา.
+
+### BigTIFF / large image scope
+- Candidate frozen smoke ตรวจ single-page BigTIFF, streamed libvips seed/QA, multipage TIFF rejection, ICC/DPI, odd crop และ accepted V2 hash preservation ด้วย synthetic files.
+- Large-job path ยอมรับ single-page 8-bit RGB/RGBA TIFF/BigTIFF ผ่าน bridge ที่สร้าง private PNG seed/reference; Native tiled runner/fusion ใช้ PNG intermediates. JPEG/WebP, multipage TIFF, CMYK, PDF/PSD และ bit depth ที่ไม่รองรับยัง V2-only.
+- Disk-backed path ใช้ tile/streaming และมี pixel/disk guards; synthetic smoke ไม่ใช่ native >18MP GPU stress หรือ peak-VRAM 6GB proof.
+- Native engine ทำ 2x หนึ่ง pass บน half-target seed; target 4x/8x ไม่ใช่ native 4x/8x multi-pass.
+
+### Shop GPU evidence trigger — fail closed
+- Commit นี้อัปเดตเฉพาะ QA document ซึ่งเป็น path ที่ระบุใน push.paths ของ v211-four-engine-manual-evidence.yml; commit message มี explicit marker [shop-gpu-evidence yes candidate=4d01c56bd378e45eca0b8d015b948f97983a80a7].
+- Evidence job ต้องทำงานเฉพาะ self-hosted Windows runner label niyom-shop-gpu; ไม่มี Hosted Runner fallback. Preflight ตรวจ installed Candidate BUILD_PROOF.txt ให้ตรง source SHA 4d01c56 และต้องพบ verified four-engine manifest ใน LocalAppData ก่อนเปิด native processes.
+- ใช้ synthetic RGB/RGBA เท่านั้น; อัปโหลด JSON evidence เท่านั้น; ไม่มี customer artwork, image upload หรือแก้ accepted V2. หาก candidate/manifest/runner/adapter/telemetry ไม่ครบ ให้ fail closed.
+- ยังไม่มี run ID หรือ Artifact ของ self-hosted evidence job ที่ตรวจยืนยันได้ ณ เวลาบันทึกนี้; **ยังไม่อ้างว่าได้รัน GPU บนเครื่องร้านแล้ว**.
+- แม้ synthetic GPU gate ผ่าน ก็ยืนยันได้เฉพาะ native process/device/metadata/bridge contract; quality_improvement_verified=false, visual_quality_certified=false, print_quality_certified=false ต้องคงไว้.
+
+### Preservation
+- PR #20 base SHA ตรงกับ PR #18 head SHA. Protected face/GFPGAN paths ทั้ง 6 รายการจาก PR #18 ไม่อยู่ใน changed-file list ของ PR #20; PR #20 ไม่แก้ไฟล์เหล่านั้น.
+- PR #20 / PR #18 ยังคง Draft; ไม่มี V1/V2 Stable changes, merge หรือ release. V2 ยังคงเป็น accepted master.
