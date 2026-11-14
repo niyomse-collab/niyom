@@ -440,7 +440,9 @@ def test_full_bridge_fusion_integration_requires_all_four_pixel_effects_and_v2_s
     assert bridge["v2_baseline_unchanged"] is True
     assert bridge["source_unchanged"] is True
     assert all(bridge["output_metadata"].values())
-    assert report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"]
+    assert report["four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host"] is False
+    assert bridge["runtime_vram_budget_passed"] is False
+    assert report["runtime_vram_budget_passed"] is False
     assert bridge["runtime_device_use_verified"] is False
     assert all(
         value is False
@@ -590,7 +592,7 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
     )
     assert saved["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert saved["anime4k_backend_inventory"]["status"] == "ok"
-    assert saved["schema_version"] == 6
+    assert saved["schema_version"] == 7
     assert saved["vulkaninfo_succeeded"] is True
     assert saved["vulkan_device_inventory_succeeded"] is True
     assert saved["vulkan_inventory_source"] == "vulkaninfo"
@@ -974,6 +976,7 @@ def test_manual_shop_gpu_evidence_workflow_is_self_hosted_and_fail_closed():
     assert "--diagnose-v211-four-ai" in workflow
     assert "four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host" in workflow
     assert "pre_launch_vram_checks_passed" in workflow
+    assert "runtime_vram_budget_passed" in workflow
     assert "customer_artwork_used" in workflow
     assert "quality_improvement_verified" in workflow
     assert "Runtime physical-adapter telemetry" in workflow
@@ -1038,6 +1041,13 @@ def _runtime_verified_bridge_runner(source, baseline, *, use_ai, resize_mode):
             "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
             "runtime_adapter_index": 0,
             "runtime_adapter_backend_apis": ["graphics"],
+            "runtime_vram_guard_enabled": True,
+            "runtime_vram_guard_status": "within_budget",
+            "runtime_vram_sample_count": 2,
+            "runtime_vram_peak_used_mib": 4200.0,
+            "runtime_vram_min_free_mib": 1944.0,
+            "runtime_vram_max_device_used_mib": 5632.0,
+            "runtime_vram_budget_mib": 6144,
         })
     report_path.write_text(json.dumps(report), encoding="utf-8")
     return result
@@ -1061,9 +1071,39 @@ def test_shop_gpu_acceptance_requires_live_nvml_evidence_for_every_engine(tmp_pa
         for item in report["engine_backend_expectations"].values()
     )
     assert report["shop_gpu_acceptance_passed"] is True
+    assert report["runtime_vram_budget_passed"] is True
+    assert all(report["per_engine_runtime_vram_budget_passed"].values())
     assert report["quality_improvement_verified"] is False
     assert report["visual_quality_certified"] is False
     assert report["print_quality_certified"] is False
+
+
+def test_shop_gpu_acceptance_fails_if_one_engine_exceeds_runtime_vram_budget(tmp_path):
+    manifest = _write_manifest(tmp_path / "manifest.json")
+
+    def one_engine_over_budget(source, baseline, *, use_ai, resize_mode):
+        result = _runtime_verified_bridge_runner(
+            source, baseline, use_ai=use_ai, resize_mode=resize_mode
+        )
+        report_path = Path(result["four_engine_fusion_output"]).parent / "four_engine_report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        process = report["engine_execution"]["waifu2x"]["process"]
+        process["runtime_vram_guard_status"] = "device_budget_exceeded"
+        process["runtime_vram_peak_used_mib"] = 5700.0
+        report_path.write_text(json.dumps(report), encoding="utf-8")
+        return result
+
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu,
+        engine_runner=_runtime_verified_runner,
+        anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
+        integration_runner=one_engine_over_budget,
+    )
+    assert report["runtime_vram_budget_passed"] is False
+    assert report["per_engine_runtime_vram_budget_passed"]["waifu2x"] is False
+    assert report["shop_gpu_acceptance_passed"] is False
 
 
 def test_shop_gpu_acceptance_fails_if_one_native_engine_lacks_runtime_evidence(tmp_path):
