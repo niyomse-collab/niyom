@@ -1024,7 +1024,7 @@ def _runtime_verified_runner(
                 "runtime_vram_sample_count": 2,
                 "runtime_vram_peak_used_mib": 4200.0,
                 "runtime_vram_min_free_mib": 1944.0,
-                "runtime_vram_max_device_used_mib": 5632.0,
+                "runtime_vram_max_allowed_device_used_mib": 5632.0,
                 "runtime_vram_reserve_mib": 512,
                 "runtime_vram_budget_mib": 6144,
             },
@@ -1061,7 +1061,7 @@ def _runtime_verified_bridge_runner(source, baseline, *, use_ai, resize_mode):
             "runtime_vram_sample_count": 2,
             "runtime_vram_peak_used_mib": 4200.0,
             "runtime_vram_min_free_mib": 1944.0,
-            "runtime_vram_max_device_used_mib": 5632.0,
+            "runtime_vram_max_allowed_device_used_mib": 5632.0,
             "runtime_vram_reserve_mib": 512,
             "runtime_vram_budget_mib": 6144,
         })
@@ -1242,7 +1242,7 @@ def test_shop_diagnostic_enables_vram_guard_for_both_native_cases(tmp_path):
             "runtime_vram_sample_count": 2,
             "runtime_vram_peak_used_mib": 5500.0,
             "runtime_vram_min_free_mib": 644.0,
-            "runtime_vram_max_device_used_mib": 5632.0,
+            "runtime_vram_max_allowed_device_used_mib": 5632.0,
             "runtime_vram_reserve_mib": 512,
             "runtime_vram_budget_mib": 6144,
         }
