@@ -282,6 +282,8 @@ def validate_runtime_vram_snapshot(
         "used_mib": round(used / MIB_BYTES, 2),
         "free_mib": round(free / MIB_BYTES, 2),
         "budget_mib": budget_mib,
+        "max_allowed_device_used_mib": round(max_device_used_bytes / MIB_BYTES, 2),
+        # Deprecated compatibility alias; this value is a policy ceiling, not observed use.
         "max_device_used_mib": round(max_device_used_bytes / MIB_BYTES, 2),
         "budget_exceeded": budget_exceeded,
         "reserve_mib": reserve_mib,
