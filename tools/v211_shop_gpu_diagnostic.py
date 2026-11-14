@@ -725,7 +725,7 @@ def _runtime_vram_budget_evidence_verified(process: dict | None) -> bool:
     reserve = process.get("runtime_vram_reserve_mib")
     peak = process.get("runtime_vram_peak_used_mib")
     minimum_free = process.get("runtime_vram_min_free_mib")
-    maximum_used = process.get("runtime_vram_max_device_used_mib")
+    maximum_used = process.get("runtime_vram_max_allowed_device_used_mib")
     return bool(
         process.get("runtime_vram_guard_enabled") is True
         and process.get("runtime_vram_guard_status") == "within_budget"
@@ -788,7 +788,8 @@ def _case_summary(value: dict) -> dict:
         vram_keys = (
             "runtime_vram_guard_enabled", "runtime_vram_guard_status",
             "runtime_vram_sample_count", "runtime_vram_peak_used_mib",
-            "runtime_vram_min_free_mib", "runtime_vram_max_device_used_mib",
+            "runtime_vram_min_free_mib", "runtime_vram_max_allowed_device_used_mib",
+            "runtime_vram_max_device_used_mib",
             "runtime_vram_reserve_mib", "runtime_vram_budget_mib",
         )
         vram_telemetry = {key: process[key] for key in vram_keys if key in process}
@@ -1054,6 +1055,7 @@ def _run_bridge_integration_case(
                 "runtime_vram_sample_count": process.get("runtime_vram_sample_count", 0),
                 "runtime_vram_peak_used_mib": process.get("runtime_vram_peak_used_mib"),
                 "runtime_vram_min_free_mib": process.get("runtime_vram_min_free_mib"),
+                "runtime_vram_max_allowed_device_used_mib": process.get("runtime_vram_max_allowed_device_used_mib"),
                 "runtime_vram_max_device_used_mib": process.get("runtime_vram_max_device_used_mib"),
                 "runtime_vram_budget_mib": process.get("runtime_vram_budget_mib"),
             }
@@ -1077,7 +1079,7 @@ def _run_bridge_integration_case(
             vram_budget = vram.get("runtime_vram_budget_mib")
             vram_peak = vram.get("runtime_vram_peak_used_mib")
             vram_min_free = vram.get("runtime_vram_min_free_mib")
-            vram_max_used = vram.get("runtime_vram_max_device_used_mib")
+            vram_max_used = vram.get("runtime_vram_max_allowed_device_used_mib")
             runtime_vram_by_engine[name] = bool(
                 vram.get("runtime_vram_guard_enabled") is True
                 and vram.get("runtime_vram_guard_status") == "within_budget"
@@ -1171,7 +1173,7 @@ def _run_bridge_integration_case(
                     "peak_device_used_mib": runtime_process_evidence[name]["runtime_vram_peak_used_mib"],
                     "minimum_device_free_mib": runtime_process_evidence[name]["runtime_vram_min_free_mib"],
                     "budget_mib": runtime_process_evidence[name]["runtime_vram_budget_mib"],
-                    "maximum_device_used_mib": runtime_process_evidence[name]["runtime_vram_max_device_used_mib"],
+                    "maximum_allowed_device_used_mib": runtime_process_evidence[name]["runtime_vram_max_allowed_device_used_mib"],
                     "passed": runtime_vram_by_engine[name],
                 } for name in ENGINES
             },
