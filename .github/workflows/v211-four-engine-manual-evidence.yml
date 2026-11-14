@@ -25,9 +25,6 @@ on:
 
 permissions:
   contents: read
-concurrency:
-  group: v211-shop-gpu-evidence
-  cancel-in-progress: false
 
 jobs:
   # Hosted-only status job: it always gives the push/dispatch a check result,
@@ -42,6 +39,11 @@ jobs:
           echo "The self-hosted shop runner is scheduled only by the evidence job after explicit consent and candidate SHA validation."
 
   evidence:
+    # Serialize only access to the physical shop PC. The hosted status job
+    # remains visible while this evidence job waits for the dedicated runner.
+    concurrency:
+      group: v211-shop-gpu-evidence
+      cancel-in-progress: false
     if: >-
       github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103' &&
       (

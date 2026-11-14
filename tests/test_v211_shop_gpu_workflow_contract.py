@@ -148,3 +148,16 @@ def test_candidate_provenance_verifier_resolves_base_sha_without_revision_suffix
     assert "([string]$baseObjectType).Trim() -ne 'commit'" in verifier
     assert "git cat-file -e" not in verifier
     assert chr(92) + "${expectedBaseSha}" not in verifier
+
+def test_shop_gpu_concurrency_is_scoped_to_evidence_job():
+    workflow = _read(".github/workflows/v211-four-engine-manual-evidence.yml")
+    workflow_header = workflow.split("\\njobs:", 1)[0]
+    status_job = workflow.split("  gate_status:", 1)[1].split("  evidence:", 1)[0]
+    evidence_job = workflow.split("  evidence:", 1)[1]
+
+    # A queued physical runner must not hide the independent hosted status job.
+    assert "concurrency:" not in workflow_header
+    assert "concurrency:" not in status_job
+    assert "concurrency:" in evidence_job
+    assert "group: v211-shop-gpu-evidence" in evidence_job
+    assert "cancel-in-progress: false" in evidence_job
