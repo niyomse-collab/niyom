@@ -629,3 +629,14 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - ขอบเขต: synthetic RGB และ RGBA/ICC/300-DPI เท่านั้น; ตรวจ Vulkan/NVIDIA inventory, unique GTX 1660 Ti binding, live PID-to-adapter telemetry ของทั้งสี่ Engine, native 2x outputs, bridge/fusion contract, sampled device-wide VRAM budget 6,144 MiB พร้อม reserve 512 MiB, cancellation/cleanup และ privacy flags.
 - ห้ามใช้ customer artwork, ห้ามอ่าน/อัปโหลด/เก็บภาพผู้ใช้, ห้ามดาวน์โหลดโมเดลระหว่าง diagnostic, ห้ามแก้ accepted V2 output. Workflow เก็บเฉพาะ JSON evidence และลบ workspace ชั่วคราว.
 - ผลที่ผ่านจะยืนยันเฉพาะ synthetic native inference/device/VRAM/bridge contract บนเครื่องที่รันจริง; ต้องคง `quality_improvement_verified=false`, `visual_quality_certified=false`, `print_quality_certified=false` จนกว่าจะมี A/B ภาพจริงที่ผู้ใช้ตรวจและอนุมัติ.
+
+---
+
+## 15 พฤศจิกายน 2569 03:54 ICT — re-dispatch synthetic-only shop GPU evidence for Candidate #814
+
+- Reuse the existing affirmative authorization for the **same installed Candidate #814** only: `56820b5e34109d5dee60f7be1912028edbc9ad47`.
+- The previous push-triggered run #44 remained Pending with zero jobs. The concurrency observability correction is now present in the current workflow; run #45 confirmed the hosted status job can finish independently, while its evidence job was correctly skipped because it had no consent marker.
+- This documentation-only commit carries the same explicit marker: `[shop-gpu-evidence yes candidate=56820b5e34109d5dee60f7be1912028edbc9ad47]`. It does **not** authorize Candidate #815, #816, or any later build.
+- The evidence workflow must verify the shop installation's `BUILD_PROOF.txt`, four-engine manifest, executable hash, per-process GTX 1660 Ti adapter telemetry, 6 GiB budget / 512 MiB reserve, and synthetic RGB/RGBA/ICC/300-DPI outputs. If Candidate #814 is not installed or the dedicated shop runner is unavailable, the job must remain blocked/fail closed.
+- Scope remains synthetic-only: no customer images, no network downloads, no image uploads or retention, no accepted V2 output changes. A passing synthetic diagnostic does not certify visual or print quality.
+- Only this QA document is changed. PR #20 remains Draft; PR #18/V2/GFPGAN, V1 and accepted V2 remain untouched. No merge or release.
