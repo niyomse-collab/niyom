@@ -568,3 +568,33 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 ### Preservation
 - PR #20 base SHA ตรงกับ PR #18 head SHA. Protected face/GFPGAN paths ทั้ง 6 รายการจาก PR #18 ไม่อยู่ใน changed-file list ของ PR #20; PR #20 ไม่แก้ไฟล์เหล่านั้น.
 - PR #20 / PR #18 ยังคง Draft; ไม่มี V1/V2 Stable changes, merge หรือ release. V2 ยังคงเป็น accepted master.
+
+
+## 14 พฤศจิกายน 2569 16:05 ICT — Exact-head Candidate #775 และขอรัน Shop GPU Evidence แบบ Synthetic-only
+
+### Candidate / exact source
+- PR #20 HEAD ที่ตรวจจาก branch ref: `686b5cbb347864da8e321d75cc8ac61936a2ad09`; compare branch กับ SHA นี้เป็น identical (0 ahead / 0 behind).
+- Windows Candidate #775 [GitHub Actions](https://github.com/niyomse-collab/niyom/actions/runs/43568125068) สร้างจาก exact source SHA ข้างต้นและสำเร็จ 2/2 jobs.
+- Bridge/Fusion/coordination: **350 passed**; privacy/provisioning/manifest/hash: **63 passed**.
+- Frozen V2 imports, BigTIFF/libvips synthetic smoke, packaged provisioning `--check-only` (no download/write), consented cache cleanup, diagnostic `--help`, BUILD_PROOF exact-source verification และ installer-slice SHA256 ผ่าน.
+- Installer SHA256: `13283750e699a115d09eef8578a0da80089275902bce92ab7320569e120ddd09`.
+- Artifact ID `14103803599`; size **2,584,530,731 bytes**; ZIP SHA256 `cecff21cb3889a8b1484bfed33c206670102a45f7017cfe5752423aadcd57b33`; [Experimental Candidate #775](https://github.com/niyomse-collab/niyom/actions/runs/43568125068/artifacts/14103803599), expires **21 พ.ย. 2569 14:19 ICT**.
+- Candidate #775 เป็น frozen packaging/provenance pass; ไม่ใช่หลักฐาน interactive install/uninstall หรือ GPU inference จริง.
+
+### Exact-head regression / official archives / native CLI
+- Independent Core #1346 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43568125048): Windows **1007 passed / 1 skipped**; Ubuntu **1005 passed / 3 skipped**; compileall ผ่านทั้งสองระบบ.
+- Official Archive Audit #186 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43568125087): official archives ทั้งสี่ผ่าน hash/safe-archive audit และ transactional provisioning ลง ephemeral QA; Manifest พบครบ 4 engines. Real-ESRGAN และ Real-CUGAN ใช้ observed CI SHA256 pins (ไม่มี publisher digest); Waifu2x และ Anime4KCPP มี published digest. `model_weights_and_license_certified=false`, `license_redistribution_approved=false`; ไม่ bundle binaries/weights.
+- Native CLI Smoke #235 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43568125089): Real-CUGAN และ Anime4KCPP สร้าง synthetic 2x outputs; Real-ESRGAN และ Waifu2x ถูก block ด้วย hosted-runner `vkCreateInstance failed -9` (Waifu2x ยังมี `0xC0000005`). NVML unavailable; physical adapter verification **0/4**; `real_inference_verified=false`, `runtime_device_use_verified=false`, `quality_improvement_verified=false`. Diagnostic workflow SUCCESS เป็นการจำแนกข้อจำกัด Hosted Runner ไม่ใช่ GPU/quality pass.
+- PyInstaller warnings ที่ตรวจจาก Candidate #775: `pycparser.lextab/yacctab`, `scipy.special._cdflib`, driver-provided `nvcuda.dll`, optional Numba `tbb12.dll`. Frozen import/dispatch checks ผ่าน; ยังไม่พบหลักฐานว่า warning เหล่านี้ทำให้ runtime บนเครื่องร้านล้ม. ไม่ bundle NVIDIA driver DLL หรือ TBB DLL จากการคาดเดา; ตรวจ dependency จริงบนเครื่องร้านก่อนตัดสินใจ.
+
+### Shop GPU evidence — exact Candidate #775, synthetic-only
+- Commit นี้เปลี่ยนเฉพาะ QA document เพื่อ trigger workflow ที่กำหนด path นี้ไว้; commit message มี explicit marker `[shop-gpu-evidence yes candidate=686b5cbb347864da8e321d75cc8ac61936a2ad09]`.
+- Evidence job ใช้เฉพาะ self-hosted Windows runner label `niyom-shop-gpu`; ไม่มี Hosted Runner fallback. Preflight ต้องพบ Candidate #775 ที่ติดตั้งภายใต้ Windows account เดียวกับ runner โดย `BUILD_PROOF.txt` ต้องตรง source SHA ข้างต้น และต้องมี verified four-engine Manifest ใน LocalAppData.
+- ใช้เฉพาะ synthetic RGB และ RGBA/ICC/300-DPI images; ไม่มีการอ่าน/อัปโหลดภาพลูกค้า, ไม่มี network download ระหว่าง diagnostic, และ upload ได้เฉพาะ JSON evidence.
+- หาก runner, installed Candidate, Manifest, Vulkan/GTX 1660 Ti binding, per-process telemetry หรือ VRAM preflight ไม่ครบ workflow ต้อง fail closed และ V2 ยังคงเป็น accepted output. หาก Candidate #775 ยังไม่ได้ติดตั้งใน shop runner, job จะหยุดที่ preflight ไม่ติดตั้งโปรแกรมแทนผู้ใช้.
+- แม้ synthetic GPU gate ผ่าน จะรับรองได้เฉพาะ native process/device/metadata/bridge contract; ไม่ใช่ visual A/B หรือ print certification. `quality_improvement_verified=false`, `visual_quality_certified=false`, `print_quality_certified=false` ต้องคงไว้.
+
+### Remaining gates / preservation
+- >18 MP native GPU stress, 6 GB hard cap/peak VRAM, cancel-under-load, visual A/B (people/animals/objects/Thai/English/Chinese/flat/gradient/alpha), Photoshop/MainTop/RIP และ physical print quality ยังไม่รับรอง.
+- PR #18 protected GFPGAN/face files remain byte-identical **5/5** against PR #20 (Blob SHA checked at exact HEAD); optional HAT Assist execution remains a separate compatibility difference, not silently restored.
+- PR #20 / PR #18 remain OPEN / DRAFT / UNMERGED. V1/V2 Stable unchanged; no customer images, native binaries or weights committed; no merge/release. V2 remains accepted master; `quality_certified=false`.
