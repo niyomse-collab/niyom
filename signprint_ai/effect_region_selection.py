@@ -221,7 +221,6 @@ def select_effect_regions(parent, preview_image, original_size, existing_regions
 
     dialog.protocol("WM_DELETE_WINDOW", cancel)
     dialog.bind("<Escape>", lambda _event: cancel())
-    dialog.bind("<Return>", lambda _event: finish())
     dialog.update_idletasks()
     dialog.grab_set()
     dialog.wait_window()
