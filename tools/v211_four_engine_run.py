@@ -149,7 +149,8 @@ def _safe_execution_record(record: dict | None) -> dict | None:
         "runtime_adapter_index", "runtime_adapter_backend_apis",
         "runtime_vram_guard_enabled", "runtime_vram_guard_status",
         "runtime_vram_sample_count", "runtime_vram_peak_used_mib",
-        "runtime_vram_min_free_mib", "runtime_vram_max_device_used_mib",
+        "runtime_vram_min_free_mib", "runtime_vram_max_allowed_device_used_mib",
+        "runtime_vram_max_device_used_mib",
         "runtime_vram_reserve_mib", "runtime_vram_budget_mib",
     )
     return {key: record[key] for key in allowed if key in record}
