@@ -135,7 +135,8 @@ def _safe_process_record(value: dict | None) -> dict | None:
         "runtime_adapter_index", "runtime_adapter_backend_apis",
         "runtime_vram_guard_enabled", "runtime_vram_guard_status",
         "runtime_vram_sample_count", "runtime_vram_peak_used_mib",
-        "runtime_vram_min_free_mib", "runtime_vram_max_device_used_mib",
+        "runtime_vram_min_free_mib", "runtime_vram_max_allowed_device_used_mib",
+        "runtime_vram_max_device_used_mib",
         "runtime_vram_reserve_mib", "runtime_vram_budget_mib",
     )
     result = {key: value[key] for key in allowed if key in value}
@@ -155,7 +156,7 @@ def _runtime_vram_budget_evidence_verified(value: dict | None) -> bool:
     reserve = value.get("runtime_vram_reserve_mib")
     peak = value.get("runtime_vram_peak_used_mib")
     minimum_free = value.get("runtime_vram_min_free_mib")
-    maximum_used = value.get("runtime_vram_max_device_used_mib")
+    maximum_used = value.get("runtime_vram_max_allowed_device_used_mib")
     return bool(
         value.get("runtime_vram_guard_enabled") is True
         and value.get("runtime_vram_guard_status") == "within_budget"
@@ -367,7 +368,8 @@ def run(
                         for key in (
                             "runtime_vram_guard_enabled", "runtime_vram_guard_status",
                             "runtime_vram_sample_count", "runtime_vram_peak_used_mib",
-                            "runtime_vram_min_free_mib", "runtime_vram_max_device_used_mib",
+                            "runtime_vram_min_free_mib", "runtime_vram_max_allowed_device_used_mib",
+        "runtime_vram_max_device_used_mib",
                             "runtime_vram_reserve_mib", "runtime_vram_budget_mib",
                         )
                         if process_record and key in process_record
@@ -429,7 +431,8 @@ def run(
                     for key in (
                         "runtime_vram_guard_enabled", "runtime_vram_guard_status",
                         "runtime_vram_sample_count", "runtime_vram_peak_used_mib",
-                        "runtime_vram_min_free_mib", "runtime_vram_max_device_used_mib",
+                        "runtime_vram_min_free_mib", "runtime_vram_max_allowed_device_used_mib",
+        "runtime_vram_max_device_used_mib",
                         "runtime_vram_reserve_mib", "runtime_vram_budget_mib",
                     )
                     if failure_process_record and key in failure_process_record
