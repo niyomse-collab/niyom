@@ -182,6 +182,80 @@ def test_cancel_terminates_active_native_process_and_removes_partial_output(tmp_
 
 
 
+def test_runtime_vram_guard_terminates_native_process_above_six_gib_budget(tmp_path):
+    from PIL import Image
+
+    source = tmp_path / "source.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    destination = tmp_path / "over-budget.png"
+    script = "import time; time.sleep(10)"
+    commands = {
+        engine: EngineCommand((sys.executable, "-c", script, "{input}", "{output}"))
+        for engine in ENGINES
+    }
+    mib = 1024 * 1024
+    safe = {
+        "verified": True,
+        "status": "verified",
+        "adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+        "adapter_index": 0,
+        "backend_apis": ["graphics"],
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_total_bytes": 8192 * mib,
+        "device_memory_used_bytes": 5632 * mib,
+        "device_memory_free_bytes": 2560 * mib,
+    }
+    over = {
+        **safe,
+        "device_memory_used_bytes": 5633 * mib,
+        "device_memory_free_bytes": 2559 * mib,
+    }
+    samples = iter((safe, over))
+    probe_calls = []
+
+    def probe(pid, engine):
+        probe_calls.append((pid, engine))
+        return next(samples)
+
+    records = {}
+    processor = make_processors(
+        commands,
+        execution_records=records,
+        runtime_device_probe=probe,
+        runtime_vram_guard=True,
+        runtime_vram_budget_mib=6144,
+        runtime_vram_reserve_mib=512,
+    )["real_esrgan"]
+
+    with pytest.raises(RuntimeError, match="6 GiB device-wide VRAM budget exceeded"):
+        processor(source, destination)
+
+    record = records["real_esrgan"]
+    assert len(probe_calls) == 2
+    assert record["status"] == "vram_guard_device_budget_exceeded"
+    assert record["runtime_vram_guard_status"] == "device_budget_exceeded"
+    assert record["runtime_vram_budget_mib"] == 6144
+    assert record["runtime_vram_max_device_used_mib"] == 5632.0
+    assert record["runtime_vram_peak_used_mib"] == 5633.0
+    assert record["runtime_vram_sample_count"] == 2
+    assert not destination.exists()
+
+
+def test_runtime_vram_guard_rejects_invalid_budget_policy():
+    commands = {
+        engine: EngineCommand((sys.executable, "-c", "pass", "{input}", "{output}"))
+        for engine in ENGINES
+    }
+    with pytest.raises(ValueError, match="device budget"):
+        make_processors(
+            commands,
+            runtime_device_probe=lambda _pid, _engine: {},
+            runtime_vram_guard=True,
+            runtime_vram_budget_mib=512,
+        )
+
+
 def test_runtime_adapter_probe_is_sampled_while_process_runs_and_recorded(tmp_path):
     from PIL import Image
 
