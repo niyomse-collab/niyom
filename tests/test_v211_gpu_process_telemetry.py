@@ -574,6 +574,45 @@ def test_runtime_vram_snapshot_records_peak_inputs_and_preserves_512_mib_reserve
     assert safe["free_mib"] == 512.0
 
 
+def test_runtime_vram_snapshot_enforces_fixed_six_gib_device_wide_budget():
+    mib = 1024 * 1024
+    safe = validate_runtime_vram_snapshot({
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_total_bytes": 8192 * mib,
+        "device_memory_used_bytes": 5632 * mib,
+        "device_memory_free_bytes": 2560 * mib,
+    })
+    assert safe["passed"] is True
+    assert safe["budget_mib"] == 6144
+    assert safe["max_device_used_mib"] == 5632.0
+
+    over = validate_runtime_vram_snapshot({
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_total_bytes": 8192 * mib,
+        "device_memory_used_bytes": 5633 * mib,
+        "device_memory_free_bytes": 2559 * mib,
+    })
+    assert over["passed"] is False
+    assert over["status"] == "device_budget_exceeded"
+    assert over["budget_exceeded"] is True
+    assert over["max_device_used_mib"] == 5632.0
+
+
+def test_runtime_vram_snapshot_rejects_budget_not_above_reserve():
+    mib = 1024 * 1024
+    snapshot = {
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_total_bytes": 6144 * mib,
+        "device_memory_used_bytes": 1024 * mib,
+        "device_memory_free_bytes": 5120 * mib,
+    }
+    assert validate_runtime_vram_snapshot(snapshot, budget_mib=512)["status"] == "invalid_budget_policy"
+    assert validate_runtime_vram_snapshot(snapshot, budget_mib=True)["status"] == "invalid_budget_policy"
+
+
 def test_runtime_vram_snapshot_blocks_below_reserve_and_missing_telemetry():
     mib = 1024 * 1024
     low = validate_runtime_vram_snapshot({
