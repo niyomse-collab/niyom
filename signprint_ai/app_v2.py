@@ -1577,8 +1577,9 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, f"ค่าการตั้งค่าไม่ถูกต้อง: {exc}")
             return
 
+        effect_signature = getattr(self, "_effect_region_signature", lambda: ())()
         signature = self._settings_signature(
-            settings, self.output_dir_var.get(), self._effect_region_signature()
+            settings, self.output_dir_var.get(), effect_signature
         )
         if self._processing_active() or self._queued_indices:
             if self._completed_signature is not None and signature != self._completed_signature:
