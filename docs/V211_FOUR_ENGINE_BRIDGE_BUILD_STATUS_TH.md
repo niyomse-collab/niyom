@@ -659,3 +659,34 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Archive audit #178 ผ่าน; Native CLI #226 เป็น diagnostic เท่านั้น และยังคงข้อจำกัด Vulkan/NVML ของ Hosted Runner
 - Code/UI HEAD หลังแก้ compatibility และปุ่ม Enter ใน dialog: `e7cb7a436a97ee19675bdf8ad739e78722a6ea76`. ต้องรัน Core + Candidate ใหม่บน HEAD นี้ก่อนนับว่าการเปลี่ยน UI ผ่าน CI
 - PR #18 protected GFPGAN/face blobs ยังคงต้องตรงกัน 5/5; ยังไม่ Merge/Release และไม่อ้างว่า quality ดีกว่า V2
+
+
+## 14 พฤศจิกายน 2569 10:09 ICT — Exact code/test HEAD 13c1b3fa และ Windows Candidate #770
+
+### ขอบเขตและการเปลี่ยนแปลงล่าสุด
+- PR #20 HEAD ณ เวลาตรวจ: `13c1b3fa64e7d28c51e0f7d5e5733f7a0abe1c49`, branch `work/v211-four-engine-v2-bridge-20261103`, base `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- เปรียบเทียบจาก documentation checkpoint `2ae7d34b97ddea8a2e39097530b8f118d8bd92cf`: 31 commits / 15 changed paths; มีการเชื่อม UI เลือก ROI ต่อไฟล์, queue snapshot, adapter routing, disk-backed large-image bridge และ frozen BigTIFF/libvips smoke
+- เพิ่ม `signprint_ai/effect_region_selection.py` และ `tests/test_v211_effect_region_selection.py`; App import selector โดยตรง และ `tests/test_v211_effect_roi_queue_integration.py` ตรวจว่า ROI ของแต่ละไฟล์ไม่ปะปนเมื่อ enqueue และถูกส่งถึง bridge หลัง accepted V2 ถูกบันทึกแล้ว
+- ROI เป็น pixel-protection mask เท่านั้น ไม่ OCR/retype/redraw ตัวอักษร และไม่แก้ accepted V2 output
+
+### Exact-head CI
+- Windows Candidate #770: [GitHub Actions](https://github.com/niyomse-collab/niyom/actions/runs/43541855776) — **SUCCESS 2/2 jobs** บน source SHA `13c1b3f`: bridge-tests และ windows-v2-candidate
+- Bridge tests: **348 passed**; privacy/provisioning/manifest/hash suite: **63 passed**
+- Independent Core #1338: [GitHub Actions](https://github.com/niyomse-collab/niyom/actions/runs/43541855782) — Windows **1005 passed / 1 skipped**, Ubuntu **1003 passed / 3 skipped**; compileall ผ่านทั้งสองระบบ
+- Frozen package smoke: imports ผ่าน; packaged four-engine provisioning `--check-only` ผ่านโดยไม่ดาวน์โหลด/เขียน cache; packaged diagnostic `--help` ผ่าน
+- Packaged TIFF/BigTIFF smoke ผ่าน: ตรวจ single-page BigTIFF, streamed libvips seed/QA path, ปฏิเสธ multipage TIFF, ICC/DPI, odd-size crop และยืนยัน SHA256 ของ accepted V2 ไม่เปลี่ยน; ใช้ synthetic files และรายงาน `customer_files_accessed=false`. การทดสอบนี้ไม่ใช่ native GPU inference หรือ visual-quality acceptance
+- Artifact ID `14093009417`, size **2,584,650,772 bytes**, ZIP SHA256 `6adbb77bf2af1df0889638ad8d192cfdcb1c125fb635e1fd0c53f34f6316d77d`; [Experimental Candidate #770](https://github.com/niyomse-collab/niyom/actions/runs/43541855776/artifacts/14093009417), expires **21 พ.ย. 2569 09:13 ICT**
+- Installer SHA256 จาก Windows build log: `570a1ec134015dc92e6991b5a071a19f124ce917008389ebd20b12ad7dcf0ac5`
+- PyInstaller มี non-fatal warnings: `pycparser.lextab/yacctab`, `scipy.special._cdflib`, driver-provided `nvcuda.dll`, และ optional `tbb12.dll` ของ Numba. Frozen import smoke ผ่าน แต่ runtime relevance ยังต้องตรวจบนเครื่องร้าน; ไม่ bundle driver DLL หรือเดา dependency เพิ่ม
+
+### Official assets และ Native CLI
+- Official Archive Audit #182: [GitHub Actions](https://github.com/niyomse-collab/niyom/actions/runs/43541855947) — ดาวน์โหลด official Windows archives ทั้งสี่, ตรวจ SHA256, safe audit และ transactional provisioning ไปยัง ephemeral QA directory ผ่าน; manifest มี `real_esrgan`, `waifu2x`, `real_cugan`, `anime4k` ครบ
+- Archive pins: Real-ESRGAN `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (observed CI pin, publisher digest unavailable); Waifu2x `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (published digest); Real-CUGAN `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (observed CI pin, publisher digest unavailable); Anime4KCPP `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (published digest)
+- `model_weights_and_license_certified=false` และ `license_redistribution_approved=false`; native binaries/weights ยังคงไม่อยู่ใน installer/repository
+- Native CLI Smoke #230: [GitHub Actions](https://github.com/niyomse-collab/niyom/actions/runs/43541855863) — Real-CUGAN และ Anime4KCPP สร้าง synthetic 2x output ได้; Real-ESRGAN และ Waifu2x ติด hosted-runner Vulkan `vkCreateInstance failed -9` (Waifu2x มี `0xC0000005`); NVML library not found, physical adapter verification **0/4**, `real_inference_verified=false`, `quality_improvement_verified=false`. Diagnostic workflow SUCCESS ไม่ใช่การรับรอง GPU/คุณภาพ
+
+### Protected V2/GFPGAN และสถานะปล่อยงาน
+- เทียบ Blob SHA ของ protected files ระหว่าง PR #18 HEAD `288dd850` กับ PR #20 HEAD `13c1b3f`: `face_protection.py`, `face_module/__init__.py`, `large_faces.py`, `v211_face_contract.py`, `test_v211_face_contract.py` ตรงกัน **5/5**
+- PR #20 และ PR #18 ยังคง OPEN/DRAFT/UNMERGED; V1/V2 Stable ไม่เปลี่ยน; ไม่มี customer images, native binaries หรือ model weights commit
+- Candidate #770 เป็น frozen packaging/provenance + synthetic smoke pass เท่านั้น ไม่รับรอง interactive install/uninstall, GPU inference 4/4 บน GTX 1660 Ti, peak VRAM 6 GB, A/B ภาพจริง, Photoshop/MainTop/RIP หรือคุณภาพงานพิมพ์
+- `real_inference_verified=false`, `quality_certified=false`; V2 ยังคงเป็น accepted master; ห้าม merge/release จนกว่าผู้ใช้ตรวจ GPU/visual/print evidence และอนุมัติ
