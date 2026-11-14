@@ -365,7 +365,7 @@ def make_processors(
                     if status == "reserve_breached":
                         abort_runtime_vram(
                             "reserve_breached",
-                            "runtime VRAM safety reserve breached; native engine stopped",
+                            "runtime VRAM reserve breached; native engine stopped",
                         )
                     if status == "device_budget_exceeded":
                         abort_runtime_vram(
