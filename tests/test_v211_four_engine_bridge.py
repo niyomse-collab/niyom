@@ -186,6 +186,7 @@ def test_faulty_engine_does_not_fail_v2_job(tmp_path, monkeypatch):
         ((24, 24), (12, 12), (24, 24)),     # exact 3x via half-target seed
         ((32, 32), (16, 16), (32, 32)),     # exact 4x via half-target seed
         ((32, 24), (16, 12), (32, 24)),    # anisotropic 4x by 3x
+        ((64, 64), (32, 32), (64, 64)),    # 8x source-to-print via one native 2x pass
         ((25, 17), (13, 9), (26, 18)),     # custom odd dimensions, edge-padded
     ],
 )
@@ -313,15 +314,27 @@ def test_rgb_tiff_v2_output_gets_local_png_qa_without_modifying_tiff(tmp_path, m
         assert image.info.get("icc_profile") == icc
 
 
-def test_fusion_with_missing_engine_pixel_effect_is_not_reported_ready(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("target_size", "expected_seed"),
+    [((16, 16), (8, 8)), ((64, 64), (32, 32))],
+)
+def test_fusion_with_missing_engine_pixel_effect_is_not_reported_ready(
+    tmp_path, monkeypatch, target_size, expected_seed
+):
     source, baseline = _images(tmp_path)
+    if target_size != (16, 16):
+        Image.new("RGBA", target_size, (30, 40, 50, 120)).save(baseline)
     before = baseline.read_bytes()
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
     monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
     from tools import v211_four_engine_run
+    observed = {}
 
     def fake_run(src, output_dir, manifest, size, **kwargs):
+        with Image.open(src) as seed:
+            observed["seed_size"] = seed.size
+        assert tuple(size) == target_size
         output_dir.mkdir(parents=True, exist_ok=True)
         fused = output_dir / "four_engine_fused_preview.png"
         Image.new("RGBA", size, (210, 20, 40, 120)).save(fused)
@@ -348,6 +361,7 @@ def test_fusion_with_missing_engine_pixel_effect_is_not_reported_ready(tmp_path,
 
     monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
     result = bridge.maybe_run_four_engine_assist(source, baseline)
+    assert observed["seed_size"] == expected_seed
     assert result["status"] == "four_engine_fusion_contribution_incomplete"
     assert result["all_four_engine_pixels_contributed"] is False
     assert result["engine_pixel_effect_verified"]["anime4k"] is False
