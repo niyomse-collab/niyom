@@ -27,6 +27,7 @@ from .v2_output import output_folder as v2_output_folder, output_path as v2_outp
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
+from .effect_region_selection import select_effect_regions
 from .v211_ui_status import four_engine_preview_allowed, four_engine_preview_caption, four_engine_ui_status
 from .v211_cuda_compat import format_cuda_driver_status, probe_cuda_12_8_driver_compatibility
 
@@ -57,6 +58,9 @@ class App(tk.Tk):
         self.pipeline = NiyomSilpCoreAdapter()
         self._face_detector = FaceDetector()
         self._face_reviews = {}
+        # Per-file, source-normalized ROIs copied from V2 during optional fusion.
+        # This is a pixel-protection mask only; no text is read or reconstructed.
+        self._effect_reviews = {}
         self._face_scanning = set()
         self._resume_after_faces = False
         self.files: list[Path] = []
@@ -751,6 +755,16 @@ class App(tk.Tk):
             row=12, column=0, columnspan=3, sticky="ew", pady=(5, 0))
         self.face_strength_var = tk.IntVar(value=65)
         self._slider(quality, "Face Strength", self.face_strength_var, 10, 10, 80)
+        ttk.Button(
+            quality, text="เลือกพื้นที่ปกป้องข้อความเอฟเฟกต์…",
+            command=self._select_effect_regions,
+        ).grid(row=13, column=0, columnspan=3, sticky="ew", pady=(7, 0))
+        self.effect_region_status_var = tk.StringVar(value="เลือกภาพก่อนกำหนดพื้นที่ปกป้อง")
+        tk.Label(
+            quality, textvariable=self.effect_region_status_var,
+            bg="#111820", fg="#FFD54F", anchor="w", justify="left",
+            wraplength=285,
+        ).grid(row=14, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         tk.Label(
             quality,
             text="Recover: ฟื้นฟูใบหน้า (แนะนำ) • Protect: ใช้ใบหน้าต้นฉบับ ไม่ฟื้นฟู • Studio AI: ฟื้นฟูและแต่งผิว",
@@ -798,6 +812,8 @@ class App(tk.Tk):
         self._completed_signature = None
         self._queued_indices.clear()
         self._reserved_output_paths.clear()
+        self._effect_reviews.clear()
+        self._update_effect_region_status()
         while True:
             try:
                 self._job_queue.get_nowait()
@@ -850,6 +866,68 @@ class App(tk.Tk):
             windnd.hook_dropfiles(self, func=dropped)
         except Exception:
             return
+
+    def _update_effect_region_status(self):
+        if not hasattr(self, "effect_region_status_var"):
+            return
+        if self.current_index is None or self.current_index >= len(self.files):
+            self.effect_region_status_var.set("เลือกภาพก่อนกำหนดพื้นที่ปกป้อง")
+            return
+        try:
+            key = self._face_key(self.files[self.current_index])
+            regions = self._effect_reviews.get(key, ())
+        except OSError:
+            regions = ()
+        if regions:
+            self.effect_region_status_var.set(
+                f"ปกป้อง {len(regions)} พื้นที่ • คงพิกเซล V2 เดิมในบริเวณที่เลือก"
+            )
+        else:
+            self.effect_region_status_var.set(
+                "ยังไม่กำหนด ROI • ไม่มีการปกป้องเอฟเฟกต์เฉพาะจุด"
+            )
+
+    def _select_effect_regions(self):
+        if self.current_index is None or self.current_index >= len(self.files):
+            messagebox.showinfo(APP_NAME, "กรุณาเลือกภาพก่อนกำหนดพื้นที่ปกป้อง")
+            return
+        if self._processing_active() or self._queued_indices:
+            messagebox.showinfo(
+                APP_NAME,
+                "กรุณาหยุดหรือรอคิวปัจจุบันให้เสร็จก่อนเปลี่ยนพื้นที่ปกป้อง",
+            )
+            return
+        path = self.files[self.current_index]
+        try:
+            key = self._face_key(path)
+            source_size = image_size(path)
+            preview = thumbnail(path, (1000, 680))
+            selected = select_effect_regions(
+                self, preview, source_size, self._effect_reviews.get(key, ())
+            )
+        except Exception as exc:
+            messagebox.showerror(
+                APP_NAME,
+                "ไม่สามารถเปิดตัวเลือกพื้นที่ปกป้องได้\n\n" + str(exc),
+            )
+            return
+        if selected is None:
+            return
+        if selected:
+            self._effect_reviews[key] = tuple(selected)
+        else:
+            self._effect_reviews.pop(key, None)
+        self._update_effect_region_status()
+        self._settings_changed(schedule_preview=False)
+        self._set_status(
+            f"{path.name} • ปกป้องข้อความ/เอฟเฟกต์ {len(selected)} พื้นที่จาก V2"
+        )
+
+    def _effect_region_signature(self):
+        return tuple(sorted(
+            (repr(key), tuple(tuple(region) for region in regions))
+            for key, regions in self._effect_reviews.items()
+        ))
 
     @staticmethod
     def _face_key(path):
@@ -1002,6 +1080,7 @@ class App(tk.Tk):
                 except ValueError:
                     pass
             self.left_caption.configure(text=f"{p.name}   •   {w:,} × {h:,} px")
+            self._update_effect_region_status()
             if hasattr(self, "input_path_label"):
                 self.input_path_label.configure(text=str(p))
             self._refresh_preview_images()
@@ -1251,7 +1330,7 @@ class App(tk.Tk):
                               settings.color_mode, self._reserved_output_paths)
 
     @staticmethod
-    def _settings_signature(settings, output_directory):
+    def _settings_signature(settings, output_directory, effect_region_signature=()):
         """Snapshot all UI/print settings used for one batch of completed files.
 
         Never rely on the mutable Settings object itself: the user may move a
@@ -1261,6 +1340,7 @@ class App(tk.Tk):
         return (type(settings).__qualname__,
                 tuple((field.name, repr(getattr(settings, field.name)))
                       for field in fields(settings)),
+                repr(effect_region_signature),
                 str(output_directory))
 
     def _processing_active(self) -> bool:
@@ -1283,8 +1363,13 @@ class App(tk.Tk):
                     self._events.put(("row_status", idx, "รอตรวจจับ / ยืนยันใบหน้า"))
                     continue
                 regions = self._face_reviews[key]
-                job_settings = replace(settings, face_regions=regions,
-                                       face_protection=bool(regions) and settings.face_protection)
+                effect_regions = self._effect_reviews.get(key, ())
+                job_settings = replace(
+                    settings,
+                    face_regions=regions,
+                    face_protection=bool(regions) and settings.face_protection,
+                    v211_protected_effect_regions=effect_regions,
+                )
                 out = self._output_path(src, job_settings)
                 self._reserved_output_paths.add(out)
                 self._job_queue.put((idx, src, out, job_settings))
@@ -1491,7 +1576,9 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, f"ค่าการตั้งค่าไม่ถูกต้อง: {exc}")
             return
 
-        signature = self._settings_signature(settings, self.output_dir_var.get())
+        signature = self._settings_signature(
+            settings, self.output_dir_var.get(), self._effect_region_signature()
+        )
         if self._processing_active() or self._queued_indices:
             if self._completed_signature is not None and signature != self._completed_signature:
                 # Do not mix two independent slider configurations within one
