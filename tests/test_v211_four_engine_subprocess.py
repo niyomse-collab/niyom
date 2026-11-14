@@ -236,6 +236,7 @@ def test_runtime_vram_guard_terminates_native_process_above_six_gib_budget(tmp_p
     assert record["status"] == "vram_guard_device_budget_exceeded"
     assert record["runtime_vram_guard_status"] == "device_budget_exceeded"
     assert record["runtime_vram_budget_mib"] == 6144
+    assert record["runtime_vram_max_allowed_device_used_mib"] == 5632.0
     assert record["runtime_vram_max_device_used_mib"] == 5632.0
     assert record["runtime_vram_peak_used_mib"] == 5633.0
     assert record["runtime_vram_sample_count"] == 2
