@@ -13,6 +13,7 @@ import ctypes
 import hashlib
 from datetime import datetime, timezone
 import io
+import inspect
 import json
 import math
 import os
@@ -714,6 +715,66 @@ def _runtime_device_evidence_verified(flag: object, telemetry: object) -> bool:
     return True
 
 
+
+def _runtime_vram_budget_evidence_verified(process: dict | None) -> bool:
+    """Validate one engine's sampled device-wide VRAM evidence."""
+    if not isinstance(process, dict):
+        return False
+    samples = process.get("runtime_vram_sample_count")
+    budget = process.get("runtime_vram_budget_mib")
+    reserve = process.get("runtime_vram_reserve_mib")
+    peak = process.get("runtime_vram_peak_used_mib")
+    minimum_free = process.get("runtime_vram_min_free_mib")
+    maximum_used = process.get("runtime_vram_max_device_used_mib")
+    return bool(
+        process.get("runtime_vram_guard_enabled") is True
+        and process.get("runtime_vram_guard_status") == "within_budget"
+        and isinstance(samples, int) and not isinstance(samples, bool) and samples >= 2
+        and isinstance(budget, int) and not isinstance(budget, bool)
+        and budget == RUNTIME_VRAM_BUDGET_MIB
+        and isinstance(reserve, int) and not isinstance(reserve, bool)
+        and reserve == RUNTIME_VRAM_RESERVE_MIB
+        and isinstance(peak, (int, float)) and not isinstance(peak, bool)
+        and math.isfinite(float(peak))
+        and 0 <= float(peak) <= RUNTIME_VRAM_BUDGET_MIB - RUNTIME_VRAM_RESERVE_MIB
+        and isinstance(minimum_free, (int, float)) and not isinstance(minimum_free, bool)
+        and math.isfinite(float(minimum_free))
+        and float(minimum_free) >= RUNTIME_VRAM_RESERVE_MIB
+        and isinstance(maximum_used, (int, float)) and not isinstance(maximum_used, bool)
+        and math.isfinite(float(maximum_used))
+        and 0 < float(maximum_used) <= RUNTIME_VRAM_BUDGET_MIB - RUNTIME_VRAM_RESERVE_MIB
+        and float(peak) <= float(maximum_used)
+    )
+
+
+def _call_engine_runner_with_vram_guard(
+    engine_runner, manifest, source, output, *, timeout_seconds: int
+) -> dict:
+    """Enable the guard for production runs; test doubles cannot certify it."""
+    try:
+        parameters = inspect.signature(engine_runner).parameters
+        accepts_kwargs = any(
+            item.kind == inspect.Parameter.VAR_KEYWORD
+            for item in parameters.values()
+        )
+    except (TypeError, ValueError):
+        parameters = {}
+        accepts_kwargs = False
+    supports_guard = "runtime_vram_guard" in parameters or accepts_kwargs
+    if not supports_guard and engine_runner is run_real_inference_qa:
+        return {
+            "real_inference_verified": False,
+            "completed_engine_count": 0,
+            "failed_stage": "runtime_vram_guard_unavailable",
+            "failure_type": "RuntimeError",
+            "engines": {},
+        }
+    kwargs = {"timeout_seconds": timeout_seconds}
+    if supports_guard:
+        kwargs["runtime_vram_guard"] = True
+    return engine_runner(manifest, source, output, **kwargs)
+
+
 def _case_summary(value: dict) -> dict:
     engine_data = value.get("engines") or {}
     failures = value.get("failures") or {}
@@ -721,6 +782,16 @@ def _case_summary(value: dict) -> dict:
     for name in ENGINES:
         item = engine_data.get(name) or {}
         failure = failures.get(name) or {}
+        process = item.get("process") or failure.get("process")
+        if not isinstance(process, dict):
+            process = {}
+        vram_keys = (
+            "runtime_vram_guard_enabled", "runtime_vram_guard_status",
+            "runtime_vram_sample_count", "runtime_vram_peak_used_mib",
+            "runtime_vram_min_free_mib", "runtime_vram_max_device_used_mib",
+            "runtime_vram_reserve_mib", "runtime_vram_budget_mib",
+        )
+        vram_telemetry = {key: process[key] for key in vram_keys if key in process}
         engines[name] = {
             "status": item.get("status", "failed"),
             "output_size": item.get("size"),
@@ -737,9 +808,15 @@ def _case_summary(value: dict) -> dict:
                 item.get("runtime_device_telemetry")
                 if isinstance(item.get("runtime_device_telemetry"), dict) else {}
             ),
+            "runtime_vram_budget_verified": _runtime_vram_budget_evidence_verified(process),
+            "runtime_vram_telemetry": vram_telemetry,
             "error_type": failure.get("error_type"),
             "error_class": failure.get("error_class"),
         }
+    per_engine_vram = {
+        name: bool(engines[name]["runtime_vram_budget_verified"])
+        for name in ENGINES
+    }
     return {
         "native_cli_outputs_validated": bool(
             value.get("real_inference_verified")
@@ -750,6 +827,12 @@ def _case_summary(value: dict) -> dict:
             name: bool(engines[name]["runtime_device_use_verified"])
             for name in ENGINES
         },
+        "runtime_vram_guard_requested": value.get("runtime_vram_guard_requested") is True,
+        "runtime_vram_budget_passed": bool(
+            value.get("runtime_vram_budget_passed") is True
+            and all(per_engine_vram.values())
+        ),
+        "per_engine_runtime_vram_budget_passed": per_engine_vram,
         "failed_stage": value.get("failed_stage"),
         "failure_type": value.get("failure_type"),
         "engines": engines,
@@ -1196,8 +1279,8 @@ def run_diagnostic(
                 }
             else:
                 try:
-                    result = engine_runner(
-                        bound_manifest, source, case_output,
+                    result = _call_engine_runner_with_vram_guard(
+                        engine_runner, bound_manifest, source, case_output,
                         timeout_seconds=timeout_seconds,
                     )
                 except Exception as exc:
@@ -1239,9 +1322,9 @@ def run_diagnostic(
     engine_matrix = {
         name: {
             "rgb_pass": cases["rgb_icc_dpi"]["engines"][name]["status"]
-            == "binary_executed_and_2x_output_validated",
+            in ("binary_executed_and_2x_output_validated", "native_process_and_2x_output_validated"),
             "rgba_pass": cases["rgba_alpha_icc_dpi"]["engines"][name]["status"]
-            == "binary_executed_and_2x_output_validated",
+            in ("binary_executed_and_2x_output_validated", "native_process_and_2x_output_validated"),
         }
         for name in ENGINES
     }
@@ -1298,7 +1381,23 @@ def run_diagnostic(
         bridge_runtime_vram = {
             name: bridge_runtime_vram.get(name) is True for name in ENGINES
         }
-    runtime_vram_budget_passed = all(bridge_runtime_vram.values())
+    native_cli_case_names = ("rgb_icc_dpi", "rgba_alpha_icc_dpi")
+    per_engine_native_cli_runtime_vram = {
+        name: all(
+            cases.get(case_name, {}).get(
+                "per_engine_runtime_vram_budget_passed", {}
+            ).get(name) is True
+            for case_name in native_cli_case_names
+        )
+        for name in ENGINES
+    }
+    native_cli_runtime_vram_budget_passed = all(
+        per_engine_native_cli_runtime_vram.values()
+    )
+    runtime_vram_budget_passed = bool(
+        native_cli_runtime_vram_budget_passed
+        and all(bridge_runtime_vram.values())
+    )
     engine_backend_expectations = {
         name: {
             "expected_backend": (
@@ -1350,6 +1449,8 @@ def run_diagnostic(
         "runtime_device_use_verified": runtime_device_use_verified,
         "per_engine_runtime_device_use_verified": runtime_by_engine,
         "runtime_vram_budget_passed": runtime_vram_budget_passed,
+        "native_cli_runtime_vram_budget_passed": native_cli_runtime_vram_budget_passed,
+        "per_engine_native_cli_runtime_vram_budget_passed": per_engine_native_cli_runtime_vram,
         "per_engine_runtime_vram_budget_passed": bridge_runtime_vram,
         "shop_gpu_acceptance_passed": bool(
             bridge_integration.get("passed")
@@ -1393,7 +1494,8 @@ def run_diagnostic(
             "If NVML process accounting is unavailable, a process exits before it can be sampled, or the PID is visible only on another adapter, runtime_device_use_verified remains false.",
             "Shop GPU acceptance and a zero CLI exit code require positive runtime-adapter telemetry for all four native processes on the selected GTX 1660 Ti in RGB, RGBA, and end-to-end bridge runs.",
             "The end-to-end bridge case runs the actual V2.1.1 bridge and four-engine fusion on a generated RGBA/ICC/300-DPI image; it checks four pixel contributions, per-process VRAM preflight records, exact V2-reference preservation and output metadata.",
-            "The runtime VRAM guard samples whole-device NVML usage during native execution and enforces a 6144 MiB device-wide budget with a 512 MiB reserve (maximum sampled used memory 5632 MiB on a 6 GiB adapter); desktop and other GPU clients count toward the same budget.",
+            "The runtime VRAM guard is enabled for both standalone RGB/RGBA native CLI cases and the end-to-end bridge case; acceptance requires at least two passing samples per engine in every case.",
+            "The guard samples whole-device NVML usage and enforces a 6144 MiB device-wide budget with a 512 MiB reserve (maximum sampled used memory 5632 MiB on a 6 GiB adapter); desktop and other GPU clients count toward the same budget.",
             "This is a sampled monitor-and-terminate guard, not a driver-level per-process allocation quota; usage may briefly overshoot between samples. Missing telemetry or a budget breach stops the native process tree and prevents QA publication.",
             "A passing bridge case still does not prove which physical adapter each native process used or certify visual/print quality; compare real owner-approved images separately.",
         ],

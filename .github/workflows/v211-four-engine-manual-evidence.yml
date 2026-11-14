@@ -192,17 +192,23 @@ jobs:
             'four_engine_bridge_fusion_passed_on_gtx1660ti_configured_host',
             'runtime_device_use_verified',
             'runtime_vram_budget_passed',
+            'native_cli_runtime_vram_budget_passed',
             'shop_gpu_acceptance_passed'
           )
           foreach ($field in $requiredTrue) {
             if ($report.$field -ne $true) { throw ('Required QA field did not pass: ' + $field) }
           }
           $perEngine = $report.per_engine_runtime_device_use_verified
+          $nativeVram = $report.per_engine_native_cli_runtime_vram_budget_passed
           $runtimeEvidence = $report.bridge_integration.runtime_process_evidence
           foreach ($engine in @('real_esrgan', 'waifu2x', 'real_cugan', 'anime4k')) {
             $engineEvidence = if ($null -ne $perEngine) { $perEngine.PSObject.Properties[$engine] } else { $null }
             if ($null -eq $engineEvidence -or $engineEvidence.Value -ne $true) {
               throw ('Physical adapter use is not verified for engine: ' + $engine)
+            }
+            $nativeVramEngine = if ($null -ne $nativeVram) { $nativeVram.PSObject.Properties[$engine] } else { $null }
+            if ($null -eq $nativeVramEngine -or $nativeVramEngine.Value -ne $true) {
+              throw ('Native RGB/RGBA CLI VRAM evidence is not verified for engine: ' + $engine)
             }
             $detailProperty = if ($null -ne $runtimeEvidence) { $runtimeEvidence.PSObject.Properties[$engine] } else { $null }
             if ($null -eq $detailProperty) { throw ('Runtime telemetry detail is missing for engine: ' + $engine) }

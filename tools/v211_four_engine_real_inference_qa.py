@@ -10,6 +10,7 @@ import argparse
 from dataclasses import replace
 import hashlib
 import json
+import math
 from pathlib import Path
 import os
 import inspect
@@ -17,7 +18,9 @@ import inspect
 from PIL import Image
 
 from tools.v211_four_engine_subprocess import ENGINES, make_processors
-from tools.v211_gpu_process_telemetry import NvmlProcessProbe
+from tools.v211_gpu_process_telemetry import (
+    RUNTIME_VRAM_BUDGET_MIB, RUNTIME_VRAM_RESERVE_MIB, NvmlProcessProbe,
+)
 
 NCNN_VULKAN_ENGINES = ("real_esrgan", "waifu2x", "real_cugan")
 from tools.v211_real_engine_manifest import load_real_engine_manifest
@@ -130,12 +133,48 @@ def _safe_process_record(value: dict | None) -> dict | None:
         "runtime_device_probe_error_type", "runtime_device_probe_conflict",
         "runtime_adapter_name",
         "runtime_adapter_index", "runtime_adapter_backend_apis",
+        "runtime_vram_guard_enabled", "runtime_vram_guard_status",
+        "runtime_vram_sample_count", "runtime_vram_peak_used_mib",
+        "runtime_vram_min_free_mib", "runtime_vram_max_device_used_mib",
+        "runtime_vram_reserve_mib", "runtime_vram_budget_mib",
     )
     result = {key: value[key] for key in allowed if key in value}
     exit_code = value.get("exit_code")
     if isinstance(exit_code, int) and not isinstance(exit_code, bool):
         result["exit_code_hex"] = f"0x{exit_code & 0xFFFFFFFF:08X}"
     return result
+
+
+
+def _runtime_vram_budget_evidence_verified(value: dict | None) -> bool:
+    """Require sampled whole-device budget evidence for one native process."""
+    if not isinstance(value, dict):
+        return False
+    samples = value.get("runtime_vram_sample_count")
+    budget = value.get("runtime_vram_budget_mib")
+    reserve = value.get("runtime_vram_reserve_mib")
+    peak = value.get("runtime_vram_peak_used_mib")
+    minimum_free = value.get("runtime_vram_min_free_mib")
+    maximum_used = value.get("runtime_vram_max_device_used_mib")
+    return bool(
+        value.get("runtime_vram_guard_enabled") is True
+        and value.get("runtime_vram_guard_status") == "within_budget"
+        and isinstance(samples, int) and not isinstance(samples, bool) and samples >= 2
+        and isinstance(budget, int) and not isinstance(budget, bool)
+        and budget == RUNTIME_VRAM_BUDGET_MIB
+        and isinstance(reserve, int) and not isinstance(reserve, bool)
+        and reserve == RUNTIME_VRAM_RESERVE_MIB
+        and isinstance(peak, (int, float)) and not isinstance(peak, bool)
+        and math.isfinite(float(peak))
+        and 0 <= float(peak) <= RUNTIME_VRAM_BUDGET_MIB - RUNTIME_VRAM_RESERVE_MIB
+        and isinstance(minimum_free, (int, float)) and not isinstance(minimum_free, bool)
+        and math.isfinite(float(minimum_free))
+        and float(minimum_free) >= RUNTIME_VRAM_RESERVE_MIB
+        and isinstance(maximum_used, (int, float)) and not isinstance(maximum_used, bool)
+        and math.isfinite(float(maximum_used))
+        and 0 < float(maximum_used) <= RUNTIME_VRAM_BUDGET_MIB - RUNTIME_VRAM_RESERVE_MIB
+        and float(peak) <= float(maximum_used)
+    )
 
 
 def _native_process_execution_verified(value: dict | None) -> bool:
@@ -154,31 +193,47 @@ def _native_process_execution_verified(value: dict | None) -> bool:
 
 
 def _make_processors_with_telemetry(
-    commands, execution_records: dict, runtime_device_probe=None
+    commands, execution_records: dict, runtime_device_probe=None, *,
+    runtime_vram_guard: bool = False,
 ) -> dict:
-    """Pass lifecycle and NVML PID telemetry; tolerate legacy test doubles."""
+    """Pass process telemetry and optionally require the live VRAM guard."""
+    if not isinstance(runtime_vram_guard, bool):
+        raise ValueError("runtime_vram_guard must be a boolean")
+    if runtime_vram_guard and runtime_device_probe is None:
+        raise RuntimeError("runtime VRAM telemetry guard is unavailable")
     try:
         parameters = inspect.signature(make_processors).parameters
         accepts_kwargs = any(
             item.kind == inspect.Parameter.VAR_KEYWORD
             for item in parameters.values()
         )
-        kwargs = {}
-        if "execution_records" in parameters or accepts_kwargs:
-            kwargs["execution_records"] = execution_records
-        if "runtime_device_probe" in parameters or accepts_kwargs:
-            kwargs["runtime_device_probe"] = runtime_device_probe
-        return make_processors(commands, **kwargs)
     except (TypeError, ValueError):
+        if runtime_vram_guard:
+            raise RuntimeError("runtime VRAM telemetry guard is unavailable")
         return make_processors(commands)
+    if runtime_vram_guard and not (
+        "runtime_vram_guard" in parameters or accepts_kwargs
+    ):
+        raise RuntimeError("runtime VRAM telemetry guard is unavailable")
+    kwargs = {}
+    if "execution_records" in parameters or accepts_kwargs:
+        kwargs["execution_records"] = execution_records
+    if "runtime_device_probe" in parameters or accepts_kwargs:
+        kwargs["runtime_device_probe"] = runtime_device_probe
+    if "runtime_vram_guard" in parameters or accepts_kwargs:
+        kwargs["runtime_vram_guard"] = runtime_vram_guard
+    return make_processors(commands, **kwargs)
 
 
 
 def run(
-    manifest: Path, source: Path, output_dir: Path, *, timeout_seconds: int | None = None
+    manifest: Path, source: Path, output_dir: Path, *, timeout_seconds: int | None = None,
+    runtime_vram_guard: bool = False,
 ) -> dict:
     # A missing or untrusted installation must still leave a failure report.
     # Do not create output images or invoke any executable until all hashes pass.
+    if not isinstance(runtime_vram_guard, bool):
+        raise ValueError("runtime_vram_guard must be a boolean")
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / "real_inference_report.json"
     runtime_probe = NvmlProcessProbe(target_name="gtx 1660 ti")
@@ -193,7 +248,8 @@ def run(
             }
         process_telemetry = {}
         processors = _make_processors_with_telemetry(
-            commands, process_telemetry, runtime_device_probe=runtime_probe
+            commands, process_telemetry, runtime_device_probe=runtime_probe,
+            runtime_vram_guard=runtime_vram_guard,
         )
     except Exception as exc:
         runtime_probe.close()
@@ -219,6 +275,11 @@ def run(
         },
         "quality_improvement_verified": False,
         "runtime_device_use_verified": False,
+        "runtime_vram_guard_requested": runtime_vram_guard,
+        "runtime_vram_budget_passed": False,
+        "per_engine_runtime_vram_budget_passed": {
+            name: False for name in ENGINES
+        },
         "execution_evidence_scope": (
             "candidate output invariants plus separately recorded native process lifecycle; "
             "GPU adapter use requires independent runtime telemetry"
@@ -298,6 +359,19 @@ def run(
                     "runtime_device_use_verified": bool(
                         process_record and process_record.get("runtime_device_use_verified") is True
                     ),
+                    "runtime_vram_budget_verified": _runtime_vram_budget_evidence_verified(
+                        process_record
+                    ),
+                    "runtime_vram_telemetry": {
+                        key: process_record.get(key)
+                        for key in (
+                            "runtime_vram_guard_enabled", "runtime_vram_guard_status",
+                            "runtime_vram_sample_count", "runtime_vram_peak_used_mib",
+                            "runtime_vram_min_free_mib", "runtime_vram_max_device_used_mib",
+                            "runtime_vram_reserve_mib", "runtime_vram_budget_mib",
+                        )
+                        if process_record and key in process_record
+                    },
                     "runtime_device_telemetry": {
                         key: process_record.get(key)
                         for key in (
@@ -347,6 +421,19 @@ def run(
                 "runtime_device_use_verified": bool(
                     process_telemetry.get(engine, {}).get("runtime_device_use_verified") is True
                 ),
+                "runtime_vram_budget_verified": _runtime_vram_budget_evidence_verified(
+                    failure_process_record
+                ),
+                "runtime_vram_telemetry": {
+                    key: failure_process_record.get(key)
+                    for key in (
+                        "runtime_vram_guard_enabled", "runtime_vram_guard_status",
+                        "runtime_vram_sample_count", "runtime_vram_peak_used_mib",
+                        "runtime_vram_min_free_mib", "runtime_vram_max_device_used_mib",
+                        "runtime_vram_reserve_mib", "runtime_vram_budget_mib",
+                    )
+                    if failure_process_record and key in failure_process_record
+                },
                 "runtime_device_telemetry": {
                     key: process_telemetry.get(engine, {}).get(key)
                     for key in (
@@ -407,10 +494,23 @@ def run(
     report["runtime_device_use_verified"] = all(
         report["per_engine_runtime_device_use_verified"].values()
     )
+    report["per_engine_runtime_vram_budget_passed"] = {
+        name: bool(
+            (report.get("engines", {}).get(name)
+             or report.get("failures", {}).get(name) or {}).get(
+                "runtime_vram_budget_verified"
+            ) is True
+        )
+        for name in ENGINES
+    }
+    report["runtime_vram_budget_passed"] = bool(
+        runtime_vram_guard
+        and all(report["per_engine_runtime_vram_budget_passed"].values())
+    )
     report["execution_evidence_scope"] = (
         "verified native process start/PID/zero-exit plus exact output invariants; "
-        "live NVML PID-to-adapter visibility is reported separately and is required "
-        "for GPU-use certification; this is not visual-quality or print certification"
+        "live NVML PID-to-adapter visibility and, when requested, sampled whole-device "
+        "VRAM budget evidence are reported separately; this is not visual-quality or print certification"
     )
     runtime_probe.close()
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

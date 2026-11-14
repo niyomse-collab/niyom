@@ -1209,3 +1209,60 @@ def test_cuda_12_8_driver_compatibility_fails_closed_for_ambiguous_or_unknown_ve
     assert unknown["status"] == "driver_version_unparseable"
     assert ambiguous["cuda_12_8_ga_driver_requirement_met"] is False
     assert unknown["cuda_12_8_ga_driver_requirement_met"] is None
+
+
+def test_shop_diagnostic_enables_vram_guard_for_both_native_cases(tmp_path):
+    manifest = _write_manifest(tmp_path / "manifest.json")
+    calls = []
+
+    def guarded_runner(manifest_path, source, output, *, timeout_seconds, runtime_vram_guard=False):
+        assert timeout_seconds == 180
+        calls.append(runtime_vram_guard)
+        with Image.open(source) as image:
+            mode = image.mode
+        process = {
+            "runtime_vram_guard_enabled": True,
+            "runtime_vram_guard_status": "within_budget",
+            "runtime_vram_sample_count": 2,
+            "runtime_vram_peak_used_mib": 5500.0,
+            "runtime_vram_min_free_mib": 644.0,
+            "runtime_vram_max_device_used_mib": 5632.0,
+            "runtime_vram_reserve_mib": 512,
+            "runtime_vram_budget_mib": 6144,
+        }
+        return {
+            "real_inference_verified": True,
+            "completed_engine_count": 4,
+            "runtime_vram_guard_requested": runtime_vram_guard,
+            "runtime_vram_budget_passed": runtime_vram_guard,
+            "engines": {
+                name: {
+                    "status": "native_process_and_2x_output_validated",
+                    "size": [256, 192],
+                    "mode": mode,
+                    "sha256": "b" * 64,
+                    "alpha_pixels_match_source": mode == "RGBA",
+                    "icc_preserved": True,
+                    "dpi_preserved": True,
+                    "process": dict(process),
+                }
+                for name in ENGINES
+            },
+            "failures": {},
+        }
+
+    report = diagnostic.run_diagnostic(
+        manifest, tmp_path / "report",
+        gpu_probe=_gpu,
+        engine_runner=guarded_runner,
+        anime4k_probe=lambda _manifest: _anime(),
+        manifest_loader=lambda _manifest: {},
+    )
+
+    assert calls == [True, True]
+    assert report["all_four_native_cli_outputs_validated_on_both_synthetic_cases"] is True
+    assert report["native_cli_runtime_vram_budget_passed"] is True
+    assert all(report["per_engine_native_cli_runtime_vram_budget_passed"].values())
+    # The separate bridge case was not run, so total shop acceptance must stay false.
+    assert report["runtime_vram_budget_passed"] is False
+    assert report["shop_gpu_acceptance_passed"] is False
