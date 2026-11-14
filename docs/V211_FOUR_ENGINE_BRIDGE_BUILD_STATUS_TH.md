@@ -730,3 +730,51 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Protected files ระหว่าง PR #18 head `288dd8501c230a118d9a7e60d2522a2cc7411bcc` และ PR #20 HEAD `d678eef` ตรงกัน **5/5 Blob SHA**: `face_protection.py`, `large_faces.py`, `v211_face_contract.py`, `test_v211_face_contract.py`, `test_v211_large_face_audit.py`.
 - Manual shop workflow มี consent gate และต้องตรวจ BUILD_PROOF ของ Candidate SHA ที่ได้รับอนุญาตตรงกัน; เอกสารก่อนหน้านี้อนุญาต synthetic-only shop GPU evidence สำหรับ Candidate #771 (`c1cb569`) เท่านั้น. Candidate #813 เป็น SHA ใหม่ จึง **ไม่ได้ trigger self-hosted shop GPU run** และไม่ถือว่ามีการอนุญาตติดตั้ง/ทดสอบ Candidate ใหม่นี้บนเครื่องร้าน.
 - PR #20 และ PR #18 ยังคง OPEN/DRAFT/UNMERGED; ไม่มี V1/V2 Stable changes, merge/release, customer images หรือ native binaries/weights committed. V2 remains accepted master; quality certification remains false.
+
+
+## 15 พฤศจิกายน 2569 04:46 ICT — Exact-head Candidate #820 completed; shop GPU evidence still waiting
+
+### PR / source identity
+- PR #20 remains OPEN / DRAFT / UNMERGED on `work/v211-four-engine-v2-bridge-20261103`, exact HEAD `644d91e7599ce874f04604339c6597718f465575`; PR #18 remains OPEN / DRAFT / UNMERGED at protected base/head `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- Commit `644d91e` changes only `docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md` relative to `c60419d` (one file, 11 additions, 0 deletions). No runtime source, tests, spec, installer or workflow changed in that final commit.
+- PR #20 currently has 75 changed paths; the changed-file list contains no executable, DLL, archive, model-weight, image, V1/V2 Stable or protected face/GFPGAN path.
+
+### Exact-head CI and frozen Candidate #820
+- Windows Candidate #820 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43640094902) completed SUCCESS, both jobs passed: `bridge-tests` and `windows-v2-candidate`.
+- Bridge/Fusion/coordination suite: **359 passed**; privacy/provisioning/manifest/hash suite: **63 passed**.
+- Frozen checks passed: V2 import smoke; single-page BigTIFF and streamed libvips path; packaged four-engine provisioning `--check-only` without download/write; isolated consented cache cleanup; packaged diagnostic `--help`; provenance verifier; exact BUILD_PROOF/source SHA; every installer slice SHA256; experimental artifact upload.
+- Build log reports `accepted_v2_sha256_unchanged=true`.
+- Installer SHA256: `d0ea974cd2d9ab03515440e608501e9d869910b526e1b9c26be0843b2be89eac`.
+- Artifact ID `14133305275`; size **2,584,548,820 bytes**; artifact ZIP SHA256 `0e038f0fd40e7f62c051187e5cbed28b34364a5b6790d84a5ef18f3fe1772edd`; expires **22 พ.ย. 2569 04:26:59 ICT**. [Download Candidate #820](https://github.com/niyomse-collab/niyom/actions/runs/43640094902/artifacts/14133305275).
+- Candidate #820 is a frozen package/provenance pass only. It does not certify interactive install/uninstall on the shop PC, Vulkan adapter binding, four-engine inference on GTX 1660 Ti, peak 6 GB VRAM, visual A/B, Photoshop/MainTop or print quality.
+
+### Independent Core
+- Core #1398 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43640095121): Windows **1,016 passed / 1 skipped**; Ubuntu **1,014 passed / 3 skipped**; pytest and compileall passed on both.
+
+### Official archive audit #208
+- [Actions #208](https://github.com/niyomse-collab/niyom/actions/runs/43640094856): all four official Windows archives downloaded, safely audited, hash-checked and provisioned transactionally into ephemeral QA storage; `all_archives_audited=true` and `all_archives_match_release_or_recorded_hash=true`.
+- Real-ESRGAN v0.2.5.0 SHA256 `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` and Real-CUGAN 20220728 SHA256 `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` remain observed CI pins because publisher release digests are unavailable and require independent digest approval.
+- Waifu2x 20250915 SHA256 `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` and Anime4KCPP v3.2.0 SHA256 `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` have publisher release digests verified; their current audit field `matches_recorded_ci_sha256` is false, so retain the publisher-digest evidence and do not describe them as matching the older CI pin.
+- `all_upstream_digests_pinned=false`, `model_weights_and_license_certified=false`, and `included_in_customer_installer=false`. Archive audit is not inference verification or redistribution approval; native binaries/weights remain excluded from the installer and repository.
+
+### Native CLI Smoke #269 — diagnostic only
+- [Actions #269](https://github.com/niyomse-collab/niyom/actions/runs/43640094883) and [JSON artifact #14130534747](https://github.com/niyomse-collab/niyom/actions/runs/43640094883/artifacts/14130534747): Real-CUGAN and Anime4KCPP native processes exited 0 and produced validated 2x synthetic RGB and RGBA outputs; ICC and DPI 300 passed, and the RGBA report confirms exact alpha-pixel preservation.
+- Real-ESRGAN was blocked by hosted-runner `vkCreateInstance failed -9` (exit `0xFFFFFFFF`); Waifu2x was blocked by the same Vulkan initialization failure plus exit `0xC0000005`.
+- NVML was unavailable; runtime GPU adapter verification **0/4**; runtime VRAM guard was not requested; `real_inference_verified=false`, `candidate_output_validation_complete=false`, and `quality_improvement_verified=false`. The diagnostic workflow's SUCCESS classifies known hosted-runner limits; it is not four-engine GPU or visual-quality acceptance.
+
+### Shop GPU evidence gate
+- Push-triggered Shop GPU run #46 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43640090160) has `gate_status=success`, while the self-hosted `evidence` job remains **PENDING**; no JSON evidence artifact exists yet. This indicates the hosted status check is visible but does not prove that the dedicated shop runner has started.
+- The affirmative marker in commit `644d91e` is still authorized for **Candidate #814 only**, source SHA `56820b5e34109d5dee60f7be1912028edbc9ad47`. It does not authorize installing/running Candidate #820 on the shop PC. The workflow must fail closed if the installed BUILD_PROOF or verified manifest does not match.
+- Scope remains synthetic RGB/RGBA/ICC/300-DPI only; no customer image access, upload, or accepted V2 output modification.
+
+### Consent behavior verified in current source
+- The current `app_v2.py` calls `_offer_v211_four_ai_setup` on first launch. If no verified manifest and no prior decline exist, it shows a Yes/No prompt; downloads start only after Yes. No records a local decline marker to prevent repeated prompts.
+- The experimental Inno Setup installer also provides a separate unchecked-by-default task to install all four engines before editor launch. These are two affirmative-consent entry points; neither starts a download without explicit user action.
+- If an existing manifest/decline marker is invalid or unsafe, the app warns and keeps V2 available rather than overwriting it.
+
+### Frozen-build warnings requiring shop runtime validation
+- PyInstaller emitted non-fatal warnings for missing `pycparser.lextab/yacctab`, `scipy.special._cdflib`, driver-provided `nvcuda.dll`, and optional Numba `tbb12.dll`. Frozen build and packaged smoke checks passed, but those warnings are not proof that every optional runtime path works. Do not bundle a guessed `nvcuda.dll` or unrelated TBB runtime; verify CUDA/NVML against the installed NVIDIA driver and test any Numba path actually used on the shop PC.
+
+### V2/GFPGAN protection and release gate
+- Protected Blob SHA between PR #18 base/head `288dd8501c230a118d9a7e60d2522a2cc7411bcc` and PR #20 HEAD `644d91e` is identical **6/6**: `.github/workflows/verify-v211-face.yml`, `signprint_ai/face_module/face_protection.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`, and `tests/test_v211_large_face_audit.py`.
+- PR #20 and PR #18 remain OPEN / DRAFT / UNMERGED. No V1/V2 Stable changes, no merge/release, no customer images or native binaries/weights committed. V2 remains the accepted master; real four-engine shop GPU execution, VRAM stress, visual A/B and print certification remain open.
