@@ -86,6 +86,28 @@ def test_four_engine_runner_produces_four_valid_candidates(tmp_path):
 
 
 
+def test_safe_execution_record_keeps_canonical_vram_ceiling_field():
+    record = {
+        "runtime_vram_guard_enabled": True,
+        "runtime_vram_guard_status": "within_budget",
+        "runtime_vram_sample_count": 2,
+        "runtime_vram_peak_used_mib": 4200.0,
+        "runtime_vram_min_free_mib": 1944.0,
+        "runtime_vram_max_allowed_device_used_mib": 5632.0,
+        "runtime_vram_max_device_used_mib": 5632.0,
+        "runtime_vram_reserve_mib": 512,
+        "runtime_vram_budget_mib": 6144,
+        "private_local_path": "must-not-be-copied",
+    }
+
+    safe = runner._safe_execution_record(record)
+
+    assert safe["runtime_vram_max_allowed_device_used_mib"] == 5632.0
+    assert safe["runtime_vram_max_device_used_mib"] == 5632.0
+    assert "private_local_path" not in safe
+
+
+
 def test_small_rgba_runner_rebinds_candidates_to_exact_v2_alpha(tmp_path):
     """Small native jobs must use V2's exact alpha, not a seed down/up round-trip."""
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
