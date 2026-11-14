@@ -1282,3 +1282,19 @@ def test_shop_diagnostic_enables_vram_guard_for_both_native_cases(tmp_path):
     # The separate bridge case was not run, so total shop acceptance must stay false.
     assert report["runtime_vram_budget_passed"] is False
     assert report["shop_gpu_acceptance_passed"] is False
+
+
+
+def test_runtime_vram_evidence_rejects_ambiguous_legacy_ceiling_only():
+    process = {
+        "runtime_vram_guard_enabled": True,
+        "runtime_vram_guard_status": "within_budget",
+        "runtime_vram_sample_count": 2,
+        "runtime_vram_peak_used_mib": 4200.0,
+        "runtime_vram_min_free_mib": 1944.0,
+        # Legacy name is retained for compatibility, but cannot certify the new schema.
+        "runtime_vram_max_device_used_mib": 5632.0,
+        "runtime_vram_reserve_mib": 512,
+        "runtime_vram_budget_mib": 6144,
+    }
+    assert diagnostic._runtime_vram_budget_evidence_verified(process) is False
