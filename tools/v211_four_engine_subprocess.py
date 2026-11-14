@@ -148,8 +148,9 @@ def make_processors(
             previous_vram_sample_count = previous_record.get("runtime_vram_sample_count", 0)
             previous_vram_peak_used_mib = previous_record.get("runtime_vram_peak_used_mib")
             previous_vram_min_free_mib = previous_record.get("runtime_vram_min_free_mib")
-            previous_vram_max_device_used_mib = previous_record.get(
-                "runtime_vram_max_device_used_mib"
+            previous_vram_max_allowed_device_used_mib = previous_record.get(
+                "runtime_vram_max_allowed_device_used_mib",
+                previous_record.get("runtime_vram_max_device_used_mib"),
             )
             previous_vram_guard_status = previous_record.get("runtime_vram_guard_status")
             if isinstance(previous_vram_sample_count, bool) or not isinstance(previous_vram_sample_count, int) or previous_vram_sample_count < 0:
@@ -159,11 +160,11 @@ def make_processors(
             if isinstance(previous_vram_min_free_mib, bool) or not isinstance(previous_vram_min_free_mib, (int, float)) or previous_vram_min_free_mib < 0:
                 previous_vram_min_free_mib = None
             if (
-                isinstance(previous_vram_max_device_used_mib, bool)
-                or not isinstance(previous_vram_max_device_used_mib, (int, float))
-                or previous_vram_max_device_used_mib < 0
+                isinstance(previous_vram_max_allowed_device_used_mib, bool)
+                or not isinstance(previous_vram_max_allowed_device_used_mib, (int, float))
+                or previous_vram_max_allowed_device_used_mib < 0
             ):
-                previous_vram_max_device_used_mib = None
+                previous_vram_max_allowed_device_used_mib = None
             if previous_vram_guard_status not in (
                 "not_sampled", "within_budget", "reserve_breached",
                 "device_budget_exceeded", "telemetry_unavailable",
@@ -266,7 +267,9 @@ def make_processors(
                 "runtime_vram_sample_count": previous_vram_sample_count,
                 "runtime_vram_peak_used_mib": previous_vram_peak_used_mib,
                 "runtime_vram_min_free_mib": previous_vram_min_free_mib,
-                "runtime_vram_max_device_used_mib": previous_vram_max_device_used_mib,
+                "runtime_vram_max_allowed_device_used_mib": previous_vram_max_allowed_device_used_mib,
+                # Deprecated alias: this is the policy ceiling, not observed use.
+                "runtime_vram_max_device_used_mib": previous_vram_max_allowed_device_used_mib,
                 "runtime_vram_reserve_mib": runtime_vram_reserve_mib if runtime_vram_guard else None,
                 "runtime_vram_budget_mib": runtime_vram_budget_mib if runtime_vram_guard else None,
             }
@@ -356,11 +359,16 @@ def make_processors(
                             free_mib if not isinstance(minimum_free, (int, float))
                             else min(float(minimum_free), free_mib)
                         )
-                        max_device_used = float(snapshot["max_device_used_mib"])
-                        prior_cap = record.get("runtime_vram_max_device_used_mib")
+                        max_allowed_device_used = float(snapshot["max_allowed_device_used_mib"])
+                        prior_cap = record.get("runtime_vram_max_allowed_device_used_mib")
+                        record["runtime_vram_max_allowed_device_used_mib"] = (
+                            max_allowed_device_used
+                            if not isinstance(prior_cap, (int, float))
+                            else min(float(prior_cap), max_allowed_device_used)
+                        )
+                        # Deprecated alias retained for older local diagnostic readers.
                         record["runtime_vram_max_device_used_mib"] = (
-                            max_device_used if not isinstance(prior_cap, (int, float))
-                            else min(float(prior_cap), max_device_used)
+                            record["runtime_vram_max_allowed_device_used_mib"]
                         )
                     if status == "reserve_breached":
                         abort_runtime_vram(
