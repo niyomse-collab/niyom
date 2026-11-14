@@ -646,3 +646,16 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - PR #20 ยังคง Open/Draft, HEAD code/test `251c65136168e24fb843fbc67994c36a29571d71`, base `288dd8501c230a118d9a7e60d2522a2cc7411bcc`
 - PR #18 ยังคง Open/Draft ที่ base เดิม; protected GFPGAN/face-contract files ตรงกัน 5/5 Blob SHA ระหว่าง PR #18 และ #20; ไม่มี Review Thread ค้าง
 - ห้าม merge/release จนกว่าจะมีผล GPU QA จริงและผู้ใช้อนุมัติ
+
+
+## 14 พฤศจิกายน 2569 — เพิ่ม UI ปกป้องข้อความและเอฟเฟกต์แบบเลือกพื้นที่ (ROI)
+
+- เพิ่ม `signprint_ai/effect_region_selection.py`: หน้าต่างเลือกพื้นที่แบบลากกรอบหลายจุดบนภาพตัวอย่าง รองรับย้อนกรอบล่าสุด/ล้างทั้งหมด/ยกเลิก พิกัดถูกเก็บเป็น normalized ROI อ้างอิงภาพต้นฉบับที่ปรับ EXIF orientation แล้ว
+- เชื่อมปุ่ม `เลือกพื้นที่ปกป้องข้อความเอฟเฟกต์` ใน `app_v2.py` กับ per-file ROI map; ตอนเข้าคิวจะส่ง `v211_protected_effect_regions` ให้ Adapter และรวม ROI map ใน completion signature เพื่อบังคับประมวลผลใหม่เมื่อแก้พื้นที่
+- Fusion ใช้ ROI เป็น protection mask เพื่อคงพิกเซลจาก V2 ในพื้นที่เลือกเท่านั้น ไม่ใช้ OCR ไม่พิมพ์ทับ ไม่วาดข้อความใหม่ และไม่เปลี่ยน V2 master
+- เพิ่ม `tests/test_v211_effect_region_selection.py` ครอบคลุมการ normalize ทิศลากกลับด้าน, clamp ขอบภาพ, drag ขนาดเล็ก และค่าพิกัดผิดรูปแบบ
+- Core run #1329 พบ 5 failures จาก test harness เดิมที่สร้าง `SimpleNamespace` โดยไม่มี helper ใหม่ `_effect_region_signature`; แก้ compatibility ใน commit `3c4bcdc9` ให้ fallback เป็น signature ว่างสำหรับ test doubles/legacy callers ขณะที่ App จริงยังใช้ per-file ROI signature
+- Candidate #762: bridge-tests ผ่าน; Windows frozen candidate ถูกยกเลิกโดย branch concurrency หลังมี commit ใหม่ จึงไม่ใช่ package acceptance ของ HEAD ล่าสุด
+- Archive audit #178 ผ่าน; Native CLI #226 เป็น diagnostic เท่านั้น และยังคงข้อจำกัด Vulkan/NVML ของ Hosted Runner
+- Code/UI HEAD หลังแก้ compatibility และปุ่ม Enter ใน dialog: `e7cb7a436a97ee19675bdf8ad739e78722a6ea76`. ต้องรัน Core + Candidate ใหม่บน HEAD นี้ก่อนนับว่าการเปลี่ยน UI ผ่าน CI
+- PR #18 protected GFPGAN/face blobs ยังคงต้องตรงกัน 5/5; ยังไม่ Merge/Release และไม่อ้างว่า quality ดีกว่า V2
