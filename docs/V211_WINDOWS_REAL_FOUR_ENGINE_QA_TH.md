@@ -619,3 +619,13 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - ฟิลด์เดิม `runtime_vram_max_device_used_mib` ยังคงอยู่เป็น alias เพื่อความเข้ากันได้กับรายงานเก่า แต่ตัวตรวจรับรองใหม่ต้องใช้ชื่อ `runtime_vram_max_allowed_device_used_mib` เท่านั้น
 - รายงาน `shop_gpu_diagnostic.json` ใช้ชื่อ `maximum_allowed_device_used_mib` เพื่อไม่ให้ตีความเพดานนโยบายเป็น Peak VRAM ที่วัดได้
 - การตรวจยังเป็น sampled monitor-and-terminate guard แบบ Device-wide; ไม่ใช่ Driver-enforced per-process hard quota และอาจ overshoot ระหว่าง sample ได้
+
+
+
+## 15 พฤศจิกายน 2569 00:15 ICT — Synthetic-only shop GPU authorization for Candidate #814
+
+- ผู้ใช้สั่งให้ทดสอบ Native AI ทั้งสี่บน Windows ที่มี Vulkan GPU และให้ QA แบบ fail-closed; บันทึกการอนุญาตนี้จำกัดเฉพาะ **synthetic-only diagnostic** ของ Candidate #814 ไม่ใช่การอนุญาตใช้ภาพลูกค้าหรือรับรองคุณภาพงานพิมพ์
+- Installed candidate source SHA ที่อนุญาต: `56820b5e34109d5dee60f7be1912028edbc9ad47` (Windows Candidate #814). Self-hosted workflow ต้องตรวจ `BUILD_PROOF.txt` ของโปรแกรมที่ติดตั้งให้ตรง SHA นี้ก่อนเรียก diagnostic; หากไม่ตรง, ไม่มี installation/manifest, หรือ runner ไม่พร้อม ให้ fail closed และไม่มี hosted fallback.
+- ขอบเขต: synthetic RGB และ RGBA/ICC/300-DPI เท่านั้น; ตรวจ Vulkan/NVIDIA inventory, unique GTX 1660 Ti binding, live PID-to-adapter telemetry ของทั้งสี่ Engine, native 2x outputs, bridge/fusion contract, sampled device-wide VRAM budget 6,144 MiB พร้อม reserve 512 MiB, cancellation/cleanup และ privacy flags.
+- ห้ามใช้ customer artwork, ห้ามอ่าน/อัปโหลด/เก็บภาพผู้ใช้, ห้ามดาวน์โหลดโมเดลระหว่าง diagnostic, ห้ามแก้ accepted V2 output. Workflow เก็บเฉพาะ JSON evidence และลบ workspace ชั่วคราว.
+- ผลที่ผ่านจะยืนยันเฉพาะ synthetic native inference/device/VRAM/bridge contract บนเครื่องที่รันจริง; ต้องคง `quality_improvement_verified=false`, `visual_quality_certified=false`, `print_quality_certified=false` จนกว่าจะมี A/B ภาพจริงที่ผู้ใช้ตรวจและอนุมัติ.
