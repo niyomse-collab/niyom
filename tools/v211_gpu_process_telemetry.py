@@ -21,6 +21,7 @@ NVML_ERROR_NOT_SUPPORTED = 3
 NVML_VALUE_NOT_AVAILABLE = (1 << 64) - 1
 MIB_BYTES = 1024 * 1024
 RUNTIME_VRAM_RESERVE_MIB = 512
+RUNTIME_VRAM_BUDGET_MIB = 6144
 
 PDH_SUCCESS = 0
 PDH_MORE_DATA = 0x800007D2
@@ -229,10 +230,23 @@ def validate_runtime_vram_snapshot(
     snapshot: object,
     *,
     reserve_mib: int = RUNTIME_VRAM_RESERVE_MIB,
+    budget_mib: int = RUNTIME_VRAM_BUDGET_MIB,
 ) -> dict[str, Any]:
-    """Validate a live whole-device NVML memory sample for the 6 GB safety reserve."""
+    """Validate a sampled whole-device VRAM budget, including a safety reserve.
+
+    The budget is device-wide (desktop and other GPU clients count too), not a
+    per-process allocator quota. Native engines are stopped when a live sample
+    exceeds min(device total, budget) minus the reserve.
+    """
     if isinstance(reserve_mib, bool) or not isinstance(reserve_mib, int) or reserve_mib < 1:
         return {"passed": False, "status": "invalid_reserve_policy"}
+    if (
+        isinstance(budget_mib, bool)
+        or not isinstance(budget_mib, int)
+        or budget_mib <= reserve_mib
+        or budget_mib > 65536
+    ):
+        return {"passed": False, "status": "invalid_budget_policy"}
     if (
         not isinstance(snapshot, dict)
         or snapshot.get("device_memory_available") is not True
@@ -250,15 +264,28 @@ def validate_runtime_vram_snapshot(
         or used > total or free > total or used + free > total
     ):
         return {"passed": False, "status": "invalid_snapshot"}
-    result = {
-        "passed": free >= reserve_mib * MIB_BYTES,
-        "status": "ok" if free >= reserve_mib * MIB_BYTES else "reserve_breached",
+
+    reserve_bytes = reserve_mib * MIB_BYTES
+    budget_bytes = min(total, budget_mib * MIB_BYTES)
+    max_device_used_bytes = max(0, budget_bytes - reserve_bytes)
+    reserve_breached = free < reserve_bytes
+    budget_exceeded = used > max_device_used_bytes
+    status = (
+        "reserve_breached" if reserve_breached
+        else "device_budget_exceeded" if budget_exceeded
+        else "ok"
+    )
+    return {
+        "passed": status == "ok",
+        "status": status,
         "total_mib": round(total / MIB_BYTES, 2),
         "used_mib": round(used / MIB_BYTES, 2),
         "free_mib": round(free / MIB_BYTES, 2),
+        "budget_mib": budget_mib,
+        "max_device_used_mib": round(max_device_used_bytes / MIB_BYTES, 2),
+        "budget_exceeded": budget_exceeded,
         "reserve_mib": reserve_mib,
     }
-    return result
 
 
 def evaluate_pid_observations(
