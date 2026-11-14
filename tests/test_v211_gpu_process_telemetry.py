@@ -585,7 +585,8 @@ def test_runtime_vram_snapshot_enforces_fixed_six_gib_device_wide_budget():
     })
     assert safe["passed"] is True
     assert safe["budget_mib"] == 6144
-    assert safe["max_device_used_mib"] == 5632.0
+    assert safe["max_allowed_device_used_mib"] == 5632.0
+    assert safe["max_device_used_mib"] == safe["max_allowed_device_used_mib"]
 
     over = validate_runtime_vram_snapshot({
         "device_memory_available": True,
@@ -597,7 +598,8 @@ def test_runtime_vram_snapshot_enforces_fixed_six_gib_device_wide_budget():
     assert over["passed"] is False
     assert over["status"] == "device_budget_exceeded"
     assert over["budget_exceeded"] is True
-    assert over["max_device_used_mib"] == 5632.0
+    assert over["max_allowed_device_used_mib"] == 5632.0
+    assert over["max_device_used_mib"] == over["max_allowed_device_used_mib"]
 
 
 def test_runtime_vram_snapshot_rejects_budget_not_above_reserve():
