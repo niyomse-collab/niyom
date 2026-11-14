@@ -384,7 +384,7 @@ def test_large_master_dispatches_before_pillow_alpha_read(adapter, monkeypatch, 
         raise Image.DecompressionBombError("200 MP must not reach Pillow")
 
     def streamed(adapter_arg, source, output, settings, source_size,
-                 target_size, model_scale, progress, cancel, use_ai):
+                 target_size, model_scale, progress, cancel, use_ai, **kwargs):
         calls.append((source, output, source_size, target_size, model_scale))
         return {"processing_mode": "disk_tiles", "output_size": target_size}
 

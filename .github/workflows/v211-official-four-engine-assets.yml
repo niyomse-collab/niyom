@@ -1,0 +1,82 @@
+name: V2.1.1 official engine archive provenance audit
+run-name: V2.1.1 official archive audit - ${{ github.sha }}
+# 2026-11-09: rerun archive/license/digest provenance against the current hardened manifest and provisioner; no redistribution is authorized.
+on:
+  pull_request:
+    branches:
+      - feature/v2.1.1-super-ai
+    paths:
+      - 'tools/v211_official_assets_audit.py'
+      - 'tests/test_v211_official_assets_audit.py'
+      - 'tools/v211_provision_four_engines.py'
+      - 'tests/test_v211_provision_four_engines.py'
+      - 'tools/v211_real_engine_manifest.py'
+      - '.github/workflows/v211-official-four-engine-assets.yml'
+  push:
+    branches:
+      - work/v211-four-engine-v2-bridge-20261103
+    paths:
+      - 'tools/v211_official_assets_audit.py'
+      - 'tests/test_v211_official_assets_audit.py'
+      - 'tools/v211_provision_four_engines.py'
+      - 'tests/test_v211_provision_four_engines.py'
+      - 'tools/v211_real_engine_manifest.py'
+      - '.github/workflows/v211-official-four-engine-assets.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive-provenance:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.ref == 'work/v211-four-engine-v2-bridge-20261103'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Static syntax and audit-tool contract tests
+        shell: pwsh
+        run: |
+          python -m py_compile tools/v211_official_assets_audit.py
+          python -m pip install --disable-pip-version-check pytest Pillow
+          python -m pytest -q tests/test_v211_official_assets_audit.py
+      - name: Download and hash four original developer ZIPs without executing code
+        shell: pwsh
+        run: |
+          python -m tools.v211_official_assets_audit --download-dir "$env:RUNNER_TEMP/v211-official-downloads" --report "$env:RUNNER_TEMP/v211-four-engine-official-archives.json"
+      - name: Verify four-engine installer manifest generator using fake ZIPs
+        shell: pwsh
+        run: |
+          python -m py_compile tools/v211_provision_four_engines.py tools/v211_real_engine_manifest.py
+          python -m pytest -q tests/test_v211_provision_four_engines.py
+      - name: Provision four hash-verified real Windows engines in ephemeral QA directory
+        shell: pwsh
+        run: |
+          python -m tools.v211_provision_four_engines --archives-dir "$env:RUNNER_TEMP/v211-official-downloads" --install-dir "$env:RUNNER_TEMP/v211-installed-engines" --manifest "$env:RUNNER_TEMP/v211-four-engine-manifest.json"
+          python -c "from tools.v211_real_engine_manifest import load_real_engine_manifest; from pathlib import Path; import os; commands=load_real_engine_manifest(Path(os.environ['RUNNER_TEMP'])/'v211-four-engine-manifest.json'); print('MANIFEST READY: '+','.join(commands)); assert len(commands)==4"
+      - name: Print archive hashes for provenance pin review (no customer images)
+        if: always()
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'v211-four-engine-official-archives.json'
+          if (Test-Path $path) {
+            $report = Get-Content $path -Raw | ConvertFrom-Json
+            foreach ($entry in $report.packages.PSObject.Properties) {
+              Write-Host ($entry.Name + ' SHA256=' + $entry.Value.archive_sha256 + ' published=' + $entry.Value.release_digest_published + ' result=' + $entry.Value.status)
+              Write-Host ('executables=' + ($entry.Value.candidate_executables -join ','))
+              Write-Host ('model_files=' + $entry.Value.model_or_binary_file_count)
+            }
+          }
+      - name: Upload provenance-only report, never large binaries or private images
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: v211-four-engine-official-archives-sha256-audit
+          path: ${{ runner.temp }}/v211-four-engine-official-archives.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,193 @@
+"""Keep V2.1.1 build and frozen imports isolated from legacy V1/V2 paths."""
+import json
+from pathlib import Path
+import re
+
+import pytest
+
+from tools.v211_build_workspace_guard import (
+    BuildWorkspaceError,
+    validate_v211_build_workspace,
+)
+
+
+def test_legacy_model_download_runs_before_v211_only_cache_reuse():
+    script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert r"$experimentalV211Pattern = '\A2\.1\.1(?:-beta\.[0-9]+)?\z'" in script
+    assert '$experimentalV211 = ($Channel -eq "v2" -and $Version -match $experimentalV211Pattern)' in script
+
+    legacy_start = script.index("if (-not $experimentalV211)")
+    reuse_start = script.index("if (Test-Path -LiteralPath $Path)", legacy_start)
+    legacy_branch = script[legacy_start:reuse_start]
+
+    # V1 and stable V2 retain the original overwrite-and-hash-check behavior.
+    assert "Invoke-WebRequest -Uri $Url -OutFile $Path" in legacy_branch
+    assert "Get-FileHash -LiteralPath $Path -Algorithm SHA256" in legacy_branch
+    assert "Reusing existing verified" not in legacy_branch
+    assert "$temporaryPath" not in legacy_branch
+    assert "Remove-Item -LiteralPath $Path" not in legacy_branch
+
+    # Verified cache reuse and atomic retries are V2.1.1-only.
+    assert "Reusing existing verified" in script[reuse_start:]
+    assert "V2.1.1 only: retry transient gateway/network failures" in script[reuse_start:]
+
+    # PowerShell 7 can report a dropped GitHub release connection as IOException.
+    # Retry only while Invoke-WebRequest is active; do not retry hash/publish errors.
+    retry_branch = script[reuse_start:script.index("& $py -m pip", reuse_start)]
+    request_start = retry_branch.index("$requestInProgress = $true")
+    request_end = retry_branch.index("$requestInProgress = $false", request_start)
+    hash_check = retry_branch.index("$actualHash = (Get-FileHash", request_end)
+    assert request_start < request_end < hash_check
+    assert "if ($requestInProgress)" in retry_branch
+    assert "$exception -is [System.IO.IOException]" in retry_branch
+    assert "transport connection" in retry_branch
+    assert "System.Net.Http.HttpRequestException" in retry_branch
+    assert "Downloaded $Label SHA256 mismatch" in retry_branch
+    assert "Destination appeared during $Label download" in retry_branch
+
+
+def test_v211_workspace_guard_is_scoped_and_v2_still_protects_v1():
+    script = (Path(__file__).resolve().parents[1] / "build_windows.ps1").read_text(
+        encoding="utf-8"
+    )
+    selector = script.index("$experimentalV211Pattern =")
+    v1_protection = script.index("# Never clean or replace files from a previously built/approved V1 checkout.")
+    workspace_protection = script.index("# The shared script removes build/, dist/ and release/.")
+
+    # All V2 builds still refuse to clean a workspace containing V1 artifacts.
+    assert selector < v1_protection < workspace_protection
+    assert script.index('if ($Channel -eq "v2")', v1_protection) < workspace_protection
+
+    # The destructive workspace replacement guard applies only to V2.1.1.
+    assert script.index("if ($experimentalV211)", workspace_protection) > workspace_protection
+
+
+def test_frozen_v211_imports_are_excluded_from_v1_and_stable_v2():
+    spec = (Path(__file__).resolve().parents[1] / "NiyomsilV2ArmCore.spec").read_text(
+        encoding="utf-8"
+    )
+    assert 'build_info_path.read_text(encoding="utf-8-sig")' in spec
+    pattern = r"2\.1\.1(?:-beta\.\d+)?"
+    assert pattern in spec
+    assert re.fullmatch(pattern, "2.1.1")
+    assert re.fullmatch(pattern, "2.1.1-beta.653")
+    assert not re.fullmatch(pattern, "2.1.10")
+
+    conditional = spec.index("if IS_V211_BUILD:")
+    fallback = spec.index("else:", conditional)
+    v211_block = spec[conditional:fallback]
+    dynamic_files = spec.index("dynamic_files = []", fallback)
+    legacy_block = spec[fallback:dynamic_files]
+    assert "signprint_ai.v211_four_engine_bridge" in v211_block
+    assert "signprint_ai.v211_large_image_bridge" in v211_block
+    assert '"tifffile"' in v211_block
+    assert '"tifffile"' not in legacy_block
+    assert "tools.v211_four_engine_fusion" in v211_block
+    assert "discover_package_modules" in v211_block
+    assert "collect_submodules" in legacy_block
+    assert "signprint_ai.v211_four_engine_bridge" not in legacy_block
+
+
+
+def _seed_verified_v211_workspace(root: Path, version: str) -> None:
+    source_commit = "a" * 40
+    (root / "build").mkdir()
+    app_dir = root / "dist" / "NiyomsilAIEnhancer"
+    app_dir.mkdir(parents=True)
+    release_dir = root / "release"
+    release_dir.mkdir()
+    (release_dir / "NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe").write_bytes(
+        b"synthetic installer placeholder"
+    )
+    (root / "build_info.json").write_text(
+        json.dumps(
+            {
+                "channel": "v2",
+                "version": version,
+                "source_commit": source_commit,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (app_dir / "BUILD_PROOF.txt").write_text(
+        "\n".join(
+            [
+                "NIYOMSIL DESIGN v2 - VERIFIED INSTALLER BUILD PROOF",
+                f"Version: {version}",
+                f"Source commit: {source_commit}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("version", ["2.1.1", "2.1.1-beta.715"])
+def test_v211_workspace_guard_reuses_verified_stable_and_beta_candidates(
+    tmp_path: Path, version: str
+):
+    _seed_verified_v211_workspace(tmp_path, version)
+
+    report = validate_v211_build_workspace(tmp_path, version)
+
+    assert report["status"] == "verified_previous_v211_candidate"
+    assert report["requested_version"] == version
+    assert report["previous_version"] == version
+    assert report["stable_v2_files_preserved"] is True
+    assert report["v1_files_preserved"] is True
+
+
+def test_workspace_guard_still_refuses_accepted_stable_v2_outputs(tmp_path: Path):
+    (tmp_path / "build").mkdir()
+
+    with pytest.raises(BuildWorkspaceError):
+        validate_v211_build_workspace(tmp_path, "2.0.0")
+
+
+def test_workspace_guard_does_not_treat_other_versions_as_v211(tmp_path: Path):
+    _seed_verified_v211_workspace(tmp_path, "2.1.1")
+
+    with pytest.raises(BuildWorkspaceError):
+        validate_v211_build_workspace(tmp_path, "2.1.10")
+
+
+def test_frozen_bigtiff_smoke_is_v211_candidate_only_and_checks_v2_preservation(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    run_source = (root / "run.py").read_text(encoding="utf-8")
+    package_script = (root / "tools" / "Test-V2-Package.ps1").read_text(encoding="utf-8")
+    workflow = (root / ".github" / "workflows" / "v211-four-engine-bridge-windows.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "NIYOMSIL_V211_TIFF_SMOKE" in run_source
+    assert "_run_v211_tiff_smoke" in run_source
+    assert "prepare_native_2x_inputs_streamed" in run_source
+    assert "save_cropped_png_streamed" in run_source
+    assert "multipage_rejected" in run_source
+    assert "accepted_v2_sha256_unchanged" in run_source
+    assert "network_access" in run_source and "gpu_runtime_initialized" in run_source
+    assert '"v211-tiff"' in package_script
+    assert "NIYOMSIL_V211_TIFF_SMOKE" in package_script
+    assert "-Mode v211-tiff" in workflow
+    assert "Verify frozen single-page BigTIFF" in workflow
+
+def test_v211_download_retry_fault_injection_is_wired_before_candidate_build():
+    root = Path(__file__).resolve().parents[1]
+    harness = (root / "tools" / "Test-V211-DownloadRetry.ps1").read_text(encoding="utf-8")
+    workflow = (
+        root / ".github" / "workflows" / "v211-four-engine-bridge-windows.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "Ensure-VerifiedDownload" in harness
+    assert "System.IO.IOException" in harness
+    assert "System.Net.Http.HttpRequestException" in harness
+    assert "hash-mismatch" in harness
+    assert "destination-race" in harness
+    assert "verified-cache" in harness
+    assert "https://invalid.test/no-network" in harness
+    assert "Test-V211-DownloadRetry.ps1" in workflow
+    assert workflow.index("Fault-inject V2.1.1 verified-download retry") < workflow.index(
+        "Build V2-based experimental candidate"
+    )

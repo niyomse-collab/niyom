@@ -52,6 +52,9 @@ def run_candidates(
     output_dir: Path,
     target_size: tuple[int, int],
     processors: Mapping[str, Callable[[Path, Path], None]],
+    *,
+    cancel_check: Callable[[], bool] | None = None,
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> dict[str, object]:
     """Run every engine candidate in a bounded, sequential research pass.
 
@@ -68,14 +71,29 @@ def run_candidates(
     output_dir.mkdir(parents=True, exist_ok=True)
     candidates: list[Candidate] = []
     failures: dict[str, str] = {}
-    for name in ENGINES:
+    def discard_candidates() -> None:
+        for engine_name in ENGINES:
+            (output_dir / (engine_name + ".png")).unlink(missing_ok=True)
+
+    for index, name in enumerate(ENGINES):
         destination = output_dir / (name + ".png")
+        if cancel_check and cancel_check():
+            discard_candidates()
+            raise InterruptedError("Processing stopped by user")
+        if progress_callback:
+            progress_callback(96 + index, "NiyomSilp Design · Four AI · " + name)
         try:
             processors[name](source, destination)
+            if cancel_check and cancel_check():
+                discard_candidates()
+                raise InterruptedError("Processing stopped by user")
             if not destination.is_file():
                 raise RuntimeError("processor produced no output")
             validate_candidate(source, destination, target_size)
             candidates.append(Candidate(name, destination, *target_size))
+        except InterruptedError:
+            discard_candidates()
+            raise
         except Exception as exc:
             failures[name] = type(exc).__name__ + ": " + str(exc)
             destination.unlink(missing_ok=True)

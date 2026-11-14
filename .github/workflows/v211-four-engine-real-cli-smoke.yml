@@ -1,0 +1,199 @@
+name: V2.1.1 actual engine CLI smoke on Windows (non-certifying)
+run-name: V2.1.1 native CLI smoke - ${{ github.sha }}
+# 2026-11-11: rerun the official CLI smoke when bridge/runner/tile/device-binding code changes; hosted Vulkan limitations remain non-certifying.
+on:
+  pull_request:
+    branches:
+      - feature/v2.1.1-super-ai
+    paths:
+      - 'tools/v211_four_engine_real_inference_qa.py'
+      - 'signprint_ai/v211_four_engine_bridge.py'
+      - 'signprint_ai/v211_large_image_bridge.py'
+      - 'tools/v211_four_engine_coordinator.py'
+      - 'tools/v211_four_engine_run.py'
+      - 'tools/v211_four_engine_fusion.py'
+      - 'tools/v211_four_engine_tiled_inference.py'
+      - 'tools/v211_gpu_device_binding.py'
+      - 'tools/v211_gpu_process_telemetry.py'
+      - 'tests/test_v211_four_engine_bridge.py'
+      - 'tests/test_v211_four_engine_run.py'
+      - 'tests/test_v211_four_engine_fusion.py'
+      - 'tests/test_v211_four_engine_tiled_inference.py'
+      - 'tests/test_v211_gpu_device_binding.py'
+      - 'tests/test_v211_gpu_process_telemetry.py'
+      - 'tools/v211_four_engine_subprocess.py'
+      - 'tools/v211_provision_four_engines.py'
+      - 'tools/v211_official_assets_audit.py'
+      - 'tools/v211_real_engine_manifest.py'
+      - 'tests/test_v211_provision_four_engines.py'
+      - 'tests/test_v211_official_assets_audit.py'
+      - 'tests/test_v211_real_inference_qa_coverage.py'
+      - '.github/workflows/v211-four-engine-real-cli-smoke.yml'
+  push:
+    branches:
+      - work/v211-four-engine-v2-bridge-20261103
+    paths:
+      - 'tools/v211_four_engine_real_inference_qa.py'
+      - 'signprint_ai/v211_four_engine_bridge.py'
+      - 'signprint_ai/v211_large_image_bridge.py'
+      - 'tools/v211_four_engine_coordinator.py'
+      - 'tools/v211_four_engine_run.py'
+      - 'tools/v211_four_engine_fusion.py'
+      - 'tools/v211_four_engine_tiled_inference.py'
+      - 'tools/v211_gpu_device_binding.py'
+      - 'tools/v211_gpu_process_telemetry.py'
+      - 'tests/test_v211_four_engine_bridge.py'
+      - 'tests/test_v211_four_engine_run.py'
+      - 'tests/test_v211_four_engine_fusion.py'
+      - 'tests/test_v211_four_engine_tiled_inference.py'
+      - 'tests/test_v211_gpu_device_binding.py'
+      - 'tests/test_v211_gpu_process_telemetry.py'
+      - 'tools/v211_four_engine_subprocess.py'
+      - 'tools/v211_provision_four_engines.py'
+      - 'tools/v211_official_assets_audit.py'
+      - 'tools/v211_real_engine_manifest.py'
+      - 'tests/test_v211_provision_four_engines.py'
+      - 'tests/test_v211_official_assets_audit.py'
+      - 'tests/test_v211_real_inference_qa_coverage.py'
+      - '.github/workflows/v211-four-engine-real-cli-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: v211-real-cli-smoke
+  cancel-in-progress: false
+
+jobs:
+  windows-synthetic-real-cli:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.ref == 'work/v211-four-engine-v2-bridge-20261103'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Test QA report logic (mock executables, not evidence)
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check pytest Pillow
+          python -m pytest -q tests/test_v211_real_inference_qa_coverage.py
+      - name: Download and verify the four official Windows releases into temporary QA storage
+        id: provision
+        shell: pwsh
+        run: |
+          python -m tools.v211_provision_four_engines --archives-dir "$env:RUNNER_TEMP/v211-zip" --install-dir "$env:RUNNER_TEMP/v211-models" --manifest "$env:RUNNER_TEMP/v211-manifest.json" --download-missing
+      - name: Generate harmless, original synthetic PNG test (not customer artwork)
+        shell: pwsh
+        run: |
+          @'
+          import os
+          from pathlib import Path
+          from PIL import Image, ImageDraw
+          p = Path(os.environ["RUNNER_TEMP"]) / "v211-original-test.png"
+          im = Image.new("RGB", (128, 96), (20, 128, 54))
+          draw = ImageDraw.Draw(im)
+          for x in range(128):
+              draw.line((x, 0, x, 45), fill=(20, 100 + (x * 110 // 127), 45))
+          draw.rectangle((9, 52, 96, 78), fill=(237, 14, 17))
+          draw.ellipse((101, 50, 124, 73), fill=(19, 55, 216))
+          im.save(p, dpi=(300, 300))
+          print("Synthetic input prepared, pixels:", im.size)
+          '@ | python -
+      - name: Run actual official binaries on the synthetic image (Windows runner may lack Vulkan GPU)
+        if: always() && steps.provision.outcome == 'success'
+        id: real_cli
+        continue-on-error: true
+        shell: pwsh
+        env:
+          NIYOMSIL_V211_SYNTHETIC_CI_DEBUG: '1'
+        run: |
+          $manifest = Join-Path $env:RUNNER_TEMP 'v211-manifest.json'
+          $source = Join-Path $env:RUNNER_TEMP 'v211-original-test.png'
+          $reportDir = Join-Path $env:RUNNER_TEMP 'v211-real-cli-results'
+          $m = Get-Content $manifest -Raw | ConvertFrom-Json
+          foreach ($entry in $m.PSObject.Properties) { $entry.Value.timeout_seconds = 120 }
+          $m | ConvertTo-Json -Depth 10 | Set-Content -Encoding utf8 $manifest
+          python -m tools.v211_four_engine_real_inference_qa --manifest "$manifest" --input "$source" --output-dir "$reportDir"
+      - name: Generate synthetic RGBA cutout with embedded ICC and 300 DPI
+        if: always()
+        shell: pwsh
+        run: |
+          @'
+          import os
+          from pathlib import Path
+          from PIL import Image, ImageCms, ImageDraw
+          p = Path(os.environ["RUNNER_TEMP"]) / "v211-original-alpha-icc.png"
+          im = Image.new("RGBA", (128, 96), (0, 0, 0, 0))
+          draw = ImageDraw.Draw(im)
+          draw.rectangle((12, 12, 116, 84), fill=(230, 35, 50, 255))
+          draw.ellipse((28, 22, 100, 76), fill=(30, 100, 230, 130))
+          profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+          im.save(p, dpi=(300, 300), icc_profile=profile)
+          print("Synthetic RGBA/ICC input prepared:", im.size)
+          '@ | python -
+      - name: Run actual official binaries on synthetic RGBA ICC PNG (separate evidence)
+        if: always() && steps.provision.outcome == 'success'
+        id: real_cli_alpha
+        continue-on-error: true
+        shell: pwsh
+        env:
+          NIYOMSIL_V211_SYNTHETIC_CI_DEBUG: '1'
+        run: |
+          $manifest = Join-Path $env:RUNNER_TEMP 'v211-manifest.json'
+          $source = Join-Path $env:RUNNER_TEMP 'v211-original-alpha-icc.png'
+          $reportDir = Join-Path $env:RUNNER_TEMP 'v211-real-cli-alpha-results'
+          if (-not (Test-Path $manifest)) { throw 'BLOCKED: verified manifest missing' }
+          python -m tools.v211_four_engine_real_inference_qa --manifest "$manifest" --input "$source" --output-dir "$reportDir"
+      - name: Classify real CLI outcomes without hiding non-Vulkan failures
+        if: always()
+        shell: pwsh
+        run: |
+          if ("${{ steps.provision.outcome }}" -ne "success") {
+            Write-Warning "PROVISIONING_BLOCKED: official archives were not verified; native inference was not attempted. The earlier provisioning step remains failed."
+            exit 0
+          }
+          function Assert-RealCliReport([string]$Path, [string]$CaseName) {
+            if (-not (Test-Path $Path)) { throw "$CaseName report missing; no inference can be claimed." }
+            $r = Get-Content $Path -Raw | ConvertFrom-Json
+            if ($r.failed_stage) { throw "$CaseName failed before native execution: $($r.failed_stage)" }
+            if ($r.real_inference_verified) {
+              Write-Host "${CaseName}: all four native CLI outputs validated."
+              return
+            }
+            $failures = @($r.failures.PSObject.Properties)
+            if ($failures.Count -eq 0) { throw "$CaseName has no validated inference and no classified failures." }
+            $unexpected = @()
+            foreach ($failed in $failures) {
+              $class = [string]$failed.Value.error_class
+              Write-Host "$CaseName / $($failed.Name): $class"
+              $hostLimitedClasses = @(
+                "vulkan_initialization_failed",
+                "vulkan_initialization_failed_with_access_violation"
+              )
+              if ($hostLimitedClasses -notcontains $class) {
+                $unexpected += "$($failed.Name): $class"
+              }
+            }
+            if ($unexpected.Count -gt 0) {
+              throw "$CaseName has non-Vulkan engine/candidate failures: $($unexpected -join '; ')"
+            }
+            Write-Warning "${CaseName}: native inference was blocked by Vulkan initialization on this hosted runner (a process may also report a distinct access-violation exit code). This is not a quality pass; repeat on the shop GTX 1660 Ti."
+          }
+          Assert-RealCliReport (Join-Path $env:RUNNER_TEMP 'v211-real-cli-results/real_inference_report.json') 'RGB synthetic'
+          Assert-RealCliReport (Join-Path $env:RUNNER_TEMP 'v211-real-cli-alpha-results/real_inference_report.json') 'RGBA/ICC synthetic'
+      - name: Retain JSON evidence only, not model packages or images
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: v211-real-cli-windows-synthetic-only-report
+          path: |
+            ${{ runner.temp }}/v211-real-cli-results/real_inference_report.json
+            ${{ runner.temp }}/v211-real-cli-alpha-results/real_inference_report.json
+          if-no-files-found: warn
+          retention-days: 7
