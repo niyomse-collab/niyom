@@ -221,7 +221,7 @@ def _prepare_native_2x_inputs(
                 raise ValueError("auxiliary_source_too_large")
             if source_image.mode not in ("RGB", "RGBA"):
                 raise ValueError("source must be RGB or RGBA for four-engine research")
-            if source_image.mode != padded_v2.mode:
+            if source_image.mode != v2_image.mode:
                 raise ValueError(
                     "source and accepted V2 must preserve matching RGB/RGBA mode"
                 )
