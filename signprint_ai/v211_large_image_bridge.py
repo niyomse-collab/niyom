@@ -195,6 +195,10 @@ def prepare_native_2x_inputs_streamed(
     target_size, target_mode, metadata = inspect_image(baseline)
     if source_mode not in ("RGB", "RGBA") or target_mode not in ("RGB", "RGBA"):
         raise ValueError("large four-engine source and V2 must be RGB/RGBA")
+    if source_mode != target_mode:
+        raise ValueError(
+            "large four-engine source and accepted V2 must preserve matching RGB/RGBA mode"
+        )
     source_icc = source_metadata.get("icc_profile")
     target_icc = metadata.get("icc_profile")
     # Missing and embedded profiles are different colour contracts. A
