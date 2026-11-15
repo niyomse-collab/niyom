@@ -64,6 +64,58 @@ def test_default_disabled_preserves_print_output(tmp_path, monkeypatch):
     assert baseline.read_bytes() == old
 
 
+def test_bridge_rejects_source_v2_rgb_rgba_mismatch_before_gpu_binding(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "transparent-source.png"
+    baseline = tmp_path / "rgb-v2.png"
+    Image.new("RGBA", (128, 96), (20, 30, 40, 128)).save(source)
+    Image.new("RGB", (256, 192), (30, 40, 50)).save(baseline)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("mode mismatch must stop before GPU binding or native launch")
+
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+
+    assert result["status"] == "source_output_mode_mismatch"
+    assert result["v2_output_preserved"] is True
+    assert result["quality_certified"] is False
+    assert baseline.read_bytes() == before
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+
+
+@pytest.mark.parametrize(
+    ("source_mode", "v2_mode"),
+    [("RGBA", "RGB"), ("RGB", "RGBA")],
+)
+def test_small_and_large_seed_paths_reject_rgb_rgba_mode_mismatch_before_writing(
+    tmp_path, source_mode, v2_mode
+):
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
+
+    source = tmp_path / "mode-mismatch-source.png"
+    baseline = tmp_path / "mode-mismatch-v2.png"
+    source_pixel = (20, 30, 40, 128) if source_mode == "RGBA" else (20, 30, 40)
+    v2_pixel = (30, 40, 50, 128) if v2_mode == "RGBA" else (30, 40, 50)
+    Image.new(source_mode, (128, 96), source_pixel).save(source)
+    Image.new(v2_mode, (256, 192), v2_pixel).save(baseline)
+
+    for prepare, folder in (
+        (bridge._prepare_native_2x_inputs, "small-mode-mismatch"),
+        (prepare_native_2x_inputs_streamed, "large-mode-mismatch"),
+    ):
+        work_dir = tmp_path / folder
+        with pytest.raises(ValueError, match="matching RGB/RGBA mode"):
+            prepare(source, baseline, work_dir)
+        assert not work_dir.exists()
+
+
+
+
 def test_missing_model_manifest_is_non_destructive(tmp_path, monkeypatch):
     source, baseline = _images(tmp_path)
     old = baseline.read_bytes()
