@@ -506,7 +506,7 @@ def test_license_document_rejects_non_utf8_content(monkeypatch):
     monkeypatch.setattr(
         assets.urllib.request,
         "urlopen",
-        lambda *args, **kwargs: _FakeLicenseResponse(b"\\xff\\xfe", raw_url),
+        lambda *args, **kwargs: _FakeLicenseResponse(b"\xff\xfe", raw_url),
     )
     with pytest.raises(ValueError, match="valid UTF-8"):
         assets.audit_license_document("binary", source_url)
