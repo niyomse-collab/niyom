@@ -854,3 +854,55 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 ### Remaining gates
 - No shop self-hosted GPU run or exact-head shop consent evidence was available. Real four-engine inference on GTX 1660 Ti, per-process adapter binding, 6 GB VRAM stress, cancellation under native GPU load, real image A/B, Photoshop/MainTop and print acceptance remain NOT CERTIFIED.
 - V2 remains the accepted master. PR #20 and PR #18 remain Draft/unmerged; no V1/V2 Stable edits, merge, release or quality-superiority claim.
+
+
+## 15 พฤศจิกายน 2569 22:49 ICT — Exact PR-head Candidate #720 และ CI refresh
+
+ขอบเขตยังคงเฉพาะ Draft PR #20 / `work/v211-four-engine-v2-bridge-20261103`; PR #18 ใช้เป็นฐานอ้างอิงเพื่อรักษา V2/GFPGAN. รายการนี้เป็นการบันทึกผลที่ตรวจจาก GitHub Actions และ Git blob SHA โดยตรง ไม่ใช่การรับรองคุณภาพภาพหรือ GPU เครื่องร้าน
+
+### Exact source และ Windows Candidate
+
+- PR HEAD ที่ตรวจ: `2ae7d34b97ddea8a2e39097530b8f118d8bd92cf`.
+- Windows Candidate **#720** [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43484981826) สำเร็จ **2/2 jobs**: `bridge-tests` และ `windows-v2-candidate`.
+- Frozen checks ที่ผ่าน: V2 packaged imports; packaged four-engine provisioning `--check-only` โดยไม่ดาวน์โหลด; isolated consented cache cleanup; packaged diagnostic `--help`; PowerShell provenance verifier parse; BUILD_PROOF ตรง source SHA; installer slice SHA256 ทุกส่วน; และ upload experimental artifact.
+- Installer SHA256: `4e47fbc114117e72f70c595aac0b6de1fee73dbc183d3850cb41fc44b4daeda5`.
+- Artifact ID `14069031153`; ขนาด **2,584,617,048 bytes**; ZIP SHA256 `a2eb585551032d8f2cdb8ec7ae24e0bf45116dc9eceb19c691ff73e5ece076f6`; หมดอายุ **21 พ.ย. 2569 02:07 ICT**. [Candidate #720 artifact](https://github.com/niyomse-collab/niyom/actions/runs/43484981826/artifacts/14069031153).
+- Candidate #720 รับรองเฉพาะ frozen package/provenance และ dispatch แบบไม่ดาวน์โหลด ไม่รับรอง interactive install/uninstall, native GPU 4/4, VRAM, visual A/B หรือคุณภาพงานพิมพ์.
+
+### Independent Core #1283
+
+- [Actions #1283](https://github.com/niyomse-collab/niyom/actions/runs/43484981647): Windows **979 passed / 1 skipped**; Ubuntu **977 passed / 3 skipped**; pytest และ compileall ผ่านทั้งสองระบบ.
+
+### Official Archive Audit #158
+
+- [Actions #158](https://github.com/niyomse-collab/niyom/actions/runs/43484981648) ดาวน์โหลด ตรวจ SHA256 ตรวจ ZIP contents และ provision official Windows archives ทั้งสี่ลง ephemeral QA directory; Manifest แสดงครบ `real_esrgan, waifu2x, real_cugan, anime4k`.
+- Real-ESRGAN และ Real-CUGAN ยังใช้ observed CI SHA256 pin เพราะ upstream ไม่เผย publisher digest; Waifu2x และ Anime4KCPP ใช้ published digest.
+- ผล audit ยังคง `all_upstream_digests_pinned=false`, `quality_certified=false`, `license_redistribution_approved=false`. Binary/weights ไม่ถูกรวมใน Installer และไม่มีไฟล์เหล่านี้ commit เข้า repository.
+
+### Native CLI Smoke #200 — diagnostic เท่านั้น
+
+- [Actions #200](https://github.com/niyomse-collab/niyom/actions/runs/43484981676), JSON artifact [14065489882](https://github.com/niyomse-collab/niyom/actions/runs/43484981676/artifacts/14065489882). ทดสอบ synthetic RGB และ RGBA พร้อม ICC/300 DPI เท่านั้น.
+- Real-CUGAN และ Anime4KCPP: native process เริ่มและจบ exit code 0; ได้ output 2x ที่ผ่าน geometry/metadata checks.
+- Real-ESRGAN: `vkCreateInstance failed -9`.
+- Waifu2x: `vkCreateInstance failed -9` และ exit `0xC0000005`.
+- NVML เป็น `nvml_library_not_found`; physical GPU/PID-to-adapter verification **0/4**; `real_inference_verified=false`; `quality_improvement_verified=false`.
+- Workflow job สรุป SUCCESS เพราะจัดประเภทข้อจำกัด Vulkan ของ hosted runner ตามที่กำหนดไว้ ไม่ใช่เพราะ native 4/4 หรือ GPU inference ผ่าน. ผลนี้ไม่หักล้างผลทดสอบที่เจ้าของเคยยืนยันบน Windows 11 GTX 1660 Ti และไม่ใช้แทน Shop GPU Evidence.
+
+### V2 / GFPGAN / HAT compatibility audit
+
+ตรวจ Git blob SHA ระหว่าง PR #18 base `288dd8501c230a118d9a7e60d2522a2cc7411bcc` และ PR #20 HEAD `2ae7d34b97ddea8a2e39097530b8f118d8bd92cf`; protected files **5/5 byte-identical**:
+
+- `signprint_ai/face_module/face_protection.py`
+- `signprint_ai/large_faces.py`
+- `signprint_ai/v211_face_contract.py`
+- `tests/test_v211_face_contract.py`
+- `signprint_ai/face_module/__init__.py`
+
+PR #20 ยังคงปิด optional HAT Assist route ที่มีใน PR #18 แยกต่างหาก; นี่ไม่ใช่การเปลี่ยน GFPGAN/Face Protection และต้องคงเป็น compatibility difference ที่เปิดเผยก่อน merge ห้าม restore HAT เงียบ ๆ ในงาน four-engine นี้.
+
+### Consent และข้อจำกัดเครื่องร้าน
+
+- Source ปัจจุบันมี consent สองทาง: installer task แบบ unchecked-by-default; หากข้าม task จะมี local-only Yes/No prompt หลังเปิด editor ประมาณ 600 ms. ตรวจสถานะ Manifest/decline marker โดยไม่เข้าถึงเครือข่าย; download เริ่มหลัง Yes เท่านั้น. หากมี Manifest ครบแล้วจะไม่ถามซ้ำ และงานที่รองรับเรียกทั้งสี่ engine อัตโนมัติแบบ offline. Status document นี้เป็นแหล่งอธิบายพฤติกรรมปัจจุบัน; ข้อความเก่าใน PR description ที่ระบุ installer-only ถูก supersede แล้ว.
+- ไม่มี affirmative shop-GPU consent marker จึงไม่ schedule self-hosted runner. ยังไม่มีหลักฐาน Native GPU 4/4, VRAM peak/hard cap 6 GB, stress >18 MP/4x, cancel ระหว่าง native process, A/B ภาพจริง, Photoshop หรือ MainTop RIP.
+- PR #20 ยังคง Draft/unmerged; PR #18 ไม่ถูกแก้; ไม่มี V1/V2 Stable changes, ไม่มี customer artwork/binaries/weights commit, ไม่มี merge/release และไม่มีการอ้างว่าคุณภาพเหนือ V2.
+
