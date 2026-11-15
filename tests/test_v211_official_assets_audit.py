@@ -421,3 +421,136 @@ def test_official_archive_download_does_not_retry_permanent_http_errors(tmp_path
     assert len(calls) == 1
     assert target.read_bytes() == previous
     assert list(tmp_path.glob(".*.part")) == []
+
+
+class _FakeLicenseResponse:
+    def __init__(self, payload, final_url, status=200):
+        self.payload = payload
+        self.final_url = final_url
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def geturl(self):
+        return self.final_url
+
+    def read(self, size):
+        return self.payload[:size]
+
+
+def test_license_document_maps_github_blob_to_raw_and_records_sha256(monkeypatch):
+    payload = b"MIT License\n\nPermission is hereby granted.\n"
+    source_url = "https://github.com/nihui/waifu2x-ncnn-vulkan/blob/master/LICENSE"
+    expected_raw = "https://raw.githubusercontent.com/nihui/waifu2x-ncnn-vulkan/master/LICENSE"
+    seen = {}
+
+    def fake_urlopen(request, timeout=30):
+        seen["url"] = request.full_url
+        seen["timeout"] = timeout
+        return _FakeLicenseResponse(payload, expected_raw)
+
+    monkeypatch.setattr(assets.urllib.request, "urlopen", fake_urlopen)
+    result = assets.audit_license_document("Waifu2x source license", source_url)
+
+    assert seen == {"url": expected_raw, "timeout": 30}
+    assert result["status"] == "retrieved_and_hashed"
+    assert result["resolved_url"] == expected_raw
+    assert result["bytes"] == len(payload)
+    assert result["sha256"] == hashlib.sha256(payload).hexdigest()
+    assert result["line_count"] == 3
+
+
+def test_license_document_rejects_non_github_source_before_network(monkeypatch):
+    def unexpected_network(*args, **kwargs):
+        pytest.fail("untrusted license URL must be rejected before network access")
+
+    monkeypatch.setattr(assets.urllib.request, "urlopen", unexpected_network)
+    with pytest.raises(ValueError, match="canonical HTTPS github.com"):
+        assets.audit_license_document("bad", "https://evil.example/LICENSE")
+
+
+def test_license_document_rejects_redirect_outside_github_allowlist(monkeypatch):
+    source_url = "https://github.com/nihui/waifu2x-ncnn-vulkan/blob/master/LICENSE"
+    monkeypatch.setattr(
+        assets.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: _FakeLicenseResponse(
+            b"MIT License", "https://evil.example/steal"
+        ),
+    )
+    with pytest.raises(ValueError, match="redirected outside"):
+        assets.audit_license_document("license", source_url)
+
+
+def test_license_document_rejects_oversized_content(monkeypatch):
+    source_url = "https://github.com/nihui/waifu2x-ncnn-vulkan/blob/master/LICENSE"
+    raw_url = "https://raw.githubusercontent.com/nihui/waifu2x-ncnn-vulkan/master/LICENSE"
+    monkeypatch.setattr(
+        assets.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: _FakeLicenseResponse(
+            b"x" * (assets.MAX_LICENSE_BYTES + 1), raw_url
+        ),
+    )
+    with pytest.raises(ValueError, match="size limit"):
+        assets.audit_license_document("large", source_url)
+
+
+def test_license_document_rejects_non_utf8_content(monkeypatch):
+    source_url = "https://github.com/nihui/waifu2x-ncnn-vulkan/blob/master/LICENSE"
+    raw_url = "https://raw.githubusercontent.com/nihui/waifu2x-ncnn-vulkan/master/LICENSE"
+    monkeypatch.setattr(
+        assets.urllib.request,
+        "urlopen",
+        lambda *args, **kwargs: _FakeLicenseResponse(b"\\xff\\xfe", raw_url),
+    )
+    with pytest.raises(ValueError, match="valid UTF-8"):
+        assets.audit_license_document("binary", source_url)
+
+
+def test_official_audit_hashes_source_license_documents_without_approving_weights(tmp_path, monkeypatch):
+    def fake_download(_url, target, expected_sha256=None, observed_sha256=None):
+        with zipfile.ZipFile(target, "w") as archive:
+            archive.writestr("engine.exe", b"synthetic executable")
+        return {}
+
+    def fake_verify(_path, expected, observed=None):
+        return {
+            "release_digest_verified": expected is not None,
+            "matches_recorded_ci_sha256": observed is not None,
+        }
+
+    def fake_license(name, url):
+        return {
+            "name": name,
+            "source_url": url,
+            "status": "retrieved_and_hashed",
+            "sha256": "a" * 64,
+            "bytes": 128,
+        }
+
+    monkeypatch.setattr(assets, "download_archive", fake_download)
+    monkeypatch.setattr(assets, "verify_archive_hash", fake_verify)
+    monkeypatch.setattr(assets, "audit_license_document", fake_license)
+
+    report = assets.audit_official_releases(
+        tmp_path / "archives", tmp_path / "report.json"
+    )
+
+    assert report["all_archives_audited"] is True
+    assert report["all_license_documents_retrieved"] is True
+    assert report["all_provenance_checks_passed"] is True
+    assert sum(
+        len(package["license_documents"])
+        for package in report["packages"].values()
+    ) == 6
+    assert report["model_weights_and_license_certified"] is False
+    assert report["license_redistribution_approved"] is False
+    assert all(
+        package["model_weight_rights_review_required"] is True
+        for package in report["packages"].values()
+    )
