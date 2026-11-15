@@ -663,3 +663,14 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - ห้ามอ่าน/อัปโหลด/เก็บภาพลูกค้า, ห้ามดาวน์โหลดโมเดลระหว่าง diagnostic, ห้ามแก้ accepted V2 output. อัปโหลดได้เฉพาะ JSON evidence และลบ workspace ชั่วคราว.
 - Shop GPU Evidence #47 เดิมผูกกับ Candidate #828 (`b2ef5aec1e6753b4e4abcbb611fe46b5c349106b`) และยัง Queued; ห้ามนำมาใช้รับรอง Candidate #838. การทดสอบ Candidate #838 ต้องมี run ใหม่ที่ตรวจ source SHA ตามบันทึกนี้.
 - แม้ Synthetic GPU gate ผ่าน จะรับรองได้เฉพาะ native process/device/VRAM/bridge contract บนเครื่องที่รันจริงเท่านั้น; ต้องคง `quality_improvement_verified=false`, `visual_quality_certified=false`, `print_quality_certified=false` จนกว่าจะมี A/B ภาพจริงที่เจ้าของตรวจและอนุมัติ.
+
+
+## 16 พฤศจิกายน 2569 — Source correction: large TIFF and runtime GPU binding
+
+บันทึกส่วนก่อนหน้านี้บางย่อหน้าเป็นประวัติของ implementation รุ่นก่อนหน้า ให้ยึดพฤติกรรมจาก Source HEAD ปัจจุบันดังนี้:
+
+- **Large image >18 MP:** Four-Engine Bridge รองรับ source และ accepted V2 เป็น PNG หรือ single-page 8-bit RGB/RGBA TIFF/BigTIFF ตาม `_LARGE_STREAMED_FORMATS` และ `_assert_single_page_tiff`. Bridge ใช้ libvips อ่านแบบ random access แล้วสร้าง private PNG seed/reference; tiled native runner จึงรับ PNG intermediates. JPEG/WebP ขนาดใหญ่, multi-page TIFF, CMYK และ bit depth ที่ไม่รองรับยังคงใช้ V2-only. ข้อความเก่าที่ระบุว่า large Four-Engine รองรับเฉพาะ PNG และ TIFF ต้องใช้ V2-only ไม่ตรงกับ Source HEAD นี้แล้ว
+- **Native scale:** เป้าหมาย 2x/3x/4x/8x หรือ anisotropic เป็นขนาดปลายทางของ V2 canvas; native executable แต่ละตัวทำเพียงหนึ่ง 2x pass บน seed ครึ่งขนาดของ V2 target. จึงไม่ใช่ native 4x/8x หรือ multi-pass inference. Disk-backed tiled runner จำกัด native pass ที่ 2x และตรวจ overlap/seam ก่อน fusion.
+- **GPU binding:** persistent installed manifest ไม่จำเป็นต้องมี device index คงที่. ก่อนเริ่มงาน Bridge สร้าง ephemeral bound manifest: Real-ESRGAN, Waifu2x และ Real-CUGAN ได้ Vulkan `-g` index ที่ตรวจพบแบบไม่กำกวม; Anime4KCPP ได้ processor `-p cuda` หรือ `-p opencl` และ device `-d` จาก inventory ของ Anime4KCPP. ไฟล์ manifest ที่ติดตั้งถาวรไม่ถูกแก้ไข. การเห็นชื่อ adapter ใน inventory หรือการตั้งค่า CLI ยังไม่ใช่หลักฐาน runtime; ต้องตรวจ PID/backend telemetry ระหว่าง process จริงของแต่ละ Engine.
+- **Backend distinction:** Anime4KCPP ไม่ใช่ NCNN/Vulkan. การตรวจ Vulkan readiness ใช้กับสาม NCNN engines เท่านั้น; Anime4KCPP ต้องพิสูจน์ CUDA/OpenCL device ที่เลือกและ telemetry ของ process แยกต่างหาก. ข้อความก่อนหน้าที่บอกว่า runtime manifest ไม่ส่ง `-p/-d` ให้ Anime4KCPP เป็นข้อมูลของ manifest ก่อน runtime binding.
+- **Acceptance remains unchanged:** Synthetic/hosted CI ไม่รับรอง native GPU 4/4, 6 GB VRAM stress, ภาพจริง A/B, Photoshop, MainTop RIP หรือ print quality. QA sidecar ยังต้องผ่าน contribution จากทั้งสี่ Engine และ live per-process adapter evidence; accepted V2 raster ไม่ถูกแทนที่.
