@@ -55,15 +55,65 @@ _EXPECTED_LICENSE_URLS = {
 
 
 def preflight_v211_provisioning() -> dict:
-    """Validate the frozen installer/provisioner graph without network or writes."""
-    from .v211_auto_setup import selected_manifest
-    from tools.v211_official_assets_audit import PACKAGES as AUDIT_PACKAGES
-    from tools.v211_provision_four_engines import (
-        PACKAGES as PROVISION_PACKAGES,
-        ensure_verified_archive,
-        provision_from_archives,
+    """Validate the frozen four-engine runtime/provisioner graph without network or writes."""
+    from . import v211_auto_setup, v211_four_engine_bridge, v211_large_image_bridge
+    from tools import (
+        v211_four_engine_fusion,
+        v211_four_engine_run,
+        v211_four_engine_subprocess,
+        v211_four_engine_tiled_inference,
+        v211_gpu_device_binding,
+        v211_official_assets_audit,
+        v211_provision_four_engines,
+        v211_real_engine_manifest,
     )
-    from tools.v211_real_engine_manifest import load_real_engine_manifest
+
+    AUDIT_PACKAGES = v211_official_assets_audit.PACKAGES
+    PROVISION_PACKAGES = v211_provision_four_engines.PACKAGES
+    ensure_verified_archive = v211_provision_four_engines.ensure_verified_archive
+    provision_from_archives = v211_provision_four_engines.provision_from_archives
+    load_real_engine_manifest = v211_real_engine_manifest.load_real_engine_manifest
+    selected_manifest = v211_auto_setup.selected_manifest
+
+    # Import the exact dynamic application graph used after one-time consent.
+    # This is deliberately import-only: no native child process, GPU probe,
+    # archive download, manifest write, or customer-file access is allowed.
+    runtime_callables = {
+        "signprint_ai.v211_auto_setup": (
+            v211_auto_setup.initial_setup_state,
+            v211_auto_setup.provision_after_consent,
+            v211_auto_setup.selected_manifest,
+        ),
+        "signprint_ai.v211_four_engine_bridge": (
+            v211_four_engine_bridge.maybe_run_four_engine_assist,
+        ),
+        "signprint_ai.v211_large_image_bridge": (
+            v211_large_image_bridge.prepare_native_2x_inputs_streamed,
+            v211_large_image_bridge.save_cropped_png_streamed,
+        ),
+        "tools.v211_four_engine_fusion": (
+            v211_four_engine_fusion.fuse_four_engine_details,
+        ),
+        "tools.v211_four_engine_run": (
+            v211_four_engine_run.run,
+        ),
+        "tools.v211_four_engine_subprocess": (
+            v211_four_engine_subprocess.make_processors,
+        ),
+        "tools.v211_four_engine_tiled_inference": (
+            v211_four_engine_tiled_inference.run_tiled_candidates,
+        ),
+        "tools.v211_gpu_device_binding": (
+            v211_gpu_device_binding.write_bound_manifest,
+        ),
+        "tools.v211_real_engine_manifest": (
+            v211_real_engine_manifest.load_real_engine_manifest,
+        ),
+    }
+    if any(not callable(item)
+           for functions in runtime_callables.values() for item in functions):
+        raise RuntimeError("four-engine frozen runtime import graph is incomplete")
+    runtime_imports = sorted(runtime_callables)
 
     if set(AUDIT_PACKAGES) != _REQUIRED_ENGINES or set(PROVISION_PACKAGES) != _REQUIRED_ENGINES:
         raise RuntimeError("provisioner must expose exactly the four approved engines")
@@ -105,6 +155,8 @@ def preflight_v211_provisioning() -> dict:
         "release_pins": dict(_EXPECTED_RELEASES),
         "digest_sources": digest_sources,
         "license_sources": dict(_EXPECTED_LICENSE_URLS),
+        "runtime_imports_verified": True,
+        "runtime_imports": runtime_imports,
         "network_started": False,
         "filesystem_modified": False,
     }
