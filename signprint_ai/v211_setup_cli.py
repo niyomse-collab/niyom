@@ -1,9 +1,13 @@
 """Consent-gated setup entry point for the V2.1.1 four-engine research set.
 
-The unchecked-by-default installer task is the only consent surface. If the
-user selects it, setup verifies and installs all four official engines before
-the editor launches. Skipping it leaves accepted V2 available; later eligible
-V2.1.1 runs use only a fully verified local manifest and remain offline.
+Provisioning may be authorized by either the unchecked-by-default installer
+task before editor launch or the editor's one-time first-launch Yes/No prompt.
+Both paths use the same verified provisioning service. Setup-state inspection
+is local-only and never downloads; a first-launch No decision is recorded
+locally, while affirmative consent starts downloads on a background worker.
+Declining or skipping setup leaves accepted V2 available. After all four
+official archives and the manifest are verified, eligible V2.1.1 jobs use the
+local engines offline.
 """
 from __future__ import annotations
 
