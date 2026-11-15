@@ -16,6 +16,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 import zipfile
 
 
@@ -65,6 +66,126 @@ PACKAGES = {
 }
 MAX_ARCHIVE_BYTES = 300 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024
+
+
+MAX_LICENSE_BYTES = 1024 * 1024
+_LICENSE_REDIRECT_HOSTS = {"github.com", "raw.githubusercontent.com"}
+
+
+def _github_blob_to_raw_url(url: str) -> str:
+    """Accept only canonical GitHub blob URLs and map them to raw text."""
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "github.com"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.port is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("license URL must be a canonical HTTPS github.com blob URL")
+    parts = parsed.path.strip("/").split("/")
+    if len(parts) < 5 or parts[2] != "blob":
+        raise ValueError("license URL must identify owner/repository/blob/ref/path")
+    owner, repository, marker, ref, *path = parts
+    if (
+        marker != "blob"
+        or not owner
+        or not repository
+        or not ref
+        or not path
+        or any(part in ("", ".", "..") for part in (owner, repository, ref, *path))
+    ):
+        raise ValueError("license URL contains an invalid GitHub path")
+    return (
+        "https://raw.githubusercontent.com/"
+        + owner + "/" + repository + "/" + ref + "/" + "/".join(path)
+    )
+
+
+def audit_license_document(name: str, url: str) -> dict:
+    """Retrieve and hash upstream source-license text; this is not legal approval."""
+    raw_url = _github_blob_to_raw_url(url)
+    request = urllib.request.Request(
+        raw_url,
+        headers={
+            "User-Agent": "NiyomSilp-v211-license-provenance-QA",
+            "Accept": "text/plain",
+        },
+    )
+    transient_http_codes = {408, 425, 429, 500, 502, 503, 504}
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                resolved_url = response.geturl() if hasattr(response, "geturl") else raw_url
+                resolved = urlsplit(resolved_url)
+                if (
+                    resolved.scheme != "https"
+                    or resolved.hostname not in _LICENSE_REDIRECT_HOSTS
+                    or resolved.username is not None
+                    or resolved.password is not None
+                ):
+                    raise ValueError("license document redirected outside the GitHub allowlist")
+                status = getattr(response, "status", None)
+                if status is None and hasattr(response, "getcode"):
+                    status = response.getcode()
+                if status not in (None, 200):
+                    raise ValueError("license document returned a non-success HTTP status")
+                content = response.read(MAX_LICENSE_BYTES + 1)
+            if len(content) > MAX_LICENSE_BYTES:
+                raise ValueError("license document exceeds the audit size limit")
+            if not content:
+                raise ValueError("license document is empty")
+            try:
+                decoded = content.decode("utf-8-sig")
+            except UnicodeDecodeError as exc:
+                raise ValueError("license document is not valid UTF-8 text") from exc
+            if not decoded.strip():
+                raise ValueError("license document contains no readable text")
+            return {
+                "name": name,
+                "source_url": url,
+                "download_url": raw_url,
+                "resolved_url": resolved_url,
+                "http_status": status or 200,
+                "bytes": len(content),
+                "line_count": len(decoded.splitlines()),
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "status": "retrieved_and_hashed",
+            }
+        except urllib.error.HTTPError as exc:
+            if exc.code not in transient_http_codes or attempt == 2:
+                raise
+            retry_after = None
+            try:
+                retry_after = float(exc.headers.get("Retry-After", ""))
+            except (AttributeError, TypeError, ValueError):
+                pass
+            delay = min(max(0.0, retry_after), 8.0) if retry_after is not None else min(2 ** attempt, 4)
+            exc.close()
+            time.sleep(delay)
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            ConnectionError,
+            http.client.IncompleteRead,
+        ):
+            if attempt == 2:
+                raise
+            time.sleep(min(2 ** attempt, 4))
+    raise RuntimeError("license document retrieval exhausted bounded retries")
+
+
+def _license_sources(package: dict) -> list[dict]:
+    sources = [{"name": "primary source license", "url": package["license_url"]}]
+    for index, notice in enumerate(package.get("additional_license_notices", []), start=1):
+        sources.append({
+            "name": notice.get("name") or ("additional notice " + str(index)),
+            "url": notice["url"],
+        })
+    return sources
+
 
 
 def file_sha256(path: Path) -> str:
@@ -253,9 +374,14 @@ def audit_official_releases(destination: Path, report_path: Path) -> dict:
     destination.mkdir(parents=True, exist_ok=True)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report = {
-        "purpose": "official Windows archive provenance audit only",
+        "purpose": "official Windows archive and source-license provenance audit only",
+        "license_audit_scope": (
+            "Retrieve and SHA-256 hash upstream source-license text only; "
+            "this is not legal review and does not certify model-weight rights."
+        ),
         "all_four_real_inference_proven": False,
         "model_weights_and_license_certified": False,
+        "license_redistribution_approved": False,
         "included_in_customer_installer": False,
         "packages": {},
     }
@@ -267,6 +393,8 @@ def audit_official_releases(destination: Path, report_path: Path) -> dict:
             "license_name": package["license"],
             "license_url": package["license_url"],
             "additional_license_notices": package.get("additional_license_notices", []),
+            "license_documents": [],
+            "model_weight_rights_review_required": True,
             "verified_for_inference": False,
         }
         try:
@@ -276,6 +404,22 @@ def audit_official_releases(destination: Path, report_path: Path) -> dict:
             entry["status"] = "archive_audited_not_inference_verified"
         except Exception as exc:
             entry.update({"status": "failed", "error_type": type(exc).__name__, "error": str(exc)[:240]})
+        for source in _license_sources(package):
+            try:
+                document = audit_license_document(source["name"], source["url"])
+            except Exception as exc:
+                document = {
+                    "name": source["name"],
+                    "source_url": source["url"],
+                    "status": "failed",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc)[:240],
+                }
+            entry["license_documents"].append(document)
+        entry["all_license_documents_retrieved"] = bool(entry["license_documents"]) and all(
+            document.get("status") == "retrieved_and_hashed"
+            for document in entry["license_documents"]
+        )
         report["packages"][name] = entry
     report["all_archives_audited"] = all(
         p["status"] == "archive_audited_not_inference_verified"
@@ -287,6 +431,13 @@ def audit_official_releases(destination: Path, report_path: Path) -> dict:
     )
     report["all_upstream_digests_pinned"] = all(
         p.get("release_digest_verified", False) for p in report["packages"].values()
+    )
+    report["all_license_documents_retrieved"] = all(
+        p.get("all_license_documents_retrieved", False)
+        for p in report["packages"].values()
+    )
+    report["all_provenance_checks_passed"] = (
+        report["all_archives_audited"] and report["all_license_documents_retrieved"]
     )
     report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return report
@@ -302,10 +453,14 @@ def main():
         "all_archives_audited": report["all_archives_audited"],
         "all_upstream_digests_pinned": report["all_upstream_digests_pinned"],
         "all_archives_match_release_or_recorded_hash": report["all_archives_match_release_or_recorded_hash"],
+        "all_license_documents_retrieved": report["all_license_documents_retrieved"],
+        "all_provenance_checks_passed": report["all_provenance_checks_passed"],
+        "license_redistribution_approved": False,
+        "model_weights_and_license_certified": False,
         "packages": {k: v["status"] for k, v in report["packages"].items()},
         "real_inference_verified": False,
     }, indent=2))
-    if not report["all_archives_audited"]:
+    if not report["all_provenance_checks_passed"]:
         raise SystemExit(1)
 
 
