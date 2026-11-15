@@ -45,7 +45,7 @@ jobs:
           python -m py_compile tools/v211_official_assets_audit.py
           python -m pip install --disable-pip-version-check pytest Pillow
           python -m pytest -q tests/test_v211_official_assets_audit.py
-      - name: Download and hash four original developer ZIPs without executing code
+      - name: Audit four official archives and retrieve/hash upstream source-license documents
         shell: pwsh
         run: |
           python -m tools.v211_official_assets_audit --download-dir "$env:RUNNER_TEMP/v211-official-downloads" --report "$env:RUNNER_TEMP/v211-four-engine-official-archives.json"
@@ -70,6 +70,10 @@ jobs:
               Write-Host ($entry.Name + ' SHA256=' + $entry.Value.archive_sha256 + ' published=' + $entry.Value.release_digest_published + ' result=' + $entry.Value.status)
               Write-Host ('executables=' + ($entry.Value.candidate_executables -join ','))
               Write-Host ('model_files=' + $entry.Value.model_or_binary_file_count)
+              Write-Host ('all_license_documents_retrieved=' + $entry.Value.all_license_documents_retrieved)
+              foreach ($license in $entry.Value.license_documents) {
+                Write-Host ('license=' + $license.name + ' status=' + $license.status + ' sha256=' + $license.sha256 + ' bytes=' + $license.bytes + ' url=' + $license.resolved_url)
+              }
             }
           }
       - name: Upload provenance-only report, never large binaries or private images
