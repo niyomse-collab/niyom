@@ -518,3 +518,51 @@ def test_small_job_preserves_full_gfpgan_result_when_face_rois_are_unavailable(
     assert observed["protected_regions"] == ()
     assert observed["preserve_all_v2_faces"] is True
     assert result["four_engine_research"]["status"] == "face_protection_v2_only"
+
+
+
+def test_large_job_preserves_full_gfpgan_result_when_face_rois_are_unavailable(
+    tmp_path, monkeypatch
+):
+    source, destination = _source_and_v2(tmp_path)
+    adapter = _large_image_adapter_with_stubbed_v2(monkeypatch, destination)
+
+    def fake_large(_adapter, _src, dst, _settings, _source_size, _target_size,
+                   _scale, _progress, _cancel, _use_ai, **kwargs):
+        Path(dst).write_bytes(b"durable large GFPGAN V2 raster")
+        return {
+            "output": str(dst),
+            "face_protection": {
+                "enabled": True,
+                "applied": True,
+                "face_count": 1,
+                "face_audit": [],
+            },
+        }
+
+    monkeypatch.setattr(adapter_module, "process_large", fake_large)
+    observed = {}
+
+    def fake_bridge(src, v2_output, **kwargs):
+        assert Path(v2_output).read_bytes() == b"durable large GFPGAN V2 raster"
+        observed.update(kwargs)
+        return {
+            "status": "face_protection_v2_only",
+            "v2_output_preserved": True,
+            "quality_certified": False,
+        }
+
+    monkeypatch.setattr(bridge, "maybe_run_four_engine_assist", fake_bridge)
+    settings = SimpleNamespace(
+        print_width=None, print_height=None, ai_scale=2,
+        v211_source_guided_ink=False, face_protection=True,
+        face_regions=(), resize_mode="stretch",
+    )
+
+    result = adapter.process(source, destination, settings, use_ai=True)
+
+    assert observed["protected_regions"] == ()
+    assert observed["preserve_all_v2_faces"] is True
+    assert result["four_engine_research"]["status"] == "face_protection_v2_only"
+    assert result["four_engine_research"]["v2_output_preserved"] is True
+    assert destination.read_bytes() == b"durable large GFPGAN V2 raster"
