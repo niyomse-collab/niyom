@@ -906,3 +906,14 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - ไม่มี affirmative shop-GPU consent marker จึงไม่ schedule self-hosted runner. ยังไม่มีหลักฐาน Native GPU 4/4, VRAM peak/hard cap 6 GB, stress >18 MP/4x, cancel ระหว่าง native process, A/B ภาพจริง, Photoshop หรือ MainTop RIP.
 - PR #20 ยังคง Draft/unmerged; PR #18 ไม่ถูกแก้; ไม่มี V1/V2 Stable changes, ไม่มี customer artwork/binaries/weights commit, ไม่มี merge/release และไม่มีการอ้างว่าคุณภาพเหนือ V2.
 
+
+
+## 16 พฤศจิกายน 2569 04:31 ICT — เพิ่มการดึงและ Hash เอกสาร License จากต้นทาง
+
+- Exact parent HEAD: 8e63bd0ec86017ae82bb7cc448787d77dcf609b7 on the V2.1.1 research branch.
+- Windows Candidate #854 on that exact parent HEAD completed SUCCESS 2/2 jobs (bridge-tests and windows-v2-candidate). Installer SHA256: e1ab0f085c8543a3e38c43507b26a161ed7f507a3339bddb03e47acea1090b37. Artifact ID: 14180926415; ZIP SHA256: e736bd62d5ef07b47e8b39ca259c8549c5e26e98aa80061b71a7291a4a112d6e; expires 23 Nov 2569 04:07 ICT. This is frozen-package/provenance evidence only, not shop GPU or print acceptance.
+- Added a bounded, allowlisted GitHub raw-text retrieval path to tools/v211_official_assets_audit.py. It maps only canonical HTTPS github.com/.../blob/... license URLs to raw.githubusercontent.com, rejects untrusted redirects, caps each document at 1 MiB, validates UTF-8, records HTTP status/bytes/line count/SHA256, and stores hashes/metadata rather than license text.
+- The audit now retrieves and hashes six source-license documents: Real-ESRGAN-ncnn-vulkan MIT, Real-ESRGAN project BSD-3-Clause, Waifu2x MIT, Real-CUGAN MIT, Anime4KCPP CLI GPL-3.0 and Anime4KCPP core MIT. The JSON/console output keeps source-license retrieval separate from model-weight rights.
+- model_weights_and_license_certified=false and license_redistribution_approved=false remain hard-coded. The new checks do not authorize redistribution and do not certify bundled model weights. Any missing/untrusted/oversized license document makes the provenance workflow fail rather than silently reporting success.
+- Added offline regression tests for URL allowlisting, redirect rejection, size limit, UTF-8 validation, SHA256 recording, and all six license-source records without granting redistribution.
+- This commit changes only archive/license audit code, its tests, the corresponding workflow and this status document. It does not change inference, fusion, UI, installer payload, V1, V2 Stable, GFPGAN or model weights. Exact-head CI is pending; no shop GPU evidence was started.
