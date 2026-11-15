@@ -221,6 +221,10 @@ def _prepare_native_2x_inputs(
                 raise ValueError("auxiliary_source_too_large")
             if source_image.mode not in ("RGB", "RGBA"):
                 raise ValueError("source must be RGB or RGBA for four-engine research")
+            if source_image.mode != padded_v2.mode:
+                raise ValueError(
+                    "source and accepted V2 must preserve matching RGB/RGBA mode"
+                )
             source_icc = source_image.info.get("icc_profile")
             # Missing and embedded profiles are different colour contracts.
             # Do not attach the V2 ICC to an untagged source seed: that would
@@ -382,6 +386,13 @@ def maybe_run_four_engine_assist(
             return {"status": "unsupported_colour_mode", "v2_output_preserved": True}
         if source_mode not in ("RGB", "RGBA"):
             return {"status": "unsupported_source_mode", "v2_output_preserved": True}
+        if source_mode != target_mode:
+            return {
+                "status": "source_output_mode_mismatch",
+                "reason": "source_and_accepted_v2_must_preserve_matching_rgb_rgba_mode",
+                "v2_output_preserved": True,
+                "quality_certified": False,
+            }
         # Native CLIs are fixed at 2x. Build their input from exactly half of
         # the accepted V2 canvas. The original source-to-target ratio may be
         # custom or anisotropic: resize_mode applies the same stretch/fit
