@@ -1285,7 +1285,7 @@ def test_large_bigtiff_end_to_end_tiled_fusion_fails_closed_without_real_adapter
 
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
     columns = np.arange(width, dtype=np.uint32)
-    stripe = np.where((columns // 32) % 2 == 0, 110, 146).astype(np.uint8)
+    stripe = np.where((columns // 32) % 2 == 0, 119, 137).astype(np.uint8)
     row = np.repeat(stripe[:, None], 3, axis=1)
     source_pixels = np.broadcast_to(row[None, :, :], (height, width, 3)).copy()
     v2_pixels = np.repeat(np.repeat(source_pixels, 2, axis=0), 2, axis=1)
