@@ -1342,7 +1342,7 @@ def test_large_bigtiff_end_to_end_tiled_fusion_fails_closed_without_real_adapter
             output.save(destination, format="PNG", **options)
             output.close()
 
-    def synthetic_run(
+    def _synthetic_run_impl(
         seed_path, output_dir, manifest, size, *, real_engines,
         v2_reference, **kwargs
     ):
@@ -1407,9 +1407,17 @@ def test_large_bigtiff_end_to_end_tiled_fusion_fails_closed_without_real_adapter
             "four_engine_fusion": fusion,
         }
 
+    def synthetic_run(*args, **kwargs):
+        try:
+            return _synthetic_run_impl(*args, **kwargs)
+        except Exception as exc:
+            observed["synthetic_pipeline_error"] = type(exc).__name__ + ": " + str(exc)
+            raise
+
     monkeypatch.setattr(v211_four_engine_run, "run", synthetic_run)
     result = bridge.maybe_run_four_engine_assist(source, baseline)
 
+    assert "synthetic_pipeline_error" not in observed, observed.get("synthetic_pipeline_error")
     assert len(observed["tile_reports"]) == 4
     assert observed["fusion"]["all_four_engine_pixels_contributed"] is True
     assert result["status"] == "gpu_runtime_unverified"
