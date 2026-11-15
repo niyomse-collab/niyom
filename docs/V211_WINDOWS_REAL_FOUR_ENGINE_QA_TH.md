@@ -640,3 +640,14 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - The evidence workflow must verify the shop installation's `BUILD_PROOF.txt`, four-engine manifest, executable hash, per-process GTX 1660 Ti adapter telemetry, 6 GiB budget / 512 MiB reserve, and synthetic RGB/RGBA/ICC/300-DPI outputs. If Candidate #814 is not installed or the dedicated shop runner is unavailable, the job must remain blocked/fail closed.
 - Scope remains synthetic-only: no customer images, no network downloads, no image uploads or retention, no accepted V2 output changes. A passing synthetic diagnostic does not certify visual or print quality.
 - Only this QA document is changed. PR #20 remains Draft; PR #18/V2/GFPGAN, V1 and accepted V2 remain untouched. No merge or release.
+
+
+## 15 พฤศจิกายน 2569 12:53 ICT — Synthetic-only shop GPU evidence authorization for Candidate #828
+
+- ผู้ใช้สั่งให้ดำเนินการทดสอบ Native AI ทั้งสี่บน Windows ที่มี Vulkan GPU พร้อม QA แบบ fail-closed; การอนุญาตครั้งนี้จำกัดเฉพาะ **synthetic-only diagnostic ของ Candidate #828** ไม่ใช่การอนุญาตใช้ภาพลูกค้า ไม่ใช่การรับรองคุณภาพภาพ และไม่ใช่การอนุมัติ Merge/Release.
+- Installed candidate source SHA ที่อนุญาต: `b2ef5aec1e6753b4e4abcbb611fe46b5c349106b`. Candidate #828 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43678965614) สำเร็จ 2/2 jobs; installer SHA256 `ab0d45bde39858effff6aa576a9e969382777aa18182cb9b780be88e65e5b2c5`; artifact ID `14148700319`. Self-hosted preflight ต้องพบ installed `BUILD_PROOF.txt` ที่ตรง SHA นี้และ verified four-engine Manifest ใน LocalAppData ของ Windows account เดียวกับ runner; หากไม่ตรงหรือไม่มีไฟล์ ให้หยุดก่อนเรียก Native Process.
+- Push marker นี้อนุญาตให้ workflow ตรวจ Candidate #828 ที่ติดตั้งอยู่แล้วเท่านั้น; workflow ไม่ติดตั้ง Candidate แทนผู้ใช้, ไม่ดาวน์โหลดโมเดล, ไม่แก้โปรแกรมหรือ driver, และไม่มี Hosted Runner fallback.
+- ขอบเขตข้อมูล: synthetic RGB และ RGBA/ICC/300-DPI เท่านั้น; ห้ามอ่าน/อัปโหลด/เก็บภาพลูกค้า; อัปโหลดได้เฉพาะ JSON evidence และลบ workspace ชั่วคราว.
+- เกณฑ์ fail-closed: ต้องตรวจ Manifest/hash, Vulkan/NVIDIA inventory, unique GTX 1660 Ti binding, PID-to-adapter evidence ของ child process ทุกตัว, native 2x outputs ของทั้งสี่, Bridge/Fusion contract, device-wide VRAM budget 6,144 MiB พร้อม reserve 512 MiB, cancellation/cleanup และ privacy flags. ถ้าขาดหลักฐานข้อใด ให้ workflow fail และ V2 ยังคงเป็น accepted output.
+- แม้ synthetic GPU gate ผ่าน จะยืนยันได้เฉพาะ native process/device/VRAM/bridge contract บนเครื่องที่รันจริง; ต้องคง `quality_improvement_verified=false`, `visual_quality_certified=false`, `print_quality_certified=false` จนกว่าจะมี A/B ภาพจริงที่ตรวจโดยผู้ใช้และการทดสอบพิมพ์.
+- Candidate #828 hosted Native CLI Smoke #274 ยังคงเป็น diagnostic เท่านั้น: Real-CUGAN/Anime4KCPP synthetic 2x outputs ผ่าน แต่ adapter use ไม่ได้ยืนยัน; Real-ESRGAN/Waifu2x ถูก block ด้วย hosted-runner Vulkan initialization. ห้ามนำผล Hosted Runner มาแทนผล Shop GPU.
