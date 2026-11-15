@@ -5,6 +5,7 @@ import pytest
 from PIL import Image
 
 from tools import v211_four_engine_real_inference_qa as qa
+from tools import v211_shop_gpu_diagnostic as shop_diag
 from tools.v211_four_engine_subprocess import ENGINES, EngineCommand
 
 
@@ -406,3 +407,111 @@ def test_native_qa_accepts_absent_icc_and_dpi_when_output_also_absent(
             assert output.info.get("icc_profile") is None
             assert output.info.get("dpi") is None
 
+
+
+
+@pytest.mark.parametrize(
+    ("evidence_source", "memory_count", "wddm_count"),
+    [
+        ("nvml_process_memory", 1, 0),
+        ("nvml_pid_plus_windows_gpu_engine_pdh", 0, 1),
+    ],
+)
+def test_sanitized_native_qa_preserves_complete_adapter_evidence_for_shop_gate(
+    tmp_path, monkeypatch, evidence_source, memory_count, wddm_count
+):
+    """The real QA sanitizer must retain only the safe fields needed by the shop gate."""
+    source = _source(tmp_path)
+
+    class Probe:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(qa, "NvmlProcessProbe", lambda **_kwargs: Probe())
+    commands = {
+        name: EngineCommand(
+            (
+                f"C:/private/{name}.exe",
+                "-i", "{input}", "-o", "{output}",
+                *(("-p", "cuda", "-d", "0") if name == "anime4k" else ("-g", "0")),
+            )
+        )
+        for name in ENGINES
+    }
+    monkeypatch.setattr(qa, "load_real_engine_manifest", lambda _path: commands)
+
+    def factory(
+        _commands, *, execution_records=None, runtime_device_probe=None,
+        runtime_vram_guard=False,
+    ):
+        assert runtime_device_probe is not None
+        assert runtime_vram_guard is False
+        processors = {}
+        for engine in ENGINES:
+            def process(source_path, destination, *, name=engine):
+                record = {
+                    "status": "output_ready",
+                    "process_started": True,
+                    "pid": 21000 + list(ENGINES).index(name),
+                    "exit_code": 0,
+                    "process_elapsed_ms": 15,
+                    "elapsed_ms_total": 20,
+                    "runtime_device_use_verified": True,
+                    "runtime_device_process_count": 1,
+                    "runtime_device_verified_process_count": 1,
+                    "runtime_device_all_processes_verified": True,
+                    "runtime_device_sample_count": 2,
+                    "runtime_device_probe_status": "verified",
+                    "runtime_device_probe_conflict": False,
+                    "runtime_device_evidence_source": evidence_source,
+                    "runtime_device_nvml_memory_verified_process_count": memory_count,
+                    "runtime_device_wddm_pdh_verified_process_count": wddm_count,
+                    "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+                    "runtime_adapter_index": 0,
+                    "runtime_adapter_backend_apis": ["graphics"],
+                    # These WDDM fields are mandatory only for WDDM-attributed PIDs.
+                    "runtime_gpu_engine_min_sample_count": 2,
+                    "runtime_gpu_engine_min_active_sample_count": 1,
+                    "runtime_gpu_engine_max_utilization_percent": 3.5,
+                    "runtime_gpu_engine_adapter_luid_match": True,
+                    "runtime_gpu_engine_adapter_luid": "0x00000000_0x0000e7f7",
+                    # Explicitly private fields must never cross the sanitizer.
+                    "argv": ["C:/private/customer-workspace/engine.exe"],
+                    "stdout": "private native stdout",
+                    "stderr": "private native stderr",
+                }
+                execution_records[name] = record
+                with Image.open(source_path) as image:
+                    image.resize(
+                        (image.width * 2, image.height * 2),
+                        Image.Resampling.LANCZOS,
+                    ).save(destination, dpi=(300, 300), icc_profile=image.info.get("icc_profile"))
+            processors[engine] = process
+        return processors
+
+    monkeypatch.setattr(qa, "make_processors", factory)
+    result = qa.run(
+        tmp_path / "manifest.json",
+        source,
+        tmp_path / "native-qa",
+    )
+
+    assert result["real_inference_verified"] is True
+    assert result["runtime_device_use_verified"] is True
+    assert all(result["per_engine_runtime_device_use_verified"].values())
+    for engine in ENGINES:
+        telemetry = result["engines"][engine]["runtime_device_telemetry"]
+        assert telemetry["runtime_device_evidence_source"] == evidence_source
+        assert telemetry["runtime_device_nvml_memory_verified_process_count"] == memory_count
+        assert telemetry["runtime_device_wddm_pdh_verified_process_count"] == wddm_count
+        assert shop_diag._runtime_device_evidence_verified(True, telemetry) is True
+
+    # The actual shop diagnostic summary consumes the sanitized QA report.
+    summary = shop_diag._case_summary(result)
+    assert all(summary["runtime_device_use_verified"].values())
+
+    serialized = json.dumps(result)
+    assert "C:/private" not in serialized
+    assert "private native stdout" not in serialized
+    assert "private native stderr" not in serialized
+    assert '"argv"' not in serialized
