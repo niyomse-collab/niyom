@@ -813,3 +813,44 @@ Keep PR #18 and PR #20 unmerged as Draft pending successful GTX 1660 Ti local QA
 - Shop GPU run #46 [Actions](https://github.com/niyomse-collab/niyom/actions/runs/43640090160) still has hosted `gate_status` SUCCESS and the dedicated self-hosted `evidence` job PENDING, with no diagnostic log or evidence artifact. The existing consent marker authorizes Candidate #814 only; it does not authorize Candidate #821. No new self-hosted shop run was started.
 - Six protected V2/GFPGAN files were independently fetched at both PR #18 base and PR #20 HEAD and their Git blob SHAs match 6/6: `.github/workflows/verify-v211-face.yml`, `signprint_ai/face_module/face_protection.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`, and `tests/test_v211_large_face_audit.py`.
 - No V1/V2 Stable changes, customer images, native binaries or model weights were committed. PR #20 and PR #18 remain Draft/unmerged; V2 remains the accepted master. Real four-engine GTX 1660 Ti inference, 6 GB VRAM stress, visual A/B, Photoshop/MainTop and print acceptance remain NOT CERTIFIED.
+
+## 15 พฤศจิกายน 2569 20:57 ICT — Exact PR HEAD c4a2971 / Windows Candidate #845
+
+### PR และขอบเขตการเปลี่ยนแปลง
+- PR #20 ยังคง OPEN / DRAFT / UNMERGED บน `work/v211-four-engine-v2-bridge-20261103`; exact HEAD `c4a2971b33c13d4b399a72a6fda8c1654d547d9d`.
+- PR #18 ยังคง OPEN / DRAFT / UNMERGED และเป็น base ของ PR #20 ที่ SHA `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- Compare จาก PR #20 status HEAD `d34391e3addfd7cec0989ba1cccf51679f3a35f5` ถึง `c4a2971`: 15 commits, 9 changed paths. มีการเปลี่ยน Source ใน spec, `run.py`, four-engine bridge, large-image bridge และ setup CLI พร้อม regression tests; ไม่ใช่ documentation-only interval.
+- Commit `c4a2971` ปรับ synthetic stripe ใน `tests/test_v211_four_engine_bridge.py` เพียง 1 บรรทัด เพื่อให้ counterfactual pixel contribution ของทั้งสี่ synthetic processors ตรวจพบได้ ไม่ได้เปลี่ยน Production Fusion weights/algorithm.
+
+### Windows Candidate #845 — exact HEAD success
+- [GitHub Actions #845](https://github.com/niyomse-collab/niyom/actions/runs/43718661133): SUCCESS, ทั้ง `bridge-tests` และ `windows-v2-candidate` ผ่านบน exact HEAD `c4a2971`.
+- Bridge/Fusion/coordination: **366 passed**; privacy/provisioning/manifest/hash: **63 passed**; รวม **429 passed**.
+- Frozen checks ผ่าน: V2 imports, single-page BigTIFF/libvips smoke, packaged provisioning `--check-only` โดยไม่ดาวน์โหลด, isolated consented cache cleanup, diagnostic `--help`, BUILD_PROOF exact source SHA, installer-slice SHA256 และ artifact upload.
+- Installer SHA256: `c959487b3d52e41c0ca007c9a5017fe5b52f2dce091a557f3fb85255a9d28150`.
+- Artifact ID `14164557743`; size **2,584,578,311 bytes**; artifact ZIP SHA256 `1ecdf59a2cd4e1dfc1570fabc82bf7628884472cbf1da75302572e68efe849b2`; expires **22 พ.ย. 2569 20:53 ICT**. [Download Candidate #845](https://github.com/niyomse-collab/niyom/actions/runs/43718661133/artifacts/14164557743).
+- Frozen TIFF smoke ใน `run.py` ใช้ BigTIFF fixture ขนาดเล็ก target **257×193**; ตรวจ header, single-page, streamed seed/QA crop, odd-dimension pad/crop, ICC/DPI และ V2 SHA unchanged. Report ระบุ `gpu_runtime_initialized=false` และ `native_ai_engines_started=false`. นี่ไม่ใช่การทดสอบ Native GPU หรือภาพ >18MP.
+- PyInstaller มี non-fatal warnings: `pycparser.lextab/yacctab`, `scipy.special._cdflib`, driver-provided `nvcuda.dll`, optional `tbb12.dll` และ Torch internal optional `expecttest`. Package smoke ทดสอบ SciPy/Numba workqueue/CFFI paths ผ่าน; ห้ามคัดลอก DLL จากแหล่งไม่ตรวจสอบหรือถือว่า warning เหล่านี้ได้รับการรับรองบนเครื่องร้านแล้ว.
+
+### Independent Core regression
+- [GitHub Actions #1429](https://github.com/niyomse-collab/niyom/actions/runs/43718661129): Windows **1,023 passed / 1 skipped**; Ubuntu **1,021 passed / 3 skipped**; pytest และ compileall ผ่านทั้งสองระบบ.
+
+### Large BigTIFF >18 MP — Synthetic end-to-end test
+- Bridge regression มี `test_large_bigtiff_end_to_end_tiled_fusion_fails_closed_without_real_adapter_evidence`: source TIFF **2,122×2,122**, accepted V2 BigTIFF **4,244×4,244 = 18,011,536 pixels**.
+- ใช้ synthetic CPU processors ไม่ใช่ native AI binaries: ทั้งสี่ engine ทำ 9 tiles/engine และตรวจ 12 seam comparisons/engine; fusion ยืนยันว่า synthetic candidates ทั้งสี่มีผลต่อ RGB pixels จริง.
+- ผล bridge ที่คาดหวังคือ `gpu_runtime_unverified`, ไม่มี QA sidecar ถูกเผยแพร่, accepted V2 BigTIFF SHA256 ไม่เปลี่ยน และ `quality_certified=false`. นี่พิสูจน์ integration/fail-closed path ใน fixture นี้เท่านั้น ไม่ใช่ Native four-engine inference, VRAM stress หรือ visual quality บนภาพร้าน.
+
+### Official archives และ Native CLI diagnostic
+- [Official Archive Audit #223](https://github.com/niyomse-collab/niyom/actions/runs/43718661130): ดาวน์โหลด ตรวจ hash ตรวจ archive และ provision ทั้งสี่ official Windows archives ลง ephemeral QA directory สำเร็จ; manifest มีครบ `real_esrgan, waifu2x, real_cugan, anime4k`.
+- Archive SHA256: Real-ESRGAN `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (observed CI pin, no publisher digest); Waifu2x `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (publisher digest); Real-CUGAN `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (observed CI pin, no publisher digest); Anime4KCPP `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (publisher digest).
+- Audit reports `model_weights_and_license_certified=false` and `license_redistribution_approved=false`; native executables/weights remain excluded from the installer and repository.
+- [Native CLI Smoke #291](https://github.com/niyomse-collab/niyom/actions/runs/43718661108): actual official CLI runs on synthetic RGB and RGBA/ICC/300-DPI images. Real-CUGAN and Anime4KCPP each produced validated 2x outputs; Real-ESRGAN failed with hosted-runner `vkCreateInstance failed -9`; Waifu2x had the same Vulkan initialization failure plus `0xC0000005`. NVML was unavailable, physical adapter verification **0/4**, VRAM guard was not enabled, `real_inference_verified=false`, and `quality_improvement_verified=false`. Workflow SUCCESS classifies the host limitation; it is not a four-engine GPU or quality pass.
+- Native diagnostic JSON artifact ID `14163114095`; ZIP SHA256 `d1f76410f2b66caf4724f86107fdd21ddcecbc84c073e88db09866105c81aaaa`.
+
+### PR #18 / GFPGAN preservation
+- PR #18's own face-related changes are additive safeguards: `face_protection.py` corrects Studio AI's completed-face count and marks partial selected-face restoration as incomplete; `large_faces.py` adds per-selected-ROI GFPGAN audit indexing. It does not replace the GFPGAN model or the accepted V2 Real-ESRGAN primary path.
+- Comparing PR #20 base `288dd850` with current PR #20 HEAD `c4a2971`, protected Git blob SHA values are identical **5/5**: `face_module/face_protection.py`, `large_faces.py`, `v211_face_contract.py`, `tests/test_v211_face_contract.py`, `tests/test_v211_large_face_audit.py`.
+- PR #20's 75 changed paths contain source, tests, workflows and docs; no executable, DLL, archive, model-weight or customer-image file was added.
+
+### Remaining gates
+- No shop self-hosted GPU run or exact-head shop consent evidence was available. Real four-engine inference on GTX 1660 Ti, per-process adapter binding, 6 GB VRAM stress, cancellation under native GPU load, real image A/B, Photoshop/MainTop and print acceptance remain NOT CERTIFIED.
+- V2 remains the accepted master. PR #20 and PR #18 remain Draft/unmerged; no V1/V2 Stable edits, merge, release or quality-superiority claim.
