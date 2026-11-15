@@ -442,3 +442,79 @@ def test_large_image_bridge_fails_closed_when_styled_effect_roi_is_invalid(
         "quality_certified": False,
     }
     assert destination.read_bytes() == b"durable large V2 raster"
+
+
+def test_small_job_preserves_full_gfpgan_result_when_face_rois_are_unavailable(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "portrait-source.png"
+    destination = tmp_path / "accepted-V2.png"
+    Image.new("RGB", (8, 8), (35, 80, 120)).save(source, dpi=(300, 300))
+
+    class FakeEngine:
+        def enhance(self, src, out, *, scale, progress_callback=None, cancel_check=None):
+            assert scale == 2
+            with Image.open(src) as image:
+                image.resize((16, 16), Image.Resampling.LANCZOS).save(out, dpi=(300, 300))
+
+    class FakeFaceModule:
+        def apply(self, image, **kwargs):
+            assert kwargs["regions"] == ()
+            return image, SimpleNamespace(as_dict=lambda: {
+                "enabled": True, "applied": True, "face_count": 1,
+                "mode": "protect", "strength": 35,
+                "skipped_reason": None, "face_audit": [],
+            })
+
+    adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
+    adapter.engine_manager = SimpleNamespace(
+        engine=None,
+        device_manager=SimpleNamespace(
+            get_default_device=lambda: SimpleNamespace(name="CPU")
+        ),
+    )
+    adapter.face_module = FakeFaceModule()
+    adapter.create_job_engine = lambda settings: FakeEngine()
+
+    monkeypatch.setattr(adapter_module, "image_size", lambda _path: (8, 8))
+    monkeypatch.setattr(adapter_module, "needs_streaming", lambda *args: False)
+    monkeypatch.setattr(adapter_module, "print_pixels", lambda *args: (16, 16))
+    monkeypatch.setattr(adapter_module, "validate_export", lambda *args: None)
+    monkeypatch.setattr(adapter_module, "refine_sign_edges", lambda image, **kwargs: image)
+    from signprint_ai import v211_blur_gate, v211_face_contract
+    monkeypatch.setattr(
+        v211_blur_gate, "select_photo_restoration",
+        lambda settings, source_path, **kwargs: (settings, None),
+    )
+    monkeypatch.setattr(
+        v211_face_contract, "enforce_requested_face_restoration",
+        lambda *args, **kwargs: None,
+    )
+
+    observed = {}
+
+    def fake_bridge(src, v2_output, **kwargs):
+        assert Path(v2_output).is_file(), "bridge must run only after V2 is durable"
+        observed.update(kwargs)
+        return {
+            "status": "face_protection_v2_only",
+            "v2_output_preserved": True,
+            "quality_certified": False,
+        }
+
+    monkeypatch.setattr(bridge, "maybe_run_four_engine_assist", fake_bridge)
+    settings = SimpleNamespace(
+        print_width=1.0, print_height=1.0, print_unit="cm", dpi=300,
+        ai_scale=2, color_mode="RGB", resize_mode="stretch",
+        device="AUTO", face_protection=True, face_mode="protect",
+        face_strength=35, face_regions=(), graphic_ai=False,
+        text_graphic_boost=0, icc_profile_path=None,
+        v211_photo_model="real_esrgan",
+    )
+
+    result = adapter.process(source, destination, settings, use_ai=True)
+
+    assert destination.is_file()
+    assert observed["protected_regions"] == ()
+    assert observed["preserve_all_v2_faces"] is True
+    assert result["four_engine_research"]["status"] == "face_protection_v2_only"
