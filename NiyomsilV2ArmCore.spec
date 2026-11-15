@@ -73,6 +73,7 @@ if IS_V211_BUILD:
         "tools.v211_four_engine_safe_selection",
         "tools.v211_three_engine_priority_preview",
         "tools.v211_four_engine_fusion",
+        "tools.v211_four_engine_real_inference_qa",
         "tools.v211_four_engine_tiled_inference",
         "signprint_ai.v211_auto_setup",
         "signprint_ai.v211_setup_cli",

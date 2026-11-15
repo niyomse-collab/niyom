@@ -90,11 +90,14 @@ def test_provision_preflight_validates_exact_upstream_versions_and_digest_source
         "signprint_ai.v211_four_engine_bridge",
         "signprint_ai.v211_large_image_bridge",
         "tools.v211_four_engine_fusion",
+        "tools.v211_four_engine_real_inference_qa",
         "tools.v211_four_engine_run",
         "tools.v211_four_engine_subprocess",
         "tools.v211_four_engine_tiled_inference",
         "tools.v211_gpu_device_binding",
+        "tools.v211_gpu_process_telemetry",
         "tools.v211_real_engine_manifest",
+        "tools.v211_shop_gpu_diagnostic",
     ]
     assert result["network_started"] is False
     assert result["filesystem_modified"] is False
@@ -108,6 +111,22 @@ def test_provision_preflight_fails_closed_when_frozen_fusion_import_is_missing(m
     from tools import v211_four_engine_fusion
 
     monkeypatch.setattr(v211_four_engine_fusion, "fuse_four_engine_details", None)
+    with pytest.raises(RuntimeError, match="runtime import graph is incomplete"):
+        v211_setup_cli.preflight_v211_provisioning()
+
+
+def test_provision_preflight_fails_closed_when_native_qa_runtime_is_missing(monkeypatch):
+    from tools import v211_four_engine_real_inference_qa
+
+    monkeypatch.setattr(v211_four_engine_real_inference_qa, "run", None)
+    with pytest.raises(RuntimeError, match="runtime import graph is incomplete"):
+        v211_setup_cli.preflight_v211_provisioning()
+
+
+def test_provision_preflight_fails_closed_when_gpu_telemetry_is_missing(monkeypatch):
+    from tools import v211_gpu_process_telemetry
+
+    monkeypatch.setattr(v211_gpu_process_telemetry, "NvmlProcessProbe", None)
     with pytest.raises(RuntimeError, match="runtime import graph is incomplete"):
         v211_setup_cli.preflight_v211_provisioning()
 

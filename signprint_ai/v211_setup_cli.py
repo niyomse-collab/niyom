@@ -1,9 +1,9 @@
 """Consent-gated setup entry point for the V2.1.1 four-engine research set.
 
-The installer checkbox or the desktop editor's first-launch Yes/No prompt
-must authorize the one-time all-four setup before this module downloads. The
-provisioner verifies the official archives and local manifest; later eligible
-enhancement runs offline.
+The unchecked-by-default installer task is the only consent surface. If the
+user selects it, setup verifies and installs all four official engines before
+the editor launches. Skipping it leaves accepted V2 available; later eligible
+V2.1.1 runs use only a fully verified local manifest and remain offline.
 """
 from __future__ import annotations
 
@@ -59,13 +59,16 @@ def preflight_v211_provisioning() -> dict:
     from . import v211_auto_setup, v211_four_engine_bridge, v211_large_image_bridge
     from tools import (
         v211_four_engine_fusion,
+        v211_four_engine_real_inference_qa,
         v211_four_engine_run,
         v211_four_engine_subprocess,
         v211_four_engine_tiled_inference,
         v211_gpu_device_binding,
+        v211_gpu_process_telemetry,
         v211_official_assets_audit,
         v211_provision_four_engines,
         v211_real_engine_manifest,
+        v211_shop_gpu_diagnostic,
     )
 
     AUDIT_PACKAGES = v211_official_assets_audit.PACKAGES
@@ -94,6 +97,9 @@ def preflight_v211_provisioning() -> dict:
         "tools.v211_four_engine_fusion": (
             v211_four_engine_fusion.fuse_four_engine_details,
         ),
+        "tools.v211_four_engine_real_inference_qa": (
+            v211_four_engine_real_inference_qa.run,
+        ),
         "tools.v211_four_engine_run": (
             v211_four_engine_run.run,
         ),
@@ -106,8 +112,18 @@ def preflight_v211_provisioning() -> dict:
         "tools.v211_gpu_device_binding": (
             v211_gpu_device_binding.write_bound_manifest,
         ),
+        "tools.v211_gpu_process_telemetry": (
+            v211_gpu_process_telemetry.NvmlProcessProbe,
+            v211_gpu_process_telemetry.validate_runtime_vram_snapshot,
+        ),
         "tools.v211_real_engine_manifest": (
             v211_real_engine_manifest.load_real_engine_manifest,
+        ),
+        "tools.v211_shop_gpu_diagnostic": (
+            v211_shop_gpu_diagnostic.main,
+            v211_shop_gpu_diagnostic.probe_gpu,
+            v211_shop_gpu_diagnostic.probe_anime4k_backend,
+            v211_shop_gpu_diagnostic.probe_nvidia_smi_memory,
         ),
     }
     if any(not callable(item)
