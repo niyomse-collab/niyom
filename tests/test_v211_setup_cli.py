@@ -84,11 +84,31 @@ def test_provision_preflight_validates_exact_upstream_versions_and_digest_source
     assert result["license_sources"]["anime4k"] == (
         "https://github.com/TianZerL/Anime4KCPP/blob/master/LICENSE-GPLv3"
     )
+    assert result["runtime_imports_verified"] is True
+    assert result["runtime_imports"] == [
+        "signprint_ai.v211_auto_setup",
+        "signprint_ai.v211_four_engine_bridge",
+        "signprint_ai.v211_large_image_bridge",
+        "tools.v211_four_engine_fusion",
+        "tools.v211_four_engine_run",
+        "tools.v211_four_engine_subprocess",
+        "tools.v211_four_engine_tiled_inference",
+        "tools.v211_gpu_device_binding",
+        "tools.v211_real_engine_manifest",
+    ]
     assert result["network_started"] is False
     assert result["filesystem_modified"] is False
 
     monkeypatch.setitem(audit.PACKAGES["anime4k"], "release_sha256", "not-a-sha256")
     with pytest.raises(RuntimeError, match="SHA256 pin"):
+        v211_setup_cli.preflight_v211_provisioning()
+
+
+def test_provision_preflight_fails_closed_when_frozen_fusion_import_is_missing(monkeypatch):
+    from tools import v211_four_engine_fusion
+
+    monkeypatch.setattr(v211_four_engine_fusion, "fuse_four_engine_details", None)
+    with pytest.raises(RuntimeError, match="runtime import graph is incomplete"):
         v211_setup_cli.preflight_v211_provisioning()
 
 
