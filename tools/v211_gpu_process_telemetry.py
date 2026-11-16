@@ -816,11 +816,20 @@ class NvmlProcessProbe:
                         process_api_available=any_api_available,
                         gpu_activity=activity,
                     )
+                    # WDDM contributes the exact DXGI LUID and whole-device
+                    # memory snapshot, but it must not erase NVML's process API
+                    # provenance or adapter index in the combined evidence case.
+                    nvml_backend_apis = result.get("backend_apis")
+                    nvml_adapter_name = result.get("adapter_name")
                     result.update(wddm)
                     result["evidence_source"] = "nvml_pid_plus_windows_gpu_engine_pdh"
                     result["adapter_index"] = next(
                         (item["index"] for item in target_devices), None
                     )
+                    if isinstance(nvml_backend_apis, list):
+                        result["backend_apis"] = nvml_backend_apis
+                    if isinstance(nvml_adapter_name, str) and nvml_adapter_name:
+                        result["adapter_name"] = nvml_adapter_name
                 else:
                     result = wddm
             else:
