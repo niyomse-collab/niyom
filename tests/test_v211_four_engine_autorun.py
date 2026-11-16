@@ -521,7 +521,7 @@ def test_small_job_preserves_full_gfpgan_result_when_face_rois_are_unavailable(
 
 
 
-def test_large_job_preserves_full_gfpgan_result_when_face_rois_are_unavailable(
+def test_large_job_passes_preserve_all_v2_faces_flag_when_rois_are_unavailable(
     tmp_path, monkeypatch
 ):
     source, destination = _source_and_v2(tmp_path)
@@ -567,7 +567,7 @@ def test_large_job_preserves_full_gfpgan_result_when_face_rois_are_unavailable(
     assert result["four_engine_research"]["v2_output_preserved"] is True
     assert destination.read_bytes() == b"durable large GFPGAN V2 raster"
 
-def test_large_job_preserves_full_gfpgan_result_when_face_rois_are_unavailable(
+def test_large_job_missing_manifest_keeps_v2_output_and_skips_four_ai(
     tmp_path, monkeypatch
 ):
     source, destination = _source_and_v2(tmp_path)
