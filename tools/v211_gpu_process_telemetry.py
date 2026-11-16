@@ -267,6 +267,18 @@ def validate_runtime_vram_snapshot(
         return {"passed": False, "status": "invalid_snapshot"}
     memory_source = snapshot.get("device_memory_source")
     if memory_source == "windows_gpu_adapter_memory_pdh":
+        # A WDDM snapshot must carry provenance from an actual PDH collection.
+        # The subprocess guard separately requires two successful observations;
+        # this check prevents a fabricated/stale WDDM dictionary from passing
+        # with no evidence that the adapter-memory counter was sampled.
+        memory_sample_count = snapshot.get("device_memory_sample_count")
+        if (
+            isinstance(memory_sample_count, bool)
+            or not isinstance(memory_sample_count, int)
+            or memory_sample_count < 1
+            or snapshot.get("vram_verified") is not True
+        ):
+            return {"passed": False, "status": "invalid_snapshot"}
         memory_luid = snapshot.get("device_memory_luid")
         activity_luid = snapshot.get("gpu_engine_adapter_luid")
         luid_pattern = r"0x[0-9a-f]{8}_0x[0-9a-f]{8}"

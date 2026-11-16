@@ -1155,3 +1155,33 @@ def test_runtime_vram_snapshot_rejects_wddm_memory_from_a_different_luid():
 
     assert result["passed"] is False
     assert result["status"] == "invalid_snapshot"
+
+
+def test_runtime_vram_snapshot_requires_wddm_sample_provenance():
+    from tools.v211_gpu_process_telemetry import validate_runtime_vram_snapshot
+
+    base = {
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_source": "windows_gpu_adapter_memory_pdh",
+        "device_memory_luid": "0x00000000_0x0000e7f7",
+        "device_memory_total_bytes": 6 * 1024**3,
+        "device_memory_used_bytes": 1024**3,
+        "device_memory_free_bytes": 5 * 1024**3,
+        "device_memory_sample_count": 1,
+        "vram_verified": True,
+        "gpu_engine_adapter_luid_match": True,
+        "gpu_engine_adapter_luid": "0x00000000_0x0000e7f7",
+    }
+
+    assert validate_runtime_vram_snapshot(base)["passed"] is True
+
+    for invalid in (
+        dict(base, device_memory_sample_count=None),
+        dict(base, device_memory_sample_count=0),
+        dict(base, device_memory_sample_count=True),
+        dict(base, vram_verified=False),
+    ):
+        result = validate_runtime_vram_snapshot(invalid)
+        assert result["passed"] is False
+        assert result["status"] == "invalid_snapshot"
