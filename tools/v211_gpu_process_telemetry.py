@@ -708,6 +708,7 @@ class NvmlProcessProbe:
                 "instance": matching_instances[0],
                 "luid": luid_text,
                 "total_bytes": total,
+                "sample_count": 0,
             }
             sessions[luid_key] = session
         else:
@@ -738,6 +739,7 @@ class NvmlProcessProbe:
 
         if used < 0 or used > total:
             return {**unavailable, "device_memory_status": "wddm_adapter_memory_snapshot_invalid"}
+        session["sample_count"] = int(session.get("sample_count", 0)) + 1
         return {
             "device_memory_available": True,
             "device_memory_status": "ok",
@@ -746,7 +748,7 @@ class NvmlProcessProbe:
             "device_memory_total_bytes": total,
             "device_memory_used_bytes": used,
             "device_memory_free_bytes": total - used,
-            "device_memory_sample_count": 1,
+            "device_memory_sample_count": int(session["sample_count"]),
             "vram_verified": True,
         }
 
