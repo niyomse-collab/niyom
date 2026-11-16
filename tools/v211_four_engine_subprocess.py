@@ -140,6 +140,9 @@ def make_processors(
             previous_wddm_pdh_count = previous_record.get(
                 "runtime_device_wddm_pdh_verified_process_count", 0
             )
+            previous_wddm_only_count = previous_record.get(
+                "runtime_device_wddm_only_verified_process_count", 0
+            )
             previous_gpu_min_samples = previous_record.get("runtime_gpu_engine_min_sample_count")
             previous_gpu_min_active = previous_record.get("runtime_gpu_engine_min_active_sample_count")
             previous_gpu_max_utilization = previous_record.get("runtime_gpu_engine_max_utilization_percent")
@@ -191,6 +194,7 @@ def make_processors(
                 ("runtime_device_sample_count", previous_runtime_sample_count),
                 ("runtime_device_nvml_memory_verified_process_count", previous_nvml_memory_count),
                 ("runtime_device_wddm_pdh_verified_process_count", previous_wddm_pdh_count),
+                ("runtime_device_wddm_only_verified_process_count", previous_wddm_only_count),
             ):
                 if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                     if value_name == "runtime_device_process_count":
@@ -201,8 +205,12 @@ def make_processors(
                         previous_runtime_sample_count = 0
                     elif value_name == "runtime_device_nvml_memory_verified_process_count":
                         previous_nvml_memory_count = 0
+                    elif value_name == "runtime_device_wddm_only_verified_process_count":
+                        previous_wddm_only_count = 0
                     else:
                         previous_wddm_pdh_count = 0
+            if previous_wddm_only_count > previous_wddm_pdh_count:
+                previous_wddm_only_count = 0
             if (
                 isinstance(previous_gpu_min_samples, bool)
                 or not isinstance(previous_gpu_min_samples, int)
@@ -245,10 +253,16 @@ def make_processors(
                 "runtime_device_sample_count": previous_runtime_sample_count,
                 "runtime_device_nvml_memory_verified_process_count": previous_nvml_memory_count,
                 "runtime_device_wddm_pdh_verified_process_count": previous_wddm_pdh_count,
+                "runtime_device_wddm_only_verified_process_count": previous_wddm_only_count,
                 "runtime_device_evidence_source": (
                     "mixed" if previous_nvml_memory_count and previous_wddm_pdh_count
                     else "nvml_process_memory" if previous_nvml_memory_count
-                    else "nvml_pid_plus_windows_gpu_engine_pdh" if previous_wddm_pdh_count
+                    else "windows_gpu_engine_pdh_dxgi_luid"
+                    if previous_wddm_only_count > 0
+                    and previous_wddm_only_count == previous_wddm_pdh_count
+                    else "nvml_pid_plus_windows_gpu_engine_pdh"
+                    if previous_wddm_pdh_count and previous_wddm_only_count == 0
+                    else "mixed_wddm_process_attribution" if previous_wddm_pdh_count
                     else None
                 ),
                 "runtime_gpu_engine_min_sample_count": previous_gpu_min_samples,
@@ -411,6 +425,7 @@ def make_processors(
                     if evidence_source in (
                         "nvml_process_memory",
                         "nvml_pid_plus_windows_gpu_engine_pdh",
+                        "windows_gpu_engine_pdh_dxgi_luid",
                     ):
                         runtime_evidence_source_this_process = evidence_source
                     gpu_samples = evidence.get("gpu_engine_sample_count")
@@ -434,7 +449,10 @@ def make_processors(
                     gpu_luid_match = evidence.get("gpu_engine_adapter_luid_match")
                     gpu_luid = evidence.get("gpu_engine_adapter_luid")
                     if (
-                        evidence_source == "nvml_pid_plus_windows_gpu_engine_pdh"
+                        evidence_source in (
+                            "nvml_pid_plus_windows_gpu_engine_pdh",
+                            "windows_gpu_engine_pdh_dxgi_luid",
+                        )
                         and gpu_luid_match is True
                         and isinstance(gpu_luid, str)
                         and len(gpu_luid) == 21
@@ -661,8 +679,10 @@ def make_processors(
                 if process_handle is not None and process_started is not None:
                     if (
                         runtime_verified_this_process
-                        and runtime_evidence_source_this_process
-                        == "nvml_pid_plus_windows_gpu_engine_pdh"
+                        and runtime_evidence_source_this_process in (
+                            "nvml_pid_plus_windows_gpu_engine_pdh",
+                            "windows_gpu_engine_pdh_dxgi_luid",
+                        )
                     ):
                         if not runtime_gpu_engine_luid_match_this_process:
                             runtime_verified_this_process = False
@@ -696,8 +716,13 @@ def make_processors(
                     if runtime_verified_this_process:
                         if runtime_evidence_source_this_process == "nvml_process_memory":
                             record["runtime_device_nvml_memory_verified_process_count"] += 1
-                        elif runtime_evidence_source_this_process == "nvml_pid_plus_windows_gpu_engine_pdh":
+                        elif runtime_evidence_source_this_process in (
+                            "nvml_pid_plus_windows_gpu_engine_pdh",
+                            "windows_gpu_engine_pdh_dxgi_luid",
+                        ):
                             record["runtime_device_wddm_pdh_verified_process_count"] += 1
+                            if runtime_evidence_source_this_process == "windows_gpu_engine_pdh_dxgi_luid":
+                                record["runtime_device_wddm_only_verified_process_count"] += 1
                             old_min_samples = record.get("runtime_gpu_engine_min_sample_count")
                             old_min_active = record.get("runtime_gpu_engine_min_active_sample_count")
                             record["runtime_gpu_engine_min_sample_count"] = (
@@ -720,10 +745,15 @@ def make_processors(
                             )
                     memory_count = record["runtime_device_nvml_memory_verified_process_count"]
                     wddm_count = record["runtime_device_wddm_pdh_verified_process_count"]
+                    wddm_only_count = record["runtime_device_wddm_only_verified_process_count"]
                     record["runtime_device_evidence_source"] = (
                         "mixed" if memory_count and wddm_count
                         else "nvml_process_memory" if memory_count
-                        else "nvml_pid_plus_windows_gpu_engine_pdh" if wddm_count
+                        else "windows_gpu_engine_pdh_dxgi_luid"
+                        if wddm_only_count > 0 and wddm_only_count == wddm_count
+                        else "nvml_pid_plus_windows_gpu_engine_pdh"
+                        if wddm_count and wddm_only_count == 0
+                        else "mixed_wddm_process_attribution" if wddm_count
                         else None
                     )
                     if runtime_device_probe is None:

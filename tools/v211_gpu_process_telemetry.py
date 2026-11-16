@@ -544,14 +544,17 @@ class NvmlProcessProbe:
                 if function is not None:
                     candidates.append((f"{family.lower()}_v{version}", function, info_type))
             self._process_functions[family.lower()] = candidates
-        if not any(self._process_functions.values()):
-            self.status = "nvml_process_api_missing"
-            return
+        # Keep whole-device memory telemetry even if NVML process accounting is
+        # unavailable. WDDM may independently attribute a live PID to a DXGI LUID;
+        # VRAM acceptance still requires this NVML device-memory snapshot.
         self._memory_function = self._function(
             library,
             ("nvmlDeviceGetMemoryInfo",),
             [ctypes.c_void_p, ctypes.POINTER(_NvmlMemoryInfo)],
         )
+        if not any(self._process_functions.values()):
+            self.status = "nvml_process_api_missing"
+            return
         self.status = "ready"
 
     @staticmethod
@@ -609,8 +612,135 @@ class NvmlProcessProbe:
             "device_memory_free_bytes": free,
         }
 
+    def _wddm_observation_from_activity(
+        self, pid: int, activity: object, engine: str | None = None
+    ) -> dict[str, Any]:
+        """Verify PID-to-DXGI-adapter activity without claiming process VRAM.
+
+        WDDM GPU Engine counters identify a PID and adapter LUID, but do not
+        provide a trustworthy per-process VRAM allocation. NVML device-memory
+        telemetry is attached separately when available; the runtime VRAM guard
+        must still fail closed when that whole-device snapshot is unavailable.
+        """
+        dxgi_luid = self._target_dxgi_luid()
+        expected_luid = (
+            f"0x{dxgi_luid[0]:08x}_0x{dxgi_luid[1]:08x}"
+            if dxgi_luid is not None else None
+        )
+        valid = bool(
+            expected_luid
+            and _valid_wddm_gpu_activity(pid, activity)
+            and str(activity.get("adapter_luid", "")).casefold() == expected_luid.casefold()
+            and str(activity.get("target_adapter_luid", "")).casefold() == expected_luid.casefold()
+        )
+        if not valid:
+            result = {
+                "available": bool(
+                    isinstance(activity, dict) and activity.get("available") is True
+                ),
+                "verified": False,
+                "status": (
+                    str(activity.get("status") or "wddm_activity_unverified")[:64]
+                    if isinstance(activity, dict) else "wddm_activity_unavailable"
+                ),
+                "evidence_source": None,
+                "device_memory_available": False,
+                "device_memory_status": "not_verified",
+                "vram_verified": False,
+                "nvml_status": str(getattr(self, "status", "unknown"))[:64],
+            }
+            if engine:
+                result["engine"] = str(engine)[:32]
+            return result
+
+        adapters = getattr(self, "_dxgi_adapters", None) or []
+        target_adapters = [
+            item for item in adapters
+            if isinstance(item, dict)
+            and item.get("vendor_id") == 0x10DE
+            and self.target_name in str(item.get("description") or "").casefold()
+            and item.get("luid") == dxgi_luid
+        ]
+        if len(target_adapters) != 1:
+            result = {
+                "available": True,
+                "verified": False,
+                "status": "target_dxgi_adapter_not_unique",
+                "evidence_source": None,
+                "device_memory_available": False,
+                "device_memory_status": "target_dxgi_adapter_not_unique",
+                "vram_verified": False,
+                "nvml_status": str(getattr(self, "status", "unknown"))[:64],
+            }
+            if engine:
+                result["engine"] = str(engine)[:32]
+            return result
+
+        devices = getattr(self, "_devices", [])
+        nvml_targets = [
+            item for item in devices
+            if isinstance(item, dict)
+            and self.target_name in str(item.get("name") or "").casefold()
+        ]
+        if len(nvml_targets) == 1:
+            try:
+                memory_snapshot = self._query_device_memory(nvml_targets[0])
+            except Exception:
+                memory_snapshot = {
+                    "device_memory_available": False,
+                    "device_memory_status": "nvml_memory_query_failed",
+                }
+        else:
+            memory_snapshot = {
+                "device_memory_available": False,
+                "device_memory_status": (
+                    "nvml_target_adapter_not_unique"
+                    if nvml_targets else "nvml_device_inventory_unavailable"
+                ),
+            }
+
+        memory_available = memory_snapshot.get("device_memory_available") is True
+        result = {
+            "available": True,
+            "verified": True,
+            "status": (
+                "verified" if memory_available
+                else "gpu_activity_verified_vram_unavailable"
+            ),
+            "evidence_source": "windows_gpu_engine_pdh_dxgi_luid",
+            "adapter_name": str(target_adapters[0].get("description") or "")[:160],
+            "backend_apis": ["windows_gpu_engine_pdh"],
+            "gpu_engine_sample_count": int(activity["sample_count"]),
+            "gpu_engine_active_sample_count": int(activity["active_sample_count"]),
+            "gpu_engine_max_utilization_percent": float(
+                activity["max_utilization_percent"]
+            ),
+            "gpu_engine_counter_count": int(activity["counter_count"]),
+            "gpu_engine_adapter_luid_match": True,
+            "gpu_engine_adapter_luid": expected_luid,
+            "gpu_activity_status": str(activity.get("status") or "")[:64],
+            "device_memory_available": False,
+            "device_memory_status": "nvml_memory_unavailable",
+            "vram_verified": False,
+            "nvml_status": str(getattr(self, "status", "unknown"))[:64],
+        }
+        result.update(memory_snapshot)
+        result["vram_verified"] = memory_snapshot.get("device_memory_available") is True
+        if engine:
+            result["engine"] = str(engine)[:32]
+        return result
+
+    def _wddm_only_observation(
+        self, pid: int, engine: str | None = None
+    ) -> dict[str, Any]:
+        """Use WDDM+DXGI when NVML itself cannot initialize or enumerate."""
+        activity = self._sample_windows_gpu_engine_activity(pid)
+        return self._wddm_observation_from_activity(pid, activity, engine)
+
     def __call__(self, pid: int, engine: str | None = None) -> dict[str, Any]:
         if self.status != "ready":
+            if os.name == "nt":
+                return self._wddm_only_observation(pid, engine)
             return {"available": False, "verified": False, "status": self.status}
         inventory = []
         any_api_available = False
@@ -651,21 +781,36 @@ class NvmlProcessProbe:
                 "device_memory_available": False,
                 "device_memory_status": "target_adapter_not_unique",
             })
-        if (
-            os.name == "nt"
-            and result.get("status") == "gpu_memory_not_confirmed"
-            and result.get("evidence_source") == "nvml_pid_memory_unavailable"
-        ):
+        fallback_statuses = {
+            "gpu_memory_not_confirmed",
+            "pid_not_observed",
+            "process_api_unavailable",
+        }
+        if os.name == "nt" and result.get("status") in fallback_statuses:
             activity = self._sample_windows_gpu_engine_activity(pid)
-            if activity.get("verified") is True:
-                result = evaluate_pid_observations(
-                    pid, self.target_name, inventory,
-                    process_api_available=any_api_available,
-                    gpu_activity=activity,
-                )
+            wddm = self._wddm_observation_from_activity(pid, activity, engine)
+            if wddm.get("verified") is True:
+                if (
+                    result.get("status") == "gpu_memory_not_confirmed"
+                    and result.get("evidence_source") == "nvml_pid_memory_unavailable"
+                ):
+                    result = evaluate_pid_observations(
+                        pid, self.target_name, inventory,
+                        process_api_available=any_api_available,
+                        gpu_activity=activity,
+                    )
+                    result.update(wddm)
+                    result["evidence_source"] = "nvml_pid_plus_windows_gpu_engine_pdh"
+                    result["adapter_index"] = next(
+                        (item["index"] for item in target_devices), None
+                    )
+                else:
+                    result = wddm
             else:
-                result["gpu_activity_status"] = str(activity.get("status") or "unavailable")[:64]
-        if engine:
+                result["gpu_activity_status"] = str(
+                    activity.get("status") or "unavailable"
+                )[:64] if isinstance(activity, dict) else "unavailable"
+        if engine and "engine" not in result:
             result["engine"] = str(engine)[:32]
         return result
 

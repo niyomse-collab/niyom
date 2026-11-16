@@ -382,3 +382,89 @@ def test_runtime_adapter_conflict_invalidates_an_earlier_positive_sample(tmp_pat
     assert record["runtime_device_probe_conflict"] is True
     assert record["runtime_device_all_processes_verified"] is False
     assert record["runtime_device_use_verified"] is False
+
+
+def test_runtime_device_probe_records_direct_wddm_dxgi_evidence_without_nvml(tmp_path):
+    source = tmp_path / "source.png"
+    destination = tmp_path / "output.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    code = (
+        "import sys,time; time.sleep(0.16); "
+        "from PIL import Image; Image.open(sys.argv[1]).save(sys.argv[2])"
+    )
+    commands = {
+        name: EngineCommand((sys.executable, "-c", code, "{input}", "{output}"))
+        for name in ENGINES
+    }
+    records = {}
+    evidence = {
+        "available": True,
+        "verified": True,
+        "status": "gpu_activity_verified_vram_unavailable",
+        "evidence_source": "windows_gpu_engine_pdh_dxgi_luid",
+        "adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+        "backend_apis": ["windows_gpu_engine_pdh"],
+        "gpu_engine_sample_count": 2,
+        "gpu_engine_active_sample_count": 1,
+        "gpu_engine_max_utilization_percent": 5.0,
+        "gpu_engine_adapter_luid_match": True,
+        "gpu_engine_adapter_luid": "0x00000000_0x0000e7f7",
+        "device_memory_available": False,
+        "device_memory_status": "nvml_library_not_found",
+        "vram_verified": False,
+    }
+    make_processors(
+        commands,
+        runtime_device_probe=lambda _pid, _engine: dict(evidence),
+        execution_records=records,
+    )["real_esrgan"](source, destination)
+
+    record = records["real_esrgan"]
+    assert destination.is_file()
+    assert record["runtime_device_use_verified"] is True
+    assert record["runtime_device_evidence_source"] == "windows_gpu_engine_pdh_dxgi_luid"
+    assert record["runtime_device_wddm_pdh_verified_process_count"] == 1
+    assert record["runtime_device_wddm_only_verified_process_count"] == 1
+    assert record["runtime_device_nvml_memory_verified_process_count"] == 0
+    assert record["runtime_gpu_engine_adapter_luid_match"] is True
+
+
+def test_runtime_vram_guard_stops_wddm_only_process_when_nvml_memory_is_unavailable(tmp_path):
+    source = tmp_path / "source.png"
+    destination = tmp_path / "blocked.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    code = "import time; time.sleep(30)"
+    commands = {
+        name: EngineCommand((sys.executable, "-c", code, "{input}", "{output}"))
+        for name in ENGINES
+    }
+    records = {}
+    evidence = {
+        "available": True,
+        "verified": True,
+        "status": "gpu_activity_verified_vram_unavailable",
+        "evidence_source": "windows_gpu_engine_pdh_dxgi_luid",
+        "adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+        "backend_apis": ["windows_gpu_engine_pdh"],
+        "gpu_engine_sample_count": 2,
+        "gpu_engine_active_sample_count": 1,
+        "gpu_engine_max_utilization_percent": 5.0,
+        "gpu_engine_adapter_luid_match": True,
+        "gpu_engine_adapter_luid": "0x00000000_0x0000e7f7",
+        "device_memory_available": False,
+        "device_memory_status": "nvml_library_not_found",
+        "vram_verified": False,
+    }
+    processor = make_processors(
+        commands,
+        runtime_device_probe=lambda _pid, _engine: dict(evidence),
+        runtime_vram_guard=True,
+        execution_records=records,
+    )["real_esrgan"]
+
+    with pytest.raises(RuntimeError, match="runtime VRAM telemetry unavailable"):
+        processor(source, destination)
+
+    assert records["real_esrgan"]["status"] == "vram_guard_telemetry_unavailable"
+    assert records["real_esrgan"]["runtime_device_wddm_only_verified_process_count"] == 0
+    assert not destination.exists()
