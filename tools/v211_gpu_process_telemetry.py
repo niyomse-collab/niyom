@@ -691,7 +691,7 @@ class NvmlProcessProbe:
                 close_query = self._pdh_functions["PdhCloseQuery"]
                 if int(open_query(None, 0, ctypes.byref(query))) != PDH_SUCCESS or not query:
                     return {**unavailable, "device_memory_status": "wddm_adapter_memory_query_open_failed"}
-                path = f"\\\\{object_name}({matching_instances[0]})\\\\{counter_name}"
+                path = f"\\{object_name}({matching_instances[0]})\\{counter_name}"
                 if int(add_counter(query, path, 0, ctypes.byref(counter))) != PDH_SUCCESS or not counter:
                     close_query(query)
                     return {**unavailable, "device_memory_status": "wddm_adapter_memory_counter_add_failed"}
