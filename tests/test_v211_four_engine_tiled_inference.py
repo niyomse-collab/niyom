@@ -321,6 +321,10 @@ def test_streamed_rgba_seed_bleeds_only_fully_transparent_hidden_rgb(tmp_path):
     rgba[..., :3] = (0, 0, 0)
     rgba[32:96, 32:96, :3] = (220, 70, 40)
     rgba[32:96, 32:96, 3] = 255
+    # A non-zero partial-alpha edge pixel is still visible and its RGB must
+    # remain exact; only pixels with alpha == 0 may receive colour bleed.
+    rgba[64, 40, :3] = (13, 201, 77)
+    rgba[64, 40, 3] = 128
     source = tmp_path / "transparent-source.png"
     Image.fromarray(rgba, "RGBA").save(
         source, dpi=(300, 300), icc_profile=profile
@@ -352,8 +356,10 @@ def test_streamed_rgba_seed_bleeds_only_fully_transparent_hidden_rgb(tmp_path):
             # visible square. Its hidden RGB should be foreground-colour
             # propagated, not the original black matte.
             assert tuple(pixels[64, 31, :3]) == pytest.approx((220, 70, 40), abs=8)
-            # Visible source RGB is not altered by the bleed operation.
+            # Visible opaque and partially transparent source RGB must
+            # remain byte-identical; only alpha==0 pixels are repaired.
             np.testing.assert_array_equal(pixels[64, 64, :3], (220, 70, 40))
+            np.testing.assert_array_equal(pixels[64, 40, :3], (13, 201, 77))
             assert seed.info["icc_profile"] == profile
             assert seed.info["dpi"][0] == pytest.approx(300, abs=0.1)
 
