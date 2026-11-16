@@ -193,6 +193,95 @@ def _runtime_memory_probe(*, free_mib=4096, include_memory=True):
     return result
 
 
+
+def _wddm_runtime_memory_probe(sample_count):
+    mib = 1024 * 1024
+    luid = "0x00000000_0x0000e7f7"
+    return {
+        "available": True,
+        "verified": True,
+        "status": "verified",
+        "adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+        "evidence_source": "windows_gpu_engine_pdh_dxgi_luid",
+        "backend_apis": ["windows_gpu_engine_pdh"],
+        "gpu_engine_sample_count": 2,
+        "gpu_engine_active_sample_count": 1,
+        "gpu_engine_max_utilization_percent": 7.5,
+        "gpu_engine_adapter_luid_match": True,
+        "gpu_engine_adapter_luid": luid,
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_source": "windows_gpu_adapter_memory_pdh",
+        "device_memory_luid": luid,
+        "device_memory_total_bytes": 6144 * mib,
+        "device_memory_used_bytes": 1024 * mib,
+        "device_memory_free_bytes": 5120 * mib,
+        "device_memory_sample_count": sample_count,
+        "vram_verified": True,
+    }
+
+
+def test_runtime_vram_guard_accepts_only_increasing_wddm_samples(tmp_path):
+    source = tmp_path / "source.png"
+    destination = tmp_path / "output.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    code = (
+        "import sys,time; time.sleep(0.25); "
+        "from PIL import Image; Image.open(sys.argv[1]).save(sys.argv[2])"
+    )
+    commands = {
+        name: EngineCommand((sys.executable, "-c", code, "{input}", "{output}"))
+        for name in ENGINES
+    }
+    records = {}
+    sample_count = 0
+
+    def probe(_pid, _engine):
+        nonlocal sample_count
+        sample_count += 1
+        return _wddm_runtime_memory_probe(sample_count)
+
+    processor = make_processors(
+        commands,
+        runtime_device_probe=probe,
+        runtime_vram_guard=True,
+        execution_records=records,
+    )["real_esrgan"]
+    processor(source, destination)
+
+    record = records["real_esrgan"]
+    assert destination.is_file()
+    assert record["runtime_vram_guard_status"] == "within_budget"
+    assert record["runtime_vram_sample_count"] >= 2
+    assert sample_count >= 2
+
+
+def test_runtime_vram_guard_rejects_replayed_wddm_sample(tmp_path):
+    source = tmp_path / "source.png"
+    destination = tmp_path / "blocked.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    code = "import time; time.sleep(30)"
+    commands = {
+        name: EngineCommand((sys.executable, "-c", code, "{input}", "{output}"))
+        for name in ENGINES
+    }
+    records = {}
+    processor = make_processors(
+        commands,
+        runtime_device_probe=lambda _pid, _engine: _wddm_runtime_memory_probe(1),
+        runtime_vram_guard=True,
+        execution_records=records,
+    )["real_esrgan"]
+
+    with pytest.raises(RuntimeError, match="runtime VRAM telemetry unavailable"):
+        processor(source, destination)
+
+    record = records["real_esrgan"]
+    assert record["runtime_vram_guard_status"] == "telemetry_unavailable"
+    assert record["runtime_vram_sample_count"] == 2
+    assert record["status"] == "vram_guard_telemetry_unavailable"
+    assert not destination.exists()
+
 def test_runtime_vram_guard_records_peak_and_minimum_free_memory(tmp_path):
     source = tmp_path / "source.png"
     destination = tmp_path / "output.png"
@@ -216,7 +305,7 @@ def test_runtime_vram_guard_records_peak_and_minimum_free_memory(tmp_path):
     record = records["real_esrgan"]
     assert destination.is_file()
     assert record["runtime_vram_guard_status"] == "within_budget"
-    assert record["runtime_vram_sample_count"] >= 1
+    assert record["runtime_vram_sample_count"] >= 2
     assert record["runtime_vram_peak_used_mib"] == 2048.0
     assert record["runtime_vram_min_free_mib"] == 4096.0
     assert record["runtime_vram_reserve_mib"] == 512
