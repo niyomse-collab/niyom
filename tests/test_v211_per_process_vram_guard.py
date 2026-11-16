@@ -321,13 +321,13 @@ def test_runtime_vram_guard_requires_two_valid_samples_not_baseline_or_prior_cou
     release = tmp_path / "release-child.txt"
     Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
     code = (
-        "import pathlib,sys,time\\n"
-        "from PIL import Image\\n"
-        "release=pathlib.Path(sys.argv[3])\\n"
-        "deadline=time.monotonic()+5\\n"
-        "while not release.exists() and time.monotonic()<deadline:\\n"
-        "    time.sleep(0.005)\\n"
-        "Image.open(sys.argv[1]).save(sys.argv[2])\\n"
+        "import pathlib,sys,time\n"
+        "from PIL import Image\n"
+        "release=pathlib.Path(sys.argv[3])\n"
+        "deadline=time.monotonic()+5\n"
+        "while not release.exists() and time.monotonic()<deadline:\n"
+        "    time.sleep(0.005)\n"
+        "Image.open(sys.argv[1]).save(sys.argv[2])\n"
     )
     commands = {
         name: EngineCommand((sys.executable, "-c", code, "{input}", "{output}", str(release)))
