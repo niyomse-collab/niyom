@@ -150,15 +150,21 @@ def make_processors(
             previous_gpu_luid_match = previous_record.get("runtime_gpu_engine_adapter_luid_match")
             previous_gpu_luid = previous_record.get("runtime_gpu_engine_adapter_luid")
             previous_vram_sample_count = previous_record.get("runtime_vram_sample_count", 0)
+            previous_vram_valid_sample_count = previous_record.get("runtime_vram_valid_sample_count", 0)
             previous_vram_peak_used_mib = previous_record.get("runtime_vram_peak_used_mib")
             previous_vram_min_free_mib = previous_record.get("runtime_vram_min_free_mib")
             previous_vram_max_allowed_device_used_mib = previous_record.get(
                 "runtime_vram_max_allowed_device_used_mib",
                 previous_record.get("runtime_vram_max_device_used_mib"),
             )
-            previous_vram_guard_status = previous_record.get("runtime_vram_guard_status")
             if isinstance(previous_vram_sample_count, bool) or not isinstance(previous_vram_sample_count, int) or previous_vram_sample_count < 0:
                 previous_vram_sample_count = 0
+            if (
+                isinstance(previous_vram_valid_sample_count, bool)
+                or not isinstance(previous_vram_valid_sample_count, int)
+                or previous_vram_valid_sample_count < 0
+            ):
+                previous_vram_valid_sample_count = 0
             if isinstance(previous_vram_peak_used_mib, bool) or not isinstance(previous_vram_peak_used_mib, (int, float)) or previous_vram_peak_used_mib < 0:
                 previous_vram_peak_used_mib = None
             if isinstance(previous_vram_min_free_mib, bool) or not isinstance(previous_vram_min_free_mib, (int, float)) or previous_vram_min_free_mib < 0:
@@ -169,11 +175,6 @@ def make_processors(
                 or previous_vram_max_allowed_device_used_mib < 0
             ):
                 previous_vram_max_allowed_device_used_mib = None
-            if previous_vram_guard_status not in (
-                "not_sampled", "within_budget", "reserve_breached",
-                "device_budget_exceeded", "telemetry_unavailable",
-            ):
-                previous_vram_guard_status = "not_sampled"
             if previous_wddm_pdh_count == 0:
                 previous_gpu_luid_match = False
                 previous_gpu_luid = None
@@ -276,10 +277,9 @@ def make_processors(
                 ),
                 "runtime_device_probe_conflict": False,
                 "runtime_vram_guard_enabled": bool(runtime_vram_guard),
-                "runtime_vram_guard_status": (
-                    previous_vram_guard_status if runtime_vram_guard else "not_enabled"
-                ),
+                "runtime_vram_guard_status": "not_sampled" if runtime_vram_guard else "not_enabled",
                 "runtime_vram_sample_count": previous_vram_sample_count,
+                "runtime_vram_valid_sample_count": previous_vram_valid_sample_count,
                 "runtime_vram_peak_used_mib": previous_vram_peak_used_mib,
                 "runtime_vram_min_free_mib": previous_vram_min_free_mib,
                 "runtime_vram_max_allowed_device_used_mib": previous_vram_max_allowed_device_used_mib,
@@ -298,6 +298,8 @@ def make_processors(
             runtime_verified_this_process = False
             runtime_probe_conflict = False
             runtime_sample_count_this_process = 0
+            runtime_vram_observation_count_this_process = 0
+            runtime_vram_valid_sample_count_this_process = 0
             runtime_wddm_vram_sample_count_this_process = None
             runtime_evidence_source_this_process = None
             runtime_gpu_engine_samples_this_process = 0
@@ -329,6 +331,8 @@ def make_processors(
             def sample_runtime_device():
                 nonlocal runtime_verified_this_process, runtime_probe_conflict, runtime_sample_count_this_process
                 nonlocal runtime_wddm_vram_sample_count_this_process
+                nonlocal runtime_vram_observation_count_this_process
+                nonlocal runtime_vram_valid_sample_count_this_process
                 nonlocal runtime_evidence_source_this_process
                 nonlocal runtime_gpu_engine_samples_this_process
                 nonlocal runtime_gpu_engine_active_this_process
@@ -441,6 +445,7 @@ def make_processors(
                     record["runtime_device_probe_status"] = evidence_status
 
                 if runtime_vram_guard:
+                    runtime_vram_observation_count_this_process += 1
                     snapshot = validate_runtime_vram_snapshot(
                         evidence,
                         reserve_mib=runtime_vram_reserve_mib,
@@ -468,6 +473,9 @@ def make_processors(
                             runtime_wddm_vram_sample_count_this_process = wddm_sample_count
                     record["runtime_vram_sample_count"] += 1
                     snapshot_status = snapshot.get("status")
+                    if snapshot_status == "ok" and snapshot.get("passed") is True:
+                        runtime_vram_valid_sample_count_this_process += 1
+                        record["runtime_vram_valid_sample_count"] += 1
                     if snapshot_status in ("ok", "reserve_breached", "device_budget_exceeded"):
                         used_mib = float(snapshot["used_mib"])
                         free_mib = float(snapshot["free_mib"])
@@ -509,7 +517,7 @@ def make_processors(
                             snapshot_status == "telemetry_unavailable"
                             and evidence_status == "gpu_engine_sampling"
                             and evidence.get("gpu_engine_sample_count") == 1
-                            and record["runtime_vram_sample_count"] == 1
+                            and runtime_vram_observation_count_this_process == 1
                         ):
                             record["runtime_vram_guard_status"] = "telemetry_unavailable"
                             return
@@ -636,7 +644,7 @@ def make_processors(
                     )
                 if runtime_vram_guard and (
                     record.get("runtime_vram_guard_status") != "within_budget"
-                    or record.get("runtime_vram_sample_count", 0) < 2
+                    or runtime_vram_valid_sample_count_this_process < 2
                 ):
                     abort_runtime_vram(
                         "telemetry_unavailable",
