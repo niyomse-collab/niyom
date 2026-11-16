@@ -566,3 +566,59 @@ def test_large_job_preserves_full_gfpgan_result_when_face_rois_are_unavailable(
     assert result["four_engine_research"]["status"] == "face_protection_v2_only"
     assert result["four_engine_research"]["v2_output_preserved"] is True
     assert destination.read_bytes() == b"durable large GFPGAN V2 raster"
+
+def test_large_job_preserves_full_gfpgan_result_when_face_rois_are_unavailable(
+    tmp_path, monkeypatch
+):
+    source, destination = _source_and_v2(tmp_path)
+    adapter = _large_image_adapter_with_stubbed_v2(monkeypatch, destination)
+    before_source = source.read_bytes()
+
+    def fake_large(_adapter, _src, dst, _settings, _source_size, _target_size,
+                   _scale, _progress, _cancel, _use_ai, **kwargs):
+        # A valid synthetic accepted-V2 raster stands in for the already
+        # completed disk-backed V2/GFPGAN export. No customer pixels are used.
+        Image.new("RGB", (16, 16), (55, 70, 85)).save(dst, dpi=(300, 300))
+        return {
+            "output": str(dst),
+            "face_protection": {
+                "enabled": True,
+                "applied": True,
+                "face_count": 1,
+                "face_audit": [],
+            },
+        }
+
+    monkeypatch.setattr(adapter_module, "process_large", fake_large)
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    missing_manifest = tmp_path / "must-not-be-read.json"
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(missing_manifest))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "empty-profile"))
+
+    settings = SimpleNamespace(
+        print_width=None,
+        print_height=None,
+        ai_scale=2,
+        v211_source_guided_ink=False,
+        face_protection=True,
+        face_regions=(),
+        resize_mode="stretch",
+        v211_protected_effect_regions=(),
+    )
+
+    result = adapter.process(source, destination, settings, use_ai=True)
+
+    assert result["four_engine_research"] == {
+        "status": "face_protection_v2_only",
+        "reason": "unmapped_face_regions",
+        "v2_output_preserved": True,
+        "quality_certified": False,
+    }
+    assert destination.is_file()
+    with Image.open(destination) as accepted:
+        assert accepted.size == (16, 16)
+        assert accepted.getpixel((0, 0)) == (55, 70, 85)
+        assert accepted.info["dpi"][0] == pytest.approx(300, abs=0.1)
+    assert source.read_bytes() == before_source
+    assert not missing_manifest.exists()
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
