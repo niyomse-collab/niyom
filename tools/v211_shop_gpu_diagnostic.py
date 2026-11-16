@@ -644,7 +644,7 @@ def _read_local_report(path: Path) -> dict:
 
 
 def _runtime_device_evidence_verified(flag: object, telemetry: object) -> bool:
-    """Validate per-process NVML/WDDM evidence instead of trusting a PASS boolean."""
+    """Validate NVML or direct WDDM+DXGI PID attribution without trusting PASS."""
     if flag is not True or not isinstance(telemetry, dict):
         return False
     process_count = telemetry.get("runtime_device_process_count")
@@ -652,6 +652,7 @@ def _runtime_device_evidence_verified(flag: object, telemetry: object) -> bool:
     sample_count = telemetry.get("runtime_device_sample_count")
     memory_count = telemetry.get("runtime_device_nvml_memory_verified_process_count")
     wddm_count = telemetry.get("runtime_device_wddm_pdh_verified_process_count")
+    wddm_only_count = telemetry.get("runtime_device_wddm_only_verified_process_count", 0)
     evidence_source = telemetry.get("runtime_device_evidence_source")
     adapter_index = telemetry.get("runtime_adapter_index")
     adapter_name = telemetry.get("runtime_adapter_name")
@@ -670,23 +671,45 @@ def _runtime_device_evidence_verified(flag: object, telemetry: object) -> bool:
         and memory_count >= 0
         and isinstance(wddm_count, int) and not isinstance(wddm_count, bool)
         and wddm_count >= 0
+        and isinstance(wddm_only_count, int) and not isinstance(wddm_only_count, bool)
+        and 0 <= wddm_only_count <= wddm_count
         and memory_count + wddm_count == process_count
-        and isinstance(adapter_index, int) and not isinstance(adapter_index, bool)
-        and adapter_index >= 0
         and isinstance(adapter_name, str)
         and "gtx 1660 ti" in adapter_name.casefold()
         and isinstance(backend_apis, list) and bool(backend_apis)
-        and all(item in ("graphics", "compute") for item in backend_apis)
     ):
         return False
-    expected_source = (
-        "mixed" if memory_count and wddm_count
-        else "nvml_process_memory" if memory_count
-        else "nvml_pid_plus_windows_gpu_engine_pdh" if wddm_count
-        else None
-    )
+    if memory_count and wddm_count:
+        expected_source = "mixed"
+    elif memory_count:
+        expected_source = "nvml_process_memory"
+    elif wddm_count and wddm_only_count == wddm_count:
+        expected_source = "windows_gpu_engine_pdh_dxgi_luid"
+    elif wddm_count and wddm_only_count == 0:
+        expected_source = "nvml_pid_plus_windows_gpu_engine_pdh"
+    elif wddm_count:
+        expected_source = "mixed_wddm_process_attribution"
+    else:
+        expected_source = None
     if evidence_source != expected_source:
         return False
+
+    pure_wddm_only = bool(
+        wddm_only_count == process_count
+        and wddm_count == process_count
+        and memory_count == 0
+    )
+    if pure_wddm_only:
+        if adapter_index is not None or backend_apis != ["windows_gpu_engine_pdh"]:
+            return False
+    else:
+        if not (
+            isinstance(adapter_index, int) and not isinstance(adapter_index, bool)
+            and adapter_index >= 0
+            and all(item in ("graphics", "compute") for item in backend_apis)
+        ):
+            return False
+
     if wddm_count:
         minimum_samples = telemetry.get("runtime_gpu_engine_min_sample_count")
         minimum_active = telemetry.get("runtime_gpu_engine_min_active_sample_count")
@@ -1028,6 +1051,9 @@ def _run_bridge_integration_case(
                 ),
                 "runtime_device_wddm_pdh_verified_process_count": process.get(
                     "runtime_device_wddm_pdh_verified_process_count", 0
+                ),
+                "runtime_device_wddm_only_verified_process_count": process.get(
+                    "runtime_device_wddm_only_verified_process_count", 0
                 ),
                 "runtime_device_evidence_source": process.get("runtime_device_evidence_source"),
                 "runtime_gpu_engine_min_sample_count": process.get(
@@ -1493,7 +1519,9 @@ def run_diagnostic(
             "Shop GPU readiness requires GTX 1660 Ti visibility in NVIDIA-SMI and Vulkan physical-device inventory (from vulkaninfo or direct loader enumeration), the Vulkan loader, and the expected 6 GiB VRAM budget; this still does not prove which adapter each CLI selected.",
             "When bind_devices is enabled, a private per-run manifest explicitly configures the unique Vulkan index with -g for all three NCNN engines and the unique Anime4KCPP CUDA/OpenCL backend/device with -p/-d. The installed manifest is never modified.",
             "Runtime adapter evidence is sampled from NVML graphics/compute process lists while each native PID is alive; acceptance requires the PID to appear on the unique GTX 1660 Ti with non-zero GPU memory.",
-            "If NVML process accounting is unavailable, a process exits before it can be sampled, or the PID is visible only on another adapter, runtime_device_use_verified remains false.",
+            "When NVML process accounting is unavailable, two live WDDM GPU Engine samples matched to the unique DXGI adapter LUID can verify PID-to-adapter activity; this does not provide VRAM accounting.",
+            "Without a trustworthy whole-device VRAM snapshot, the runtime VRAM guard remains fail-closed and stops the native process; Shop GPU acceptance remains false even if WDDM adapter activity was observed.",
+            "A PID observed only on another adapter, a mismatched DXGI LUID, or an ambiguous target adapter remains unverified.",
             "Shop GPU acceptance and a zero CLI exit code require positive runtime-adapter telemetry for all four native processes on the selected GTX 1660 Ti in RGB, RGBA, and end-to-end bridge runs.",
             "The end-to-end bridge case runs the actual V2.1.1 bridge and four-engine fusion on a generated RGBA/ICC/300-DPI image; it checks four pixel contributions, per-process VRAM preflight records, exact V2-reference preservation and output metadata.",
             "The runtime VRAM guard is enabled for both standalone RGB/RGBA native CLI cases and the end-to-end bridge case; acceptance requires at least two passing samples per engine in every case.",

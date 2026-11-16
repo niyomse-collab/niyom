@@ -649,6 +649,23 @@ class NvmlProcessProbe:
                 "vram_verified": False,
                 "nvml_status": str(getattr(self, "status", "unknown"))[:64],
             }
+            if isinstance(activity, dict):
+                for source_key, target_key in (
+                    ("sample_count", "gpu_engine_sample_count"),
+                    ("active_sample_count", "gpu_engine_active_sample_count"),
+                    ("counter_count", "gpu_engine_counter_count"),
+                ):
+                    value = activity.get(source_key)
+                    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                        result[target_key] = value
+                utilization = activity.get("max_utilization_percent")
+                if (
+                    isinstance(utilization, (int, float))
+                    and not isinstance(utilization, bool)
+                    and math.isfinite(float(utilization))
+                    and 0.0 <= float(utilization) <= 100.0
+                ):
+                    result["gpu_engine_max_utilization_percent"] = float(utilization)
             if engine:
                 result["engine"] = str(engine)[:32]
             return result

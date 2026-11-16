@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import os
+import math
 import signal
 import tempfile
 import time
@@ -352,56 +353,15 @@ def make_processors(
                     return
                 runtime_sample_count_this_process += 1
                 record["runtime_device_sample_count"] += 1
-                if runtime_vram_guard:
-                    snapshot = validate_runtime_vram_snapshot(
-                        evidence,
-                        reserve_mib=runtime_vram_reserve_mib,
-                        budget_mib=runtime_vram_budget_mib,
-                    )
-                    record["runtime_vram_sample_count"] += 1
-                    status = snapshot.get("status")
-                    if status in ("ok", "reserve_breached", "device_budget_exceeded"):
-                        used_mib = float(snapshot["used_mib"])
-                        free_mib = float(snapshot["free_mib"])
-                        peak = record.get("runtime_vram_peak_used_mib")
-                        record["runtime_vram_peak_used_mib"] = (
-                            used_mib if not isinstance(peak, (int, float))
-                            else max(float(peak), used_mib)
-                        )
-                        minimum_free = record.get("runtime_vram_min_free_mib")
-                        record["runtime_vram_min_free_mib"] = (
-                            free_mib if not isinstance(minimum_free, (int, float))
-                            else min(float(minimum_free), free_mib)
-                        )
-                        max_allowed_device_used = float(snapshot["max_allowed_device_used_mib"])
-                        prior_cap = record.get("runtime_vram_max_allowed_device_used_mib")
-                        record["runtime_vram_max_allowed_device_used_mib"] = (
-                            max_allowed_device_used
-                            if not isinstance(prior_cap, (int, float))
-                            else min(float(prior_cap), max_allowed_device_used)
-                        )
-                        # Deprecated alias retained for older local diagnostic readers.
-                        record["runtime_vram_max_device_used_mib"] = (
-                            record["runtime_vram_max_allowed_device_used_mib"]
-                        )
-                    if status == "reserve_breached":
-                        abort_runtime_vram(
-                            "reserve_breached",
-                            "runtime VRAM reserve breached; native engine stopped",
-                        )
-                    if status == "device_budget_exceeded":
-                        abort_runtime_vram(
-                            "device_budget_exceeded",
-                            "runtime 6 GiB device-wide VRAM budget exceeded; native engine stopped",
-                        )
-                    if status != "ok" or snapshot.get("passed") is not True:
-                        abort_runtime_vram(
-                            "telemetry_unavailable",
-                            "runtime VRAM telemetry unavailable",
-                        )
-                    record["runtime_vram_guard_status"] = "within_budget"
-                status = evidence.get("status")
-                status = status[:48] if isinstance(status, str) else "unclassified"
+
+                # Record PID-to-adapter evidence before checking VRAM. WDDM can
+                # prove live GPU Engine activity when NVML process accounting is
+                # unavailable, but that evidence never substitutes for VRAM.
+                evidence_status = evidence.get("status")
+                evidence_status = (
+                    evidence_status[:48]
+                    if isinstance(evidence_status, str) else "unclassified"
+                )
                 if evidence.get("verified") is True and not runtime_probe_conflict:
                     runtime_verified_this_process = True
                     record["runtime_device_probe_status"] = "verified"
@@ -418,7 +378,7 @@ def make_processors(
                     backend_apis = evidence.get("backend_apis")
                     if isinstance(backend_apis, list):
                         record["runtime_adapter_backend_apis"] = [
-                            str(item)[:24] for item in backend_apis[:4]
+                            str(item)[:32] for item in backend_apis[:4]
                             if isinstance(item, str)
                         ]
                     evidence_source = evidence.get("evidence_source")
@@ -443,7 +403,7 @@ def make_processors(
                         runtime_gpu_engine_active_this_process = gpu_active
                     if (
                         isinstance(gpu_max, (int, float)) and not isinstance(gpu_max, bool)
-                        and gpu_max > 0
+                        and math.isfinite(float(gpu_max)) and gpu_max > 0
                     ):
                         runtime_gpu_engine_max_this_process = float(gpu_max)
                     gpu_luid_match = evidence.get("gpu_engine_adapter_luid_match")
@@ -464,18 +424,78 @@ def make_processors(
                     ):
                         runtime_gpu_engine_luid_match_this_process = True
                         runtime_gpu_engine_luid_this_process = gpu_luid.lower()
-                elif status in (
+                elif evidence_status in (
                     "pid_seen_on_wrong_adapter",
                     "pid_seen_on_multiple_adapters",
                     "target_adapter_ambiguous",
                     "target_adapter_missing",
+                    "target_dxgi_adapter_not_unique",
                 ):
                     runtime_probe_conflict = True
                     runtime_verified_this_process = False
                     record["runtime_device_probe_conflict"] = True
-                    record["runtime_device_probe_status"] = status
+                    record["runtime_device_probe_status"] = evidence_status
                 elif not runtime_verified_this_process:
-                    record["runtime_device_probe_status"] = status
+                    record["runtime_device_probe_status"] = evidence_status
+
+                if runtime_vram_guard:
+                    snapshot = validate_runtime_vram_snapshot(
+                        evidence,
+                        reserve_mib=runtime_vram_reserve_mib,
+                        budget_mib=runtime_vram_budget_mib,
+                    )
+                    record["runtime_vram_sample_count"] += 1
+                    snapshot_status = snapshot.get("status")
+                    if snapshot_status in ("ok", "reserve_breached", "device_budget_exceeded"):
+                        used_mib = float(snapshot["used_mib"])
+                        free_mib = float(snapshot["free_mib"])
+                        peak = record.get("runtime_vram_peak_used_mib")
+                        record["runtime_vram_peak_used_mib"] = (
+                            used_mib if not isinstance(peak, (int, float))
+                            else max(float(peak), used_mib)
+                        )
+                        minimum_free = record.get("runtime_vram_min_free_mib")
+                        record["runtime_vram_min_free_mib"] = (
+                            free_mib if not isinstance(minimum_free, (int, float))
+                            else min(float(minimum_free), free_mib)
+                        )
+                        max_allowed_device_used = float(snapshot["max_allowed_device_used_mib"])
+                        prior_cap = record.get("runtime_vram_max_allowed_device_used_mib")
+                        record["runtime_vram_max_allowed_device_used_mib"] = (
+                            max_allowed_device_used
+                            if not isinstance(prior_cap, (int, float))
+                            else min(float(prior_cap), max_allowed_device_used)
+                        )
+                        record["runtime_vram_max_device_used_mib"] = (
+                            record["runtime_vram_max_allowed_device_used_mib"]
+                        )
+                    if snapshot_status == "reserve_breached":
+                        abort_runtime_vram(
+                            "reserve_breached",
+                            "runtime VRAM reserve breached; native engine stopped",
+                        )
+                    if snapshot_status == "device_budget_exceeded":
+                        abort_runtime_vram(
+                            "device_budget_exceeded",
+                            "runtime 6 GiB device-wide VRAM budget exceeded; native engine stopped",
+                        )
+                    if snapshot_status != "ok" or snapshot.get("passed") is not True:
+                        # The first PDH sample is only a baseline. Allow exactly
+                        # one monitor interval to obtain a second sample so the
+                        # report can distinguish adapter activity from VRAM.
+                        if (
+                            snapshot_status == "telemetry_unavailable"
+                            and evidence_status == "gpu_engine_sampling"
+                            and evidence.get("gpu_engine_sample_count") == 1
+                            and record["runtime_vram_sample_count"] == 1
+                        ):
+                            record["runtime_vram_guard_status"] = "telemetry_unavailable"
+                            return
+                        abort_runtime_vram(
+                            "telemetry_unavailable",
+                            "runtime VRAM telemetry unavailable",
+                        )
+                    record["runtime_vram_guard_status"] = "within_budget"
 
             source = Path(source).resolve(strict=True)
             destination = Path(destination).resolve()
@@ -591,6 +611,14 @@ def make_processors(
                     raise RuntimeError(
                         "engine exited with code " + str(process_handle.returncode) + ": "
                         + (stderr or stdout or "")[-1000:]
+                    )
+                if runtime_vram_guard and (
+                    record.get("runtime_vram_guard_status") != "within_budget"
+                    or record.get("runtime_vram_sample_count", 0) < 2
+                ):
+                    abort_runtime_vram(
+                        "telemetry_unavailable",
+                        "runtime VRAM telemetry unavailable or fewer than two valid samples",
                     )
                 record["status"] = "process_succeeded"
 

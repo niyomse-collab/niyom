@@ -224,24 +224,42 @@ jobs:
             if ($detail.runtime_device_all_processes_verified -ne $true -or
                 $detail.runtime_device_probe_conflict -ne $false -or
                 $detail.runtime_device_probe_status -ne 'verified' -or
-                [string]$detail.runtime_adapter_name -notmatch 'GTX 1660 Ti' -or
-                $null -eq $detail.runtime_adapter_index -or
-                @($detail.runtime_adapter_backend_apis).Count -lt 1) {
+                [string]$detail.runtime_adapter_name -notmatch 'GTX 1660 Ti') {
               throw ('Runtime physical-adapter telemetry is incomplete or conflicted for engine: ' + $engine)
             }
             $nvmlMemoryCount = [int]$detail.runtime_device_nvml_memory_verified_process_count
             $wddmPdhCount = [int]$detail.runtime_device_wddm_pdh_verified_process_count
+            $wddmOnlyCount = [int]$detail.runtime_device_wddm_only_verified_process_count
             $evidenceSource = [string]$detail.runtime_device_evidence_source
             if ($nvmlMemoryCount -lt 0 -or $wddmPdhCount -lt 0 -or
+                $wddmOnlyCount -lt 0 -or $wddmOnlyCount -gt $wddmPdhCount -or
                 ($nvmlMemoryCount + $wddmPdhCount) -ne $processCount) {
               throw ('Per-process GPU evidence source counts do not cover every child process: ' + $engine)
+            }
+            $pureWddmOnly = ($wddmOnlyCount -eq $processCount -and
+                             $wddmPdhCount -eq $processCount -and
+                             $nvmlMemoryCount -eq 0)
+            if ($pureWddmOnly) {
+              if ($null -ne $detail.runtime_adapter_index -or
+                  @($detail.runtime_adapter_backend_apis).Count -ne 1 -or
+                  @($detail.runtime_adapter_backend_apis) -notcontains 'windows_gpu_engine_pdh') {
+                throw ('Direct WDDM evidence must use the exact DXGI LUID without inventing an NVML adapter index: ' + $engine)
+              }
+            } elseif ($null -eq $detail.runtime_adapter_index -or
+                      @($detail.runtime_adapter_backend_apis).Count -lt 1 -or
+                      @($detail.runtime_adapter_backend_apis | Where-Object { $_ -notin @('graphics', 'compute') }).Count -gt 0) {
+              throw ('NVML-backed physical-adapter evidence is incomplete: ' + $engine)
             }
             $expectedSource = if ($nvmlMemoryCount -gt 0 -and $wddmPdhCount -gt 0) {
               'mixed'
             } elseif ($nvmlMemoryCount -gt 0) {
               'nvml_process_memory'
-            } elseif ($wddmPdhCount -gt 0) {
+            } elseif ($wddmPdhCount -gt 0 -and $wddmOnlyCount -eq $wddmPdhCount) {
+              'windows_gpu_engine_pdh_dxgi_luid'
+            } elseif ($wddmPdhCount -gt 0 -and $wddmOnlyCount -eq 0) {
               'nvml_pid_plus_windows_gpu_engine_pdh'
+            } elseif ($wddmPdhCount -gt 0) {
+              'mixed_wddm_process_attribution'
             } else {
               ''
             }

@@ -385,6 +385,7 @@ def test_runtime_adapter_conflict_invalidates_an_earlier_positive_sample(tmp_pat
 
 
 def test_runtime_device_probe_records_direct_wddm_dxgi_evidence_without_nvml(tmp_path):
+    from PIL import Image
     source = tmp_path / "source.png"
     destination = tmp_path / "output.png"
     Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
@@ -430,6 +431,7 @@ def test_runtime_device_probe_records_direct_wddm_dxgi_evidence_without_nvml(tmp
 
 
 def test_runtime_vram_guard_stops_wddm_only_process_when_nvml_memory_is_unavailable(tmp_path):
+    from PIL import Image
     source = tmp_path / "source.png"
     destination = tmp_path / "blocked.png"
     Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
@@ -466,5 +468,67 @@ def test_runtime_vram_guard_stops_wddm_only_process_when_nvml_memory_is_unavaila
         processor(source, destination)
 
     assert records["real_esrgan"]["status"] == "vram_guard_telemetry_unavailable"
-    assert records["real_esrgan"]["runtime_device_wddm_only_verified_process_count"] == 0
+    assert records["real_esrgan"]["runtime_device_wddm_only_verified_process_count"] == 1
+    assert records["real_esrgan"]["runtime_device_use_verified"] is True
+    assert records["real_esrgan"]["runtime_vram_guard_status"] == "telemetry_unavailable"
+    assert not destination.exists()
+
+
+def test_runtime_vram_guard_waits_for_second_wddm_sample_then_fails_closed(tmp_path):
+    from PIL import Image
+    source = tmp_path / "source.png"
+    destination = tmp_path / "blocked-after-wddm.png"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    code = "import time; time.sleep(0.20)"
+    commands = {
+        name: EngineCommand((sys.executable, "-c", code, "{input}", "{output}"))
+        for name in ENGINES
+    }
+    records = {}
+    samples = [
+        {
+            "available": True,
+            "verified": False,
+            "status": "gpu_engine_sampling",
+            "gpu_engine_sample_count": 1,
+            "device_memory_available": False,
+            "device_memory_status": "nvml_library_not_found",
+        },
+        {
+            "available": True,
+            "verified": True,
+            "status": "gpu_activity_verified_vram_unavailable",
+            "evidence_source": "windows_gpu_engine_pdh_dxgi_luid",
+            "adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+            "backend_apis": ["windows_gpu_engine_pdh"],
+            "gpu_engine_sample_count": 2,
+            "gpu_engine_active_sample_count": 1,
+            "gpu_engine_max_utilization_percent": 4.0,
+            "gpu_engine_adapter_luid_match": True,
+            "gpu_engine_adapter_luid": "0x00000000_0x0000e7f7",
+            "device_memory_available": False,
+            "device_memory_status": "nvml_library_not_found",
+            "vram_verified": False,
+        },
+    ]
+    calls = []
+    def probe(_pid, _engine):
+        index = min(len(calls), len(samples) - 1)
+        calls.append(index)
+        return dict(samples[index])
+
+    processor = make_processors(
+        commands,
+        runtime_device_probe=probe,
+        runtime_vram_guard=True,
+        execution_records=records,
+    )["real_esrgan"]
+
+    with pytest.raises(RuntimeError, match="runtime VRAM telemetry unavailable"):
+        processor(source, destination)
+
+    assert len(calls) >= 2
+    assert records["real_esrgan"]["runtime_device_use_verified"] is True
+    assert records["real_esrgan"]["runtime_device_wddm_only_verified_process_count"] == 1
+    assert records["real_esrgan"]["runtime_vram_guard_status"] == "telemetry_unavailable"
     assert not destination.exists()

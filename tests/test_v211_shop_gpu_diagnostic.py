@@ -1298,3 +1298,35 @@ def test_runtime_vram_evidence_rejects_ambiguous_legacy_ceiling_only():
         "runtime_vram_budget_mib": 6144,
     }
     assert diagnostic._runtime_vram_budget_evidence_verified(process) is False
+
+
+def test_runtime_evidence_accepts_direct_wddm_dxgi_luid_without_nvml_index():
+    telemetry = {
+        "runtime_device_process_count": 2,
+        "runtime_device_verified_process_count": 2,
+        "runtime_device_all_processes_verified": True,
+        "runtime_device_sample_count": 5,
+        "runtime_device_probe_status": "verified",
+        "runtime_device_probe_conflict": False,
+        "runtime_device_nvml_memory_verified_process_count": 0,
+        "runtime_device_wddm_pdh_verified_process_count": 2,
+        "runtime_device_wddm_only_verified_process_count": 2,
+        "runtime_device_evidence_source": "windows_gpu_engine_pdh_dxgi_luid",
+        "runtime_gpu_engine_min_sample_count": 2,
+        "runtime_gpu_engine_min_active_sample_count": 1,
+        "runtime_gpu_engine_max_utilization_percent": 4.5,
+        "runtime_gpu_engine_adapter_luid_match": True,
+        "runtime_gpu_engine_adapter_luid": "0x00000000_0x0000e7f7",
+        "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+        "runtime_adapter_backend_apis": ["windows_gpu_engine_pdh"],
+    }
+
+    assert diagnostic._runtime_device_evidence_verified(True, telemetry) is True
+    assert diagnostic._runtime_vram_budget_evidence_verified({}) is False
+
+    telemetry["runtime_gpu_engine_adapter_luid_match"] = False
+    assert diagnostic._runtime_device_evidence_verified(True, telemetry) is False
+
+    telemetry["runtime_gpu_engine_adapter_luid_match"] = True
+    telemetry["runtime_adapter_backend_apis"] = ["graphics"]
+    assert diagnostic._runtime_device_evidence_verified(True, telemetry) is False

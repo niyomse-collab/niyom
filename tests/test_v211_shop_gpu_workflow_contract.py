@@ -80,6 +80,8 @@ def test_synthetic_shop_gpu_evidence_never_certifies_visual_or_print_quality():
     assert "$engineEvidence.Value -ne $true" in workflow
     assert "runtime_device_nvml_memory_verified_process_count" in workflow
     assert "runtime_device_wddm_pdh_verified_process_count" in workflow
+    assert "runtime_device_wddm_only_verified_process_count" in workflow
+    assert "windows_gpu_engine_pdh_dxgi_luid" in workflow
     assert "runtime_gpu_engine_min_sample_count" in workflow
     assert "runtime_gpu_engine_adapter_luid_match" in workflow
     assert "runtime_gpu_engine_adapter_luid" in workflow
