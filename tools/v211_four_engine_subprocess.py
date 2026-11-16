@@ -298,6 +298,7 @@ def make_processors(
             runtime_verified_this_process = False
             runtime_probe_conflict = False
             runtime_sample_count_this_process = 0
+            runtime_wddm_vram_sample_count_this_process = None
             runtime_evidence_source_this_process = None
             runtime_gpu_engine_samples_this_process = 0
             runtime_gpu_engine_active_this_process = 0
@@ -327,6 +328,7 @@ def make_processors(
 
             def sample_runtime_device():
                 nonlocal runtime_verified_this_process, runtime_probe_conflict, runtime_sample_count_this_process
+                nonlocal runtime_wddm_vram_sample_count_this_process
                 nonlocal runtime_evidence_source_this_process
                 nonlocal runtime_gpu_engine_samples_this_process
                 nonlocal runtime_gpu_engine_active_this_process
@@ -444,6 +446,26 @@ def make_processors(
                         reserve_mib=runtime_vram_reserve_mib,
                         budget_mib=runtime_vram_budget_mib,
                     )
+                    if (
+                        snapshot.get("passed") is True
+                        and evidence.get("device_memory_source") == "windows_gpu_adapter_memory_pdh"
+                    ):
+                        # Each accepted WDDM observation must come from a newer
+                        # successful PDH collection. Re-reading a cached snapshot
+                        # twice is not two independent VRAM samples.
+                        wddm_sample_count = evidence.get("device_memory_sample_count")
+                        if (
+                            isinstance(wddm_sample_count, bool)
+                            or not isinstance(wddm_sample_count, int)
+                            or wddm_sample_count < 1
+                            or (
+                                runtime_wddm_vram_sample_count_this_process is not None
+                                and wddm_sample_count <= runtime_wddm_vram_sample_count_this_process
+                            )
+                        ):
+                            snapshot = {"passed": False, "status": "invalid_snapshot"}
+                        else:
+                            runtime_wddm_vram_sample_count_this_process = wddm_sample_count
                     record["runtime_vram_sample_count"] += 1
                     snapshot_status = snapshot.get("status")
                     if snapshot_status in ("ok", "reserve_breached", "device_budget_exceeded"):
