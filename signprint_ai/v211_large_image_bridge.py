@@ -263,6 +263,33 @@ def prepare_native_2x_inputs_streamed(
             v2_padded = v2_image
 
         source_rgb = source_image.extract_band(0, n=3)
+        if target_mode == "RGBA":
+            # Match the small-image V2 alpha-safe preparation: hidden RGB in
+            # fully transparent pixels must not feed black/matte colours into
+            # native receptive fields near a cutout edge. Keep every visible
+            # RGB sample and the accepted V2 alpha unchanged; only estimate
+            # RGB where source alpha is exactly zero. libvips evaluates this
+            # as a disk-backed graph, so large artwork is never decoded whole.
+            source_alpha = source_image.extract_band(3).cast("float") / 255.0
+            alpha_weights = source_alpha * source_alpha
+            blurred_weights = alpha_weights.gaussblur(4.0)
+            repaired_channels = []
+            for channel_index in range(3):
+                channel = source_rgb.extract_band(channel_index)
+                weighted_colour = (
+                    channel.cast("float") * alpha_weights
+                ).gaussblur(4.0)
+                estimated_colour = (
+                    weighted_colour / (blurred_weights + 1e-5)
+                ).cast("uchar")
+                repaired_channels.append(
+                    source_alpha.ifthenelse(channel, estimated_colour)
+                )
+            source_rgb = (
+                repaired_channels[0]
+                .bandjoin(repaired_channels[1])
+                .bandjoin(repaired_channels[2])
+            )
         source_width, source_height = source_size
         seed_width, seed_height = seed_size
         if resize_mode == "stretch":
