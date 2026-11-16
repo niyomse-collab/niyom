@@ -253,6 +253,7 @@ def test_runtime_vram_guard_accepts_only_increasing_wddm_samples(tmp_path):
     assert destination.is_file()
     assert record["runtime_vram_guard_status"] == "within_budget"
     assert record["runtime_vram_sample_count"] >= 2
+    assert record["runtime_vram_valid_sample_count"] >= 2
     assert sample_count >= 2
 
 
@@ -279,6 +280,7 @@ def test_runtime_vram_guard_rejects_replayed_wddm_sample(tmp_path):
     record = records["real_esrgan"]
     assert record["runtime_vram_guard_status"] == "telemetry_unavailable"
     assert record["runtime_vram_sample_count"] == 2
+    assert record["runtime_vram_valid_sample_count"] == 1
     assert record["status"] == "vram_guard_telemetry_unavailable"
     assert not destination.exists()
 
@@ -306,10 +308,70 @@ def test_runtime_vram_guard_records_peak_and_minimum_free_memory(tmp_path):
     assert destination.is_file()
     assert record["runtime_vram_guard_status"] == "within_budget"
     assert record["runtime_vram_sample_count"] >= 2
+    assert record["runtime_vram_valid_sample_count"] >= 2
     assert record["runtime_vram_peak_used_mib"] == 2048.0
     assert record["runtime_vram_min_free_mib"] == 4096.0
     assert record["runtime_vram_reserve_mib"] == 512
 
+
+
+def test_runtime_vram_guard_requires_two_valid_samples_not_baseline_or_prior_counts(tmp_path):
+    source = tmp_path / "source.png"
+    destination = tmp_path / "blocked.png"
+    release = tmp_path / "release-child.txt"
+    Image.new("RGB", (4, 4), (20, 40, 60)).save(source)
+    code = (
+        "import pathlib,sys,time\\n"
+        "from PIL import Image\\n"
+        "release=pathlib.Path(sys.argv[3])\\n"
+        "deadline=time.monotonic()+5\\n"
+        "while not release.exists() and time.monotonic()<deadline:\\n"
+        "    time.sleep(0.005)\\n"
+        "Image.open(sys.argv[1]).save(sys.argv[2])\\n"
+    )
+    commands = {
+        name: EngineCommand((sys.executable, "-c", code, "{input}", "{output}", str(release)))
+        for name in ENGINES
+    }
+    records = {
+        "real_esrgan": {
+            "runtime_vram_sample_count": 20,
+            "runtime_vram_valid_sample_count": 20,
+            "runtime_vram_guard_status": "within_budget",
+        }
+    }
+    calls = 0
+
+    def probe(_pid, _engine):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return {
+                "available": True,
+                "verified": False,
+                "status": "gpu_engine_sampling",
+                "gpu_engine_sample_count": 1,
+            }
+        release.write_text("finish", encoding="ascii")
+        return _wddm_runtime_memory_probe(1)
+
+    processor = make_processors(
+        commands,
+        runtime_device_probe=probe,
+        runtime_vram_guard=True,
+        execution_records=records,
+    )["real_esrgan"]
+
+    with pytest.raises(RuntimeError, match="runtime VRAM telemetry unavailable"):
+        processor(source, destination)
+
+    record = records["real_esrgan"]
+    assert calls == 2
+    assert record["runtime_vram_sample_count"] == 22
+    assert record["runtime_vram_valid_sample_count"] == 21
+    assert record["runtime_vram_guard_status"] == "telemetry_unavailable"
+    assert record["status"] == "vram_guard_telemetry_unavailable"
+    assert not destination.exists()
 
 def test_runtime_vram_guard_terminates_engine_when_reserve_is_breached(tmp_path):
     source = tmp_path / "source.png"
