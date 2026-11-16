@@ -26,6 +26,7 @@ RUNTIME_VRAM_BUDGET_MIB = 6144
 PDH_SUCCESS = 0
 PDH_MORE_DATA = 0x800007D2
 PDH_FMT_DOUBLE = 0x00000200
+PDH_FMT_LARGE = 0x00000400
 PDH_CSTATUS_VALID_DATA = 0
 PDH_CSTATUS_NEW_DATA = 1
 PERF_DETAIL_WIZARD = 400
@@ -264,6 +265,20 @@ def validate_runtime_vram_snapshot(
         or used > total or free > total or used + free > total
     ):
         return {"passed": False, "status": "invalid_snapshot"}
+    memory_source = snapshot.get("device_memory_source")
+    if memory_source == "windows_gpu_adapter_memory_pdh":
+        memory_luid = snapshot.get("device_memory_luid")
+        activity_luid = snapshot.get("gpu_engine_adapter_luid")
+        luid_pattern = r"0x[0-9a-f]{8}_0x[0-9a-f]{8}"
+        if (
+            snapshot.get("gpu_engine_adapter_luid_match") is not True
+            or not isinstance(memory_luid, str)
+            or not isinstance(activity_luid, str)
+            or re.fullmatch(luid_pattern, memory_luid, re.IGNORECASE) is None
+            or re.fullmatch(luid_pattern, activity_luid, re.IGNORECASE) is None
+            or memory_luid.casefold() != activity_luid.casefold()
+        ):
+            return {"passed": False, "status": "invalid_snapshot"}
 
     reserve_bytes = reserve_mib * MIB_BYTES
     budget_bytes = min(total, budget_mib * MIB_BYTES)
@@ -425,6 +440,7 @@ class NvmlProcessProbe:
         self._pdh_library = None
         self._pdh_functions: dict[str, Any] = {}
         self._pdh_sessions: dict[int, dict[str, Any]] = {}
+        self._pdh_memory_sessions: dict[str, dict[str, Any]] = {}
         self._pdh_name_cache: dict[str, str] = {}
         self._pdh_status = "not_initialized"
         self._dxgi_adapters: list[dict[str, Any]] | None = None
@@ -607,9 +623,131 @@ class NvmlProcessProbe:
         return {
             "device_memory_available": True,
             "device_memory_status": "ok",
+            "device_memory_source": "nvml_device_memory",
             "device_memory_total_bytes": total,
             "device_memory_used_bytes": used,
             "device_memory_free_bytes": free,
+        }
+
+    def _query_wddm_device_memory(self, adapter: dict[str, Any]) -> dict[str, Any]:
+        """Read adapter-wide dedicated usage from the WDDM GPU Adapter Memory counter.
+
+        This is a device-wide counter, not a child-process allocation. The
+        adapter LUID and DXGI dedicated-memory size must match one unique target
+        adapter; missing, duplicated, stale or invalid counters fail closed.
+        """
+        unavailable = {
+            "device_memory_available": False,
+            "device_memory_status": "wddm_adapter_memory_unavailable",
+            "vram_verified": False,
+        }
+        if not isinstance(adapter, dict):
+            return {**unavailable, "device_memory_status": "invalid_dxgi_adapter"}
+        luid = adapter.get("luid")
+        total = adapter.get("dedicated_video_memory_bytes")
+        if (
+            not isinstance(luid, tuple) or len(luid) != 2
+            or any(isinstance(part, bool) or not isinstance(part, int) for part in luid)
+            or any(part < 0 or part > 0xFFFFFFFF for part in luid)
+            or isinstance(total, bool) or not isinstance(total, int) or total <= 0
+        ):
+            return {**unavailable, "device_memory_status": "invalid_dxgi_memory_inventory"}
+        if self._load_pdh() is None:
+            return {
+                **unavailable,
+                "device_memory_status": str(getattr(self, "_pdh_status", "pdh_unavailable"))[:64],
+            }
+
+        sessions = getattr(self, "_pdh_memory_sessions", None)
+        if not isinstance(sessions, dict):
+            sessions = {}
+            self._pdh_memory_sessions = sessions
+        luid_key = f"{luid[0]:08x}_{luid[1]:08x}"
+        luid_text = f"0x{luid[0]:08x}_0x{luid[1]:08x}"
+        session = sessions.get(luid_key)
+        if session is None:
+            try:
+                if not self._refresh_pdh_object_cache():
+                    return {**unavailable, "device_memory_status": "wddm_adapter_memory_object_unavailable"}
+                object_name = self._localized_pdh_name("GPU Adapter Memory")
+                counter_name = self._localized_pdh_name("Dedicated Usage")
+                matching_instances = [
+                    instance
+                    for instance in self._enumerate_pdh_instances(object_name)
+                    if self._parse_gpu_engine_luid(instance) == luid
+                ]
+            except (AttributeError, KeyError, OSError, TypeError, ValueError):
+                return {**unavailable, "device_memory_status": "wddm_adapter_memory_enumeration_failed"}
+            if not matching_instances:
+                return {**unavailable, "device_memory_status": "wddm_adapter_memory_counter_not_found"}
+            if len(matching_instances) != 1:
+                return {**unavailable, "device_memory_status": "wddm_adapter_memory_instance_not_unique"}
+
+            query = ctypes.c_void_p()
+            counter = ctypes.c_void_p()
+            try:
+                open_query = self._pdh_functions["PdhOpenQueryW"]
+                add_counter = self._pdh_functions["PdhAddCounterW"]
+                close_query = self._pdh_functions["PdhCloseQuery"]
+                if int(open_query(None, 0, ctypes.byref(query))) != PDH_SUCCESS or not query:
+                    return {**unavailable, "device_memory_status": "wddm_adapter_memory_query_open_failed"}
+                path = f"\\\\{object_name}({matching_instances[0]})\\\\{counter_name}"
+                if int(add_counter(query, path, 0, ctypes.byref(counter))) != PDH_SUCCESS or not counter:
+                    close_query(query)
+                    return {**unavailable, "device_memory_status": "wddm_adapter_memory_counter_add_failed"}
+            except (KeyError, OSError, TypeError, ValueError):
+                if query:
+                    try:
+                        self._pdh_functions["PdhCloseQuery"](query)
+                    except Exception:
+                        pass
+                return {**unavailable, "device_memory_status": "wddm_adapter_memory_query_setup_failed"}
+            session = {
+                "query": query,
+                "counter": counter,
+                "instance": matching_instances[0],
+                "luid": luid_text,
+                "total_bytes": total,
+            }
+            sessions[luid_key] = session
+        else:
+            if session.get("luid") != luid_text or session.get("instance") is None:
+                return {**unavailable, "device_memory_status": "wddm_adapter_memory_session_mismatch"}
+            session["total_bytes"] = total
+
+        try:
+            if int(self._pdh_functions["PdhCollectQueryData"](session["query"])) != PDH_SUCCESS:
+                raise RuntimeError("collect_failed")
+            value = _PdhFormattedCounterValue()
+            status = int(self._pdh_functions["PdhGetFormattedCounterValue"](
+                session["counter"], PDH_FMT_LARGE, None, ctypes.byref(value)
+            ))
+            if status != PDH_SUCCESS or value.CStatus not in (
+                PDH_CSTATUS_VALID_DATA, PDH_CSTATUS_NEW_DATA
+            ):
+                raise RuntimeError("counter_value_unavailable")
+            used = int(value.value.largeValue)
+        except (KeyError, OSError, TypeError, ValueError, RuntimeError):
+            stale = sessions.pop(luid_key, None)
+            if stale is not None:
+                try:
+                    self._pdh_functions["PdhCloseQuery"](stale["query"])
+                except Exception:
+                    pass
+            return {**unavailable, "device_memory_status": "wddm_adapter_memory_sample_failed"}
+
+        if used < 0 or used > total:
+            return {**unavailable, "device_memory_status": "wddm_adapter_memory_snapshot_invalid"}
+        return {
+            "device_memory_available": True,
+            "device_memory_status": "ok",
+            "device_memory_source": "windows_gpu_adapter_memory_pdh",
+            "device_memory_luid": luid_text,
+            "device_memory_total_bytes": total,
+            "device_memory_used_bytes": used,
+            "device_memory_free_bytes": total - used,
+            "device_memory_sample_count": 1,
+            "vram_verified": True,
         }
 
     def _wddm_observation_from_activity(
@@ -715,6 +853,18 @@ class NvmlProcessProbe:
                     if nvml_targets else "nvml_device_inventory_unavailable"
                 ),
             }
+
+        if memory_snapshot.get("device_memory_available") is not True:
+            try:
+                wddm_memory_snapshot = self._query_wddm_device_memory(target_adapters[0])
+            except Exception:
+                wddm_memory_snapshot = {
+                    "device_memory_available": False,
+                    "device_memory_status": "wddm_adapter_memory_query_failed",
+                    "vram_verified": False,
+                }
+            if isinstance(wddm_memory_snapshot, dict):
+                memory_snapshot = wddm_memory_snapshot
 
         memory_available = memory_snapshot.get("device_memory_available") is True
         result = {
@@ -1158,8 +1308,15 @@ class NvmlProcessProbe:
                 pass
 
     def close(self) -> None:
-        for pid in tuple(self._pdh_sessions):
+        for pid in tuple(getattr(self, "_pdh_sessions", {})):
             self.close_pid(pid)
+        memory_sessions = getattr(self, "_pdh_memory_sessions", {})
+        for key, session in tuple(memory_sessions.items()):
+            memory_sessions.pop(key, None)
+            try:
+                self._pdh_functions["PdhCloseQuery"](session["query"])
+            except (KeyError, OSError, TypeError):
+                pass
         if not self._initialized or self._library is None:
             return
         shutdown = self._function(self._library, ("nvmlShutdown",), [])
