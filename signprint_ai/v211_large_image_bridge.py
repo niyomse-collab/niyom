@@ -270,7 +270,8 @@ def prepare_native_2x_inputs_streamed(
             # RGB sample and the accepted V2 alpha unchanged; only estimate
             # RGB where source alpha is exactly zero. libvips evaluates this
             # as a disk-backed graph, so large artwork is never decoded whole.
-            source_alpha = source_image.extract_band(3).cast("float") / 255.0
+            source_alpha_mask = source_image.extract_band(3)
+            source_alpha = source_alpha_mask.cast("float") / 255.0
             alpha_weights = source_alpha * source_alpha
             blurred_weights = alpha_weights.gaussblur(4.0)
             repaired_channels = []
@@ -283,7 +284,7 @@ def prepare_native_2x_inputs_streamed(
                     weighted_colour / (blurred_weights + 1e-5)
                 ).cast("uchar")
                 repaired_channels.append(
-                    source_alpha.ifthenelse(channel, estimated_colour)
+                    source_alpha_mask.ifthenelse(channel, estimated_colour)
                 )
             source_rgb = (
                 repaired_channels[0]
