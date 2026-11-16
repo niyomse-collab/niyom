@@ -309,3 +309,57 @@ def test_tiled_native_runner_stitches_a_real_24mp_target_without_full_pillow_dec
     assert v2.read_bytes() == before_v2
     assert not list((tmp_path / "large-candidates").glob(".v211_*"))
 
+
+
+def test_streamed_rgba_seed_bleeds_only_fully_transparent_hidden_rgb(tmp_path):
+    """Large-job seed preparation must match V2's alpha-safe small-image path."""
+    pytest.importorskip("pyvips")
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
+
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    rgba = np.zeros((128, 128, 4), dtype=np.uint8)
+    rgba[..., :3] = (0, 0, 0)
+    rgba[32:96, 32:96, :3] = (220, 70, 40)
+    rgba[32:96, 32:96, 3] = 255
+    source = tmp_path / "transparent-source.png"
+    Image.fromarray(rgba, "RGBA").save(
+        source, dpi=(300, 300), icc_profile=profile
+    )
+    with Image.open(source) as image:
+        v2_image = image.resize((256, 256), Image.Resampling.LANCZOS)
+        baseline = tmp_path / "accepted-v2.png"
+        v2_image.save(baseline, dpi=(300, 300), icc_profile=profile)
+        v2_image.close()
+
+    accepted_v2_bytes = baseline.read_bytes()
+    work_dir = tmp_path / "streamed-seed-work"
+    seed_path = reference_path = None
+    try:
+        seed_path, reference_path, target_size, padded_size, source_size, metadata = (
+            prepare_native_2x_inputs_streamed(
+                source, baseline, work_dir, resize_mode="stretch"
+            )
+        )
+        assert source_size == (128, 128)
+        assert target_size == padded_size == (256, 256)
+        assert metadata["icc_profile"] == profile
+        assert metadata["dpi"][0] == pytest.approx(300, abs=0.1)
+
+        with Image.open(seed_path) as seed:
+            pixels = np.asarray(seed).copy()
+            assert seed.mode == "RGBA"
+            # x=31 is fully transparent but immediately adjacent to the
+            # visible square. Its hidden RGB should be foreground-colour
+            # propagated, not the original black matte.
+            assert tuple(pixels[64, 31, :3]) == pytest.approx((220, 70, 40), abs=8)
+            # Visible source RGB is not altered by the bleed operation.
+            np.testing.assert_array_equal(pixels[64, 64, :3], (220, 70, 40))
+            assert seed.info["icc_profile"] == profile
+            assert seed.info["dpi"][0] == pytest.approx(300, abs=0.1)
+
+        assert baseline.read_bytes() == accepted_v2_bytes
+    finally:
+        if seed_path is not None:
+            seed_path.unlink(missing_ok=True)
+        if reference_path is not None:
+            reference_path.unlink(missing_ok=True)
