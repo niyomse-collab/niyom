@@ -191,6 +191,22 @@ jobs:
           }
           Write-Output 'Packaged diagnostic dispatch exited successfully (code 0).'
 
+      - name: Parse read-only shop runner diagnostic without executing it
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path '.\tools\Test-V211-ShopRunner.ps1').Path,
+            [ref]$tokens,
+            [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            throw 'Read-only shop runner diagnostic has a PowerShell syntax error.'
+          }
+          Write-Output 'Read-only shop runner diagnostic PowerShell syntax passed.'
+
       - name: Parse candidate provenance verifier before packaging acceptance
         shell: pwsh
         run: |
