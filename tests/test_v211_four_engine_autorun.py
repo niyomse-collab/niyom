@@ -320,12 +320,13 @@ def test_disk_tiled_v2_job_over_18mp_routes_into_disk_backed_four_engine_bridge(
 ):
     source, destination = _source_and_v2(tmp_path)
     adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
-    monkeypatch.setattr(adapter_module, "image_size", lambda _path: (4000, 3000))
+    monkeypatch.setattr(adapter_module, "image_size", lambda _path: (6000, 4000))
     monkeypatch.setattr(adapter_module, "needs_streaming", lambda *args: True)
     monkeypatch.setattr(adapter_module, "validate_export", lambda *args: None)
 
     def fake_large(_adapter, _src, dst, _settings, _source_size, _target_size,
                    _scale, _progress, _cancel, _use_ai, **kwargs):
+        observed["source_size"] = _source_size
         Path(dst).write_bytes(b"durable large V2 raster")
         return {"output": str(dst), "face_protection": {"applied": False}}
 
@@ -357,6 +358,8 @@ def test_disk_tiled_v2_job_over_18mp_routes_into_disk_backed_four_engine_bridge(
     result = adapter.process(source, destination, settings, use_ai=True)
 
     assert observed["source"] == source
+    assert observed["source_size"] == (6000, 4000)
+    assert observed["source_size"][0] * observed["source_size"][1] > 18_000_000
     assert observed["v2"] == destination
     assert observed["kwargs"]["resize_mode"] == "stretch"
     assert result["four_engine_research"]["status"] == "four_engine_fusion_preview_ready"
