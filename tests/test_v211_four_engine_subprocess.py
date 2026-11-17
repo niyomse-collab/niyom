@@ -345,7 +345,19 @@ def test_runtime_adapter_acceptance_fails_closed_when_any_tile_process_is_unveri
 
 
 
-def test_runtime_adapter_conflict_invalidates_an_earlier_positive_sample(tmp_path):
+@pytest.mark.parametrize(
+    "conflict_status",
+    [
+        "pid_seen_on_wrong_adapter",
+        "target_adapter_missing",
+        "target_adapter_ambiguous",
+        "target_dxgi_adapter_missing",
+        "target_dxgi_adapter_ambiguous",
+    ],
+)
+def test_runtime_adapter_conflict_invalidates_an_earlier_positive_sample(
+    tmp_path, conflict_status
+):
     from PIL import Image
 
     source = tmp_path / "source.png"
@@ -363,7 +375,7 @@ def test_runtime_adapter_conflict_invalidates_an_earlier_positive_sample(tmp_pat
             "adapter_index": 0,
             "backend_apis": ["graphics"],
         },
-        {"verified": False, "status": "pid_seen_on_wrong_adapter"},
+        {"verified": False, "status": conflict_status},
     ])
 
     def conflicting_probe(pid, engine):
