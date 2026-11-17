@@ -163,3 +163,14 @@ def test_shop_gpu_concurrency_is_scoped_to_evidence_job():
     assert "concurrency:" in evidence_job
     assert "group: v211-shop-gpu-evidence" in evidence_job
     assert "cancel-in-progress: false" in evidence_job
+
+
+def test_candidate_build_retriggers_for_tooling_powershell_changes():
+    workflow = _read(".github/workflows/v211-four-engine-bridge-windows.yml")
+
+    pull_request_paths = workflow.split("  pull_request:", 1)[1].split("  push:", 1)[0]
+    push_paths = workflow.split("  push:", 1)[1].split("  workflow_dispatch:", 1)[0]
+
+    for path_filters in (pull_request_paths, push_paths):
+        assert "'tools/*.ps1'" in path_filters
+        assert "'tools/**/*.ps1'" in path_filters
