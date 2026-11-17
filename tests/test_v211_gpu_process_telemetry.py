@@ -355,10 +355,18 @@ def test_wddm_target_luid_requires_one_matching_nvidia_dxgi_adapter(monkeypatch)
     probe._dxgi_adapters = None
     monkeypatch.setattr(
         telemetry, "_enumerate_dxgi_adapters",
+        lambda: [adapters[1]],
+    )
+    assert probe._target_dxgi_luid() is None
+    assert probe._dxgi_status == "target_dxgi_adapter_missing"
+
+    probe._dxgi_adapters = None
+    monkeypatch.setattr(
+        telemetry, "_enumerate_dxgi_adapters",
         lambda: adapters + [dict(adapters[0], luid=(0, 0xF1A1))],
     )
     assert probe._target_dxgi_luid() is None
-    assert probe._dxgi_status == "target_dxgi_adapter_not_unique"
+    assert probe._dxgi_status == "target_dxgi_adapter_ambiguous"
 
 
 def test_wddm_gpu_engine_activity_rejects_malformed_luid_even_when_strings_match():
