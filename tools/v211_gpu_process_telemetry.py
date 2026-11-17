@@ -1164,6 +1164,12 @@ class NvmlProcessProbe:
         if self._dxgi_adapters is None:
             self._dxgi_adapters = _enumerate_dxgi_adapters()
             self._dxgi_status = "ready" if self._dxgi_adapters else "dxgi_adapter_enumeration_unavailable"
+        # An empty inventory means DXGI enumeration supplied no usable evidence.
+        # Do not relabel that as a successfully enumerated inventory with no
+        # matching NVIDIA adapter; both outcomes still fail closed.
+        if not self._dxgi_adapters:
+            self._dxgi_status = "dxgi_adapter_enumeration_unavailable"
+            return None
         matches = [
             item for item in self._dxgi_adapters
             if item.get("vendor_id") == 0x10DE
