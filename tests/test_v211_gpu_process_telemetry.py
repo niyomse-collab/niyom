@@ -369,6 +369,19 @@ def test_wddm_target_luid_requires_one_matching_nvidia_dxgi_adapter(monkeypatch)
     assert probe._dxgi_status == "target_dxgi_adapter_ambiguous"
 
 
+def test_wddm_target_luid_preserves_empty_inventory_as_enumeration_unavailable(monkeypatch):
+    from tools import v211_gpu_process_telemetry as telemetry
+
+    probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+    probe.target_name = "gtx 1660 ti"
+    probe._dxgi_adapters = None
+    probe._dxgi_status = "not_initialized"
+    monkeypatch.setattr(telemetry, "_enumerate_dxgi_adapters", lambda: [])
+
+    assert probe._target_dxgi_luid() is None
+    assert probe._dxgi_status == "dxgi_adapter_enumeration_unavailable"
+
+
 def test_wddm_gpu_engine_activity_rejects_malformed_luid_even_when_strings_match():
     activity = {
         "available": True,
