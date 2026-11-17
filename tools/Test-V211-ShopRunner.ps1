@@ -11,7 +11,7 @@ function Normalize-AccountName([string]$Value) {
     if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
     $value = $Value.Trim()
     if ($value -ieq 'LocalSystem') { return 'nt authority\system' }
-    if ($value -match '^\.\\(.+)) {
+    if ($value -match '^\.\\(.+)$') {
         return (($env:COMPUTERNAME + '\' + $Matches[1]).ToLowerInvariant())
     }
     return $value.ToLowerInvariant()
