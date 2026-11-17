@@ -830,14 +830,18 @@ class NvmlProcessProbe:
             and self.target_name in str(item.get("description") or "").casefold()
             and item.get("luid") == dxgi_luid
         ]
-        if len(target_adapters) != 1:
+        if not target_adapters or len(target_adapters) > 1:
+            dxgi_status = (
+                "target_dxgi_adapter_missing"
+                if not target_adapters else "target_dxgi_adapter_ambiguous"
+            )
             result = {
                 "available": True,
                 "verified": False,
-                "status": "target_dxgi_adapter_not_unique",
+                "status": dxgi_status,
                 "evidence_source": None,
                 "device_memory_available": False,
-                "device_memory_status": "target_dxgi_adapter_not_unique",
+                "device_memory_status": dxgi_status,
                 "vram_verified": False,
                 "nvml_status": str(getattr(self, "status", "unknown"))[:64],
             }
@@ -960,7 +964,10 @@ class NvmlProcessProbe:
         else:
             result.update({
                 "device_memory_available": False,
-                "device_memory_status": "target_adapter_not_unique",
+                "device_memory_status": (
+                    "target_adapter_missing"
+                    if not target_devices else "target_adapter_ambiguous"
+                ),
             })
         fallback_statuses = {
             "gpu_memory_not_confirmed",
@@ -1162,8 +1169,11 @@ class NvmlProcessProbe:
             if item.get("vendor_id") == 0x10DE
             and self.target_name in str(item.get("description", "")).casefold()
         ]
-        if len(matches) != 1:
-            self._dxgi_status = "target_dxgi_adapter_not_unique"
+        if not matches:
+            self._dxgi_status = "target_dxgi_adapter_missing"
+            return None
+        if len(matches) > 1:
+            self._dxgi_status = "target_dxgi_adapter_ambiguous"
             return None
         self._dxgi_status = "ready"
         return matches[0]["luid"]
