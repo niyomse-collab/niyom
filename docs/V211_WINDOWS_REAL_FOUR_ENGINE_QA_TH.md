@@ -674,3 +674,10 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - **GPU binding:** persistent installed manifest ไม่จำเป็นต้องมี device index คงที่. ก่อนเริ่มงาน Bridge สร้าง ephemeral bound manifest: Real-ESRGAN, Waifu2x และ Real-CUGAN ได้ Vulkan `-g` index ที่ตรวจพบแบบไม่กำกวม; Anime4KCPP ได้ processor `-p cuda` หรือ `-p opencl` และ device `-d` จาก inventory ของ Anime4KCPP. ไฟล์ manifest ที่ติดตั้งถาวรไม่ถูกแก้ไข. การเห็นชื่อ adapter ใน inventory หรือการตั้งค่า CLI ยังไม่ใช่หลักฐาน runtime; ต้องตรวจ PID/backend telemetry ระหว่าง process จริงของแต่ละ Engine.
 - **Backend distinction:** Anime4KCPP ไม่ใช่ NCNN/Vulkan. การตรวจ Vulkan readiness ใช้กับสาม NCNN engines เท่านั้น; Anime4KCPP ต้องพิสูจน์ CUDA/OpenCL device ที่เลือกและ telemetry ของ process แยกต่างหาก. ข้อความก่อนหน้าที่บอกว่า runtime manifest ไม่ส่ง `-p/-d` ให้ Anime4KCPP เป็นข้อมูลของ manifest ก่อน runtime binding.
 - **Acceptance remains unchanged:** Synthetic/hosted CI ไม่รับรอง native GPU 4/4, 6 GB VRAM stress, ภาพจริง A/B, Photoshop, MainTop RIP หรือ print quality. QA sidecar ยังต้องผ่าน contribution จากทั้งสี่ Engine และ live per-process adapter evidence; accepted V2 raster ไม่ถูกแทนที่.
+
+## 17 พฤศจิกายน 2569 — แยก DXGI adapter ที่ไม่พบออกจากกรณีชื่อซ้ำ
+
+- Native CLI Smoke #339 บน GitHub-hosted Windows รายงาน `target_dxgi_adapter_not_unique` ระหว่าง NVML/WDDM telemetry; status เดิมใช้ทั้งกรณีไม่พบ GTX 1660 Ti ใน DXGI inventory และกรณีพบหลายรายการ จึงบอกสาเหตุไม่ชัด
+- ปรับเป็น `target_dxgi_adapter_missing` เมื่อไม่พบ NVIDIA DXGI adapter ที่ตรงกับเป้าหมาย และ `target_dxgi_adapter_ambiguous` เมื่อพบมากกว่าหนึ่งรายการ ทั้งสองกรณียังคง fail-closed และยังไม่ยืนยัน PID-to-GPU; legacy status เดิมยังถูกจัดเป็น conflict เพื่ออ่านหลักฐานเก่าได้
+- การแก้ไขนี้ปรับเฉพาะการจำแนก telemetry ไม่ได้เปลี่ยนวิธีเลือก GPU, ไม่ข้าม VRAM guard และไม่ทำให้ Hosted Runner กลายเป็นหลักฐาน GPU ของเครื่องร้าน
+- Regression เพิ่มทั้ง missing/ambiguous classification และตรวจว่าแต่ละสถานะยกเลิก positive sample ก่อนหน้าได้
