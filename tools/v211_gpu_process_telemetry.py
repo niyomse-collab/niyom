@@ -792,7 +792,11 @@ class NvmlProcessProbe:
                 ),
                 "verified": False,
                 "status": (
-                    str(activity.get("status") or "wddm_activity_unverified")[:64]
+                    str(
+                        getattr(self, "_dxgi_status", "dxgi_adapter_enumeration_unavailable")
+                        if dxgi_luid is None and getattr(self, "_dxgi_status", "ready") != "ready"
+                        else activity.get("status") or "wddm_activity_unverified"
+                    )[:64]
                     if isinstance(activity, dict) else "wddm_activity_unavailable"
                 ),
                 "evidence_source": None,
@@ -1181,8 +1185,22 @@ class NvmlProcessProbe:
         if len(matches) > 1:
             self._dxgi_status = "target_dxgi_adapter_ambiguous"
             return None
+        luid = matches[0].get("luid")
+        if (
+            not isinstance(luid, tuple)
+            or len(luid) != 2
+            or any(
+                isinstance(part, bool)
+                or not isinstance(part, int)
+                or part < 0
+                or part > 0xFFFFFFFF
+                for part in luid
+            )
+        ):
+            self._dxgi_status = "target_dxgi_adapter_luid_invalid"
+            return None
         self._dxgi_status = "ready"
-        return matches[0]["luid"]
+        return int(luid[0]), int(luid[1])
 
     def _create_pdh_session(self, pid: int) -> dict[str, Any] | None:
         if self._load_pdh() is None:
