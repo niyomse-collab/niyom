@@ -435,6 +435,8 @@ def make_processors(
                     "pid_seen_on_multiple_adapters",
                     "target_adapter_ambiguous",
                     "target_adapter_missing",
+                    "target_dxgi_adapter_missing",
+                    "target_dxgi_adapter_ambiguous",
                     "target_dxgi_adapter_not_unique",
                 ):
                     runtime_probe_conflict = True
