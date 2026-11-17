@@ -382,6 +382,61 @@ def test_wddm_target_luid_preserves_empty_inventory_as_enumeration_unavailable(m
     assert probe._dxgi_status == "dxgi_adapter_enumeration_unavailable"
 
 
+def test_wddm_target_luid_rejects_invalid_adapter_luid_and_surfaces_dxgi_status():
+    from tools import v211_gpu_process_telemetry as telemetry
+
+    activity = {
+        "available": True,
+        "verified": True,
+        "status": "gpu_engine_activity_observed",
+        "source": "windows_gpu_engine_pdh",
+        "pid": 4321,
+        "sample_count": 2,
+        "counter_count": 1,
+        "active_sample_count": 1,
+        "max_utilization_percent": 2.0,
+        "adapter_luid": "0x00000000_0x0000e7f7",
+        "target_adapter_luid": "0x00000000_0x0000e7f7",
+    }
+    base_adapter = {
+        "description": "NVIDIA GeForce GTX 1660 Ti",
+        "vendor_id": 0x10DE,
+    }
+    invalid_luids = (None, (), (0,), (True, 0xE7F7), (-1, 0xE7F7), (0, 0x100000000))
+    for invalid_luid in invalid_luids:
+        probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+        probe.target_name = "gtx 1660 ti"
+        probe.status = "nvml_library_not_found"
+        probe._dxgi_adapters = [dict(base_adapter, luid=invalid_luid)]
+        probe._dxgi_status = "not_initialized"
+
+        assert probe._target_dxgi_luid() is None
+        assert probe._dxgi_status == "target_dxgi_adapter_luid_invalid"
+        result = probe._wddm_observation_from_activity(4321, activity, "real_esrgan")
+        assert result["verified"] is False
+        assert result["status"] == "target_dxgi_adapter_luid_invalid"
+        assert result["device_memory_available"] is False
+        assert result["vram_verified"] is False
+
+    probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+    probe.target_name = "gtx 1660 ti"
+    probe.status = "nvml_library_not_found"
+    probe._dxgi_adapters = [base_adapter]
+    probe._dxgi_status = "not_initialized"
+    assert probe._target_dxgi_luid() is None
+    assert probe._dxgi_status == "target_dxgi_adapter_luid_invalid"
+
+    probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+    probe.target_name = "gtx 1660 ti"
+    probe.status = "nvml_library_not_found"
+    probe._dxgi_adapters = []
+    probe._dxgi_status = "not_initialized"
+    result = probe._wddm_observation_from_activity(4321, activity, "real_esrgan")
+    assert result["verified"] is False
+    assert result["status"] == "dxgi_adapter_enumeration_unavailable"
+    assert result["vram_verified"] is False
+
+
 def test_wddm_gpu_engine_activity_rejects_malformed_luid_even_when_strings_match():
     activity = {
         "available": True,
