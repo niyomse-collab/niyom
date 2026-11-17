@@ -67,10 +67,24 @@ foreach ($service in $runnerServices) {
 }
 
 $runnerProcesses = @()
+$runnerProcessAccountMatches = $false
 try {
     $runnerProcesses = @(
         Get-CimInstance -ClassName Win32_Process -Filter "Name='Runner.Listener.exe'" -ErrorAction Stop
     )
+    foreach ($process in $runnerProcesses) {
+        try {
+            $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
+            if ($owner.ReturnValue -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$owner.User)) {
+                $ownerDomain = [string]$owner.Domain
+                if ([string]::IsNullOrWhiteSpace($ownerDomain)) { $ownerDomain = $env:COMPUTERNAME }
+                $processAccount = Normalize-AccountName ($ownerDomain + '\' + [string]$owner.User)
+                if ($processAccount -eq $currentAccount) { $runnerProcessAccountMatches = $true }
+            }
+        } catch {
+            # Owner inspection can be denied; unknown is not treated as a match.
+        }
+    }
 } catch {
     $runnerProcesses = @()
 }
@@ -110,7 +124,7 @@ if (-not [string]::IsNullOrWhiteSpace($localAppData)) {
         try {
             $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -ErrorAction Stop
             $actualNames = @($manifest.PSObject.Properties.Name | Sort-Object)
-            $expectedNames = @('anime4k', 'real_cugan', 'real_esrgan', 'waifu2x' | Sort-Object)
+            $expectedNames = @('anime4k', 'real_cugan', 'real_esrgan', 'waifu2x')
             $manifestShapeValid = (
                 $actualNames.Count -eq 4 -and
                 ($actualNames -join '|') -ceq ($expectedNames -join '|')
@@ -180,6 +194,9 @@ $runnerProcessPresent = $runnerProcesses.Count -gt 0
 $blockers = @()
 if ($runningService.Count -eq 0 -and -not $runnerProcessPresent) { $blockers += 'runner_service_or_listener_not_running' }
 if ($runningService.Count -gt 0 -and -not $serviceAccountMatch) { $blockers += 'runner_service_account_differs_from_interactive_user' }
+if ($runningService.Count -eq 0 -and $runnerProcessPresent -and -not $runnerProcessAccountMatches) {
+    $blockers += 'runner_listener_account_differs_or_cannot_be_verified'
+}
 if (-not $installedExePresent -or -not $buildProofPresent) { $blockers += 'candidate_installation_not_found_in_current_user_hkcu' }
 if ($null -eq $expectedShaMatches -and [string]::IsNullOrWhiteSpace($ExpectedCandidateSha)) {
     # An omitted expected SHA is diagnostic-only; the installed proof is still reported.
@@ -209,6 +226,7 @@ $report = [ordered]@{
     current_user_profile_checked = $true
     runner_services = $serviceRecords
     runner_listener_process_present = $runnerProcessPresent
+    runner_listener_account_matches_interactive_user = $runnerProcessAccountMatches
     required_github_runner_labels = @('self-hosted', 'Windows', 'X64', 'niyom-shop-gpu')
     github_runner_labels_verified_locally = $false
     candidate_installed_for_current_user = ($installedExePresent -and $buildProofPresent)
