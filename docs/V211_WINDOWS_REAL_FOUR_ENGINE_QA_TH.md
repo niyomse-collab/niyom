@@ -681,3 +681,11 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - ปรับเป็น `target_dxgi_adapter_missing` เมื่อไม่พบ NVIDIA DXGI adapter ที่ตรงกับเป้าหมาย และ `target_dxgi_adapter_ambiguous` เมื่อพบมากกว่าหนึ่งรายการ ทั้งสองกรณียังคง fail-closed และยังไม่ยืนยัน PID-to-GPU; legacy status เดิมยังถูกจัดเป็น conflict เพื่ออ่านหลักฐานเก่าได้
 - การแก้ไขนี้ปรับเฉพาะการจำแนก telemetry ไม่ได้เปลี่ยนวิธีเลือก GPU, ไม่ข้าม VRAM guard และไม่ทำให้ Hosted Runner กลายเป็นหลักฐาน GPU ของเครื่องร้าน
 - Regression เพิ่มทั้ง missing/ambiguous classification และตรวจว่าแต่ละสถานะยกเลิก positive sample ก่อนหน้าได้
+## 17 พฤศจิกายน 2569 — ป้องกัน DXGI Adapter LUID ที่ผิดรูปแบบ
+
+- _target_dxgi_luid() รับเฉพาะ LUID แบบ tuple 2 ค่า ซึ่งแต่ละค่าเป็น integer unsigned 32-bit; ปฏิเสธค่าที่หายไป, tuple ผิดขนาด, boolean, ค่าติดลบ และค่าที่เกิน 32-bit ด้วยสถานะ target_dxgi_adapter_luid_invalid.
+- เมื่อ WDDM activity ยังรายงาน PID แต่ DXGI inventory ไม่มีหลักฐานที่ตรวจสอบได้ ผลลัพธ์จะส่งต่อสถานะ DXGI ที่แท้จริง เช่น dxgi_adapter_enumeration_unavailable หรือ target_dxgi_adapter_luid_invalid แทนการแสดงเพียง gpu_engine_activity_observed; ทุกกรณียังคง verified=false และ vram_verified=false.
+- Regression เพิ่มกรณี LUID หาย/ผิดรูปแบบและตรวจว่าไม่มี positive GPU evidence หลุดผ่าน.
+- Source commit: 5a120b49862e05f4892acdd8df2bbc2ed35ffacd; test commit: 9f607d570ed903445fc1baac49e9fd563246bec6.
+- Core #1505 ผ่าน Windows 1,059 passed / 1 skipped และ Ubuntu 1,057 passed / 3 skipped; Candidate #915 ผ่าน Bridge/Fusion/Privacy/Provisioning tests แล้ว โดย Frozen Windows build ยังทำงานอยู่ ณ เวลาบันทึกนี้.
+- การเปลี่ยนแปลงนี้เป็นการตรวจหลักฐาน telemetry เท่านั้น ไม่ทำให้ Hosted Runner ยืนยัน GPU ของร้าน และไม่เปลี่ยน V1/V2 Stable หรือ accepted V2.
