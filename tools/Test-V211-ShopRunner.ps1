@@ -36,7 +36,7 @@ foreach ($service in $runnerServices) {
     $servicePath = [Environment]::ExpandEnvironmentVariables([string]$service.PathName)
     $exeMatch = [regex]::Match($servicePath, '^\s*"(?<exe>[^"]+\.exe)"', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     if (-not $exeMatch.Success) {
-        $exeMatch = [regex]::Match($servicePath, '^\s*(?<exe>.+?\.exe)(?:\s|$)', 'IgnoreCase')
+        $exeMatch = [regex]::Match($servicePath, '^\s*(?<exe>.+?\.exe)(?:\s|$)', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     }
 
     $runnerRoot = ''
@@ -265,9 +265,9 @@ $serviceRecords = @()
 foreach ($service in $runnerServices) {
     $serviceAccount = Normalize-AccountName ([string]$service.StartName)
     $servicePath = [Environment]::ExpandEnvironmentVariables([string]$service.PathName)
-    $exeMatch = [regex]::Match($servicePath, '^\s*"(?<exe>[^"]+\.exe)"', 'IgnoreCase')
+    $exeMatch = [regex]::Match($servicePath, '^\s*"(?<exe>[^"]+\.exe)"', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     if (-not $exeMatch.Success) {
-        $exeMatch = [regex]::Match($servicePath, '^\s*(?<exe>.+?\.exe)(?:\s|$)', 'IgnoreCase')
+        $exeMatch = [regex]::Match($servicePath, '^\s*(?<exe>.+?\.exe)(?:\s|$)', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     }
 
     $runnerRoot = ''
