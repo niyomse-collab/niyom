@@ -44,7 +44,7 @@ def validate_free_vram_report(
         item for item in devices
         if isinstance(item, dict) and _matches_target(item.get("name"), target_name)
     ]
-    if not nvidia.get("success") or len(matches) != 1:
+    if nvidia.get("success") is not True or len(matches) != 1:
         raise GPUDeviceBindingError(
             "NVIDIA-SMI must report exactly one " + target_name + " adapter"
         )
@@ -83,7 +83,7 @@ def resolve_device_selection(
         item for item in nvidia_devices
         if isinstance(item, dict) and _matches_target(item.get("name"), target_name)
     ]
-    if not nvidia.get("success") or len(nvidia_matches) != 1:
+    if nvidia.get("success") is not True or len(nvidia_matches) != 1:
         raise GPUDeviceBindingError(
             "NVIDIA-SMI must report exactly one " + target_name + " adapter"
         )
