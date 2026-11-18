@@ -146,6 +146,7 @@ def test_low_free_vram_does_not_write_runtime_manifest(tmp_path):
             {"name": "NVIDIA GeForce GTX 1660 Ti"}), "exactly one"),
         (lambda value: value.update(vulkan_device_index=None), "Vulkan"),
         (lambda value: value.update(vulkan_target_device_match_count=2), "Vulkan"),
+        (lambda value: value.update(vulkan_target_device_match_count=True), "Vulkan"),
         (lambda value: value.update(vulkan_loader_available=False), "Vulkan loader"),
         (lambda value: value.update(vulkan_device_inventory_succeeded=False), "Vulkan loader"),
         (lambda value: value.update(vram_budget_6gb_detected=False), "Vulkan loader"),
