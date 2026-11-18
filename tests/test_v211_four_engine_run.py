@@ -704,3 +704,113 @@ def test_safe_execution_record_preserves_wddm_only_gpu_attribution_for_shop_gate
     assert safe["runtime_device_wddm_only_verified_process_count"] == 2
     assert _runtime_device_evidence_verified(True, safe) is True
     assert "private_local_path" not in safe
+
+
+def test_tiled_runner_blocks_fusion_when_any_native_tile_pid_is_unverified(tmp_path, monkeypatch):
+    """A later verified tile must not erase an earlier unverified native PID."""
+    pytest.importorskip("pyvips")
+    from tools import v211_four_engine_run as tiled_runner
+
+    source = tmp_path / "tile-source.png"
+    baseline = tmp_path / "accepted-v2.png"
+    Image.new("RGB", (128, 128), (31, 67, 103)).save(source)
+    Image.new("RGB", (256, 256), (31, 67, 103)).save(baseline)
+    baseline_before = baseline.read_bytes()
+
+    # Four 64x64 source cores force four native child processes per engine.
+    # Keep each child alive long enough for the runtime probe and VRAM guard
+    # to collect more than one valid sample.
+    code = (
+        "import sys,time; from PIL import Image; "
+        "im=Image.open(sys.argv[1]); "
+        "out=im.resize((im.width*2, im.height*2), Image.Resampling.NEAREST); "
+        "out.save(sys.argv[2], format='PNG'); time.sleep(0.16)"
+    )
+    commands = {
+        name: EngineCommand((sys.executable, "-c", code, "{input}", "{output}"))
+        for name in ENGINES
+    }
+    monkeypatch.setattr(tiled_runner, "MAX_FOUR_ENGINE_PIXELS", 1)
+    monkeypatch.setattr(
+        tiled_runner, "load_real_engine_manifest", lambda _path: commands
+    )
+    original_tiled_runner = tiled_runner.run_tiled_candidates
+
+    def use_four_tiles(*args, **kwargs):
+        return original_tiled_runner(*args, tile_size=64, overlap=8, **kwargs)
+
+    monkeypatch.setattr(tiled_runner, "run_tiled_candidates", use_four_tiles)
+
+    class FakeProbe:
+        def __init__(self):
+            self.pids_by_engine = {name: set() for name in ENGINES}
+            self.closed = False
+
+        def __call__(self, pid, engine):
+            seen = self.pids_by_engine[engine]
+            seen.add(pid)
+            # The first child of every engine is deliberately unverified.
+            # Later children are verified on the named adapter. The aggregate
+            # must remain false because one of the four tile PIDs failed.
+            verified = len(seen) > 1
+            return {
+                "verified": verified,
+                "status": "verified" if verified else "pid_not_observed",
+                "adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+                "adapter_index": 0,
+                "backend_apis": ["graphics"],
+                "evidence_source": "nvml_process_memory" if verified else None,
+                "device_memory_available": True,
+                "device_memory_status": "ok",
+                "device_memory_total_bytes": 6144 * 1024 * 1024,
+                "device_memory_used_bytes": 1024 * 1024 * 1024,
+                "device_memory_free_bytes": 5120 * 1024 * 1024,
+            }
+
+        def close(self):
+            self.closed = True
+
+    probe = FakeProbe()
+    monkeypatch.setattr(
+        tiled_runner, "NvmlProcessProbe", lambda target_name: probe
+    )
+
+    def pre_launch_check(_engine):
+        return {
+            "passed": True,
+            "total_mib": 6144,
+            "free_mib": 4096,
+            "minimum_free_mib": 512,
+        }
+
+    output_dir = tmp_path / "tiled-output"
+    report = tiled_runner.run(
+        source,
+        output_dir,
+        tmp_path / "verified-manifest.json",
+        (256, 256),
+        real_engines=True,
+        v2_reference=baseline,
+        pre_launch_check=pre_launch_check,
+    )
+
+    assert probe.closed is True
+    assert report["completed_engine_count"] == 4
+    assert report["native_tiled_inference"]["all_four_engines_completed"] is True
+    assert report["ready_for_fusion_research"] is False
+    assert report["fusion_block_reason"] == "gpu_runtime_unverified"
+    assert report["runtime_device_use_verified"] is False
+    assert report["per_engine_runtime_device_use_verified"] == {
+        name: False for name in ENGINES
+    }
+    assert report["fusion_implemented"] is False
+    for name in ENGINES:
+        process = report["engine_execution"][name]["process"]
+        assert process["tile_count"] == 4
+        assert process["tile_process_count"] == 4
+        assert process["runtime_device_process_count"] == 4
+        assert process["runtime_device_verified_process_count"] == 3
+        assert process["runtime_device_all_processes_verified"] is False
+        assert process["runtime_device_use_verified"] is False
+    assert baseline.read_bytes() == baseline_before
+    assert not (output_dir / "four_engine_fused_preview.png").exists()
