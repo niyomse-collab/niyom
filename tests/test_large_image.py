@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import cv2
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageCms
 from pypdf import PdfReader
 
 from signprint_ai import independent_core, large_image
@@ -659,3 +659,41 @@ def test_metadata_alpha_guard_detects_grayscale_and_rgb_png_trns(
             None, src, (32, 32), EnhanceSettings(color_mode="CMYK"),
             tmp_path / f"{mode.lower()}_unsafe.tif",
         )
+
+def test_rgb_png_preserves_only_rgb_compatible_source_icc(adapter, tmp_path):
+    # CMYK pixels are converted to RGB for this export. Attaching the original
+    # CMYK profile to those RGB samples would mislabel the PNG for Photoshop.
+    cmyk_profile = bytearray(128)
+    cmyk_profile[0:4] = (128).to_bytes(4, "big")
+    cmyk_profile[16:20] = b"CMYK"
+    cmyk_profile[20:24] = b"XYZ "
+    cmyk_profile[36:40] = b"acsp"
+
+    source = tmp_path / "source-cmyk.tif"
+    output = tmp_path / "converted-rgb.png"
+    Image.new("CMYK", (19, 13), (0, 30, 60, 0)).save(
+        source, format="TIFF", icc_profile=bytes(cmyk_profile)
+    )
+
+    result = adapter.process(
+        source, output, settings_for((19, 13)), use_ai=False
+    )
+    assert result["output"] == str(output)
+    with Image.open(output) as image:
+        assert image.mode == "RGB"
+        assert "icc_profile" not in image.info
+
+
+def test_rgb_png_retains_valid_srgb_source_icc(adapter, tmp_path):
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source = tmp_path / "source-srgb.png"
+    output = tmp_path / "preserved-srgb.png"
+    Image.new("RGB", (19, 13), (30, 80, 120)).save(
+        source, icc_profile=profile
+    )
+
+    adapter.process(source, output, settings_for((19, 13)), use_ai=False)
+    with Image.open(output) as image:
+        assert image.mode == "RGB"
+        assert image.info.get("icc_profile") == profile
+
