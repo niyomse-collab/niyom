@@ -133,6 +133,7 @@ def resolve_device_selection(
     if (
         not _valid_device_index(vulkan_index)
         or not _valid_device_index(reported_vulkan_index)
+        or not _valid_device_index(gpu_report.get("vulkan_target_device_match_count"))
         or gpu_report.get("vulkan_target_device_match_count") != 1
         or reported_vulkan_index != vulkan_index
     ):
