@@ -27,6 +27,11 @@ def _matches_target(value: Any, target_name: str = TARGET_GPU) -> bool:
     return isinstance(value, str) and target_name.casefold() in value.casefold()
 
 
+def _valid_device_index(value: Any) -> bool:
+    """Accept JSON-style non-negative integers, never bool (a Python int subclass)."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
 def validate_free_vram_report(
     gpu_report: dict,
     *,
@@ -121,11 +126,15 @@ def resolve_device_selection(
         item for item in vulkan_devices
         if isinstance(item, dict) and _matches_target(item.get("name"), target_name)
     ]
+    vulkan_index = (
+        vulkan_matches[0].get("index") if len(vulkan_matches) == 1 else None
+    )
+    reported_vulkan_index = gpu_report.get("vulkan_device_index")
     if (
-        len(vulkan_matches) != 1
+        not _valid_device_index(vulkan_index)
+        or not _valid_device_index(reported_vulkan_index)
         or gpu_report.get("vulkan_target_device_match_count") != 1
-        or not isinstance(vulkan_matches[0].get("index"), int)
-        or gpu_report.get("vulkan_device_index") != vulkan_matches[0]["index"]
+        or reported_vulkan_index != vulkan_index
     ):
         raise GPUDeviceBindingError(
             "Vulkan must expose exactly one unambiguous " + target_name + " index"
@@ -158,7 +167,7 @@ def resolve_device_selection(
     backend = recommendation.get("processor")
     index = recommendation.get("device_index")
     device_name = recommendation.get("device_name")
-    if backend not in ("cuda", "opencl") or not isinstance(index, int) or index < 0:
+    if backend not in ("cuda", "opencl") or not _valid_device_index(index):
         raise GPUDeviceBindingError("Anime4KCPP recommended device selection is invalid")
     if backend not in (anime4k_report.get("available_processors") or []):
         raise GPUDeviceBindingError("Anime4KCPP recommended processor is not available")
@@ -228,11 +237,11 @@ def bind_manifest_data(manifest: dict, selection: dict) -> dict:
 
     vulkan = selection["ncnn_vulkan"]
     anime = selection["anime4k"]
-    if not isinstance(vulkan.get("device_index"), int) or vulkan["device_index"] < 0:
+    if not _valid_device_index(vulkan.get("device_index")):
         raise GPUDeviceBindingError("invalid NCNN Vulkan device index")
     if anime.get("backend") not in ("cuda", "opencl"):
         raise GPUDeviceBindingError("invalid Anime4KCPP processor")
-    if not isinstance(anime.get("device_index"), int) or anime["device_index"] < 0:
+    if not _valid_device_index(anime.get("device_index")):
         raise GPUDeviceBindingError("invalid Anime4KCPP device index")
 
     result = json.loads(json.dumps(manifest))
