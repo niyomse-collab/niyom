@@ -8,6 +8,7 @@ from tools.v211_gpu_device_binding import (
     bind_manifest_data,
     resolve_device_selection,
     write_bound_manifest,
+    validate_free_vram_report,
 )
 from tools.v211_four_engine_subprocess import ENGINES
 
@@ -90,6 +91,14 @@ def test_resolves_separate_vulkan_and_anime4k_device_indexes():
     assert selection["runtime_device_use_verified"] is False
 
 
+@pytest.mark.parametrize("success", [False, None, 1, "false"])
+def test_free_vram_report_requires_boolean_success(success):
+    gpu = gpu_report()
+    gpu["nvidia_smi"]["success"] = success
+    with pytest.raises(GPUDeviceBindingError, match="NVIDIA-SMI"):
+        validate_free_vram_report(gpu)
+
+
 def test_free_vram_exactly_at_minimum_is_accepted():
     gpu = gpu_report()
     gpu["nvidia_smi"]["devices"][0]["memory_free_mib"] = MIN_FREE_VRAM_MIB
@@ -142,6 +151,8 @@ def test_low_free_vram_does_not_write_runtime_manifest(tmp_path):
     ("mutate", "message"),
     [
         (lambda value: value["nvidia_smi"].update(devices=[]), "NVIDIA-SMI"),
+        (lambda value: value["nvidia_smi"].update(success="false"), "NVIDIA-SMI"),
+        (lambda value: value["nvidia_smi"].update(success=1), "NVIDIA-SMI"),
         (lambda value: value["nvidia_smi"]["devices"].append(
             {"name": "NVIDIA GeForce GTX 1660 Ti"}), "exactly one"),
         (lambda value: value.update(vulkan_device_index=None), "Vulkan"),
