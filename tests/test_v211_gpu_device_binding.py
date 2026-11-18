@@ -227,6 +227,14 @@ def test_anime4k_requires_unique_gpu_device_for_a_gpu_processor():
         resolve_device_selection(gpu_report(), anime)
 
 
+def test_anime4k_rejects_boolean_inventory_device_index():
+    anime = anime_report()
+    # bool compares equal to 1 in Python; inventory indexes must still be real ints.
+    anime["device_inventory_by_processor"]["cuda"][0]["index"] = True
+    with pytest.raises(GPUDeviceBindingError, match="index is missing or ambiguous"):
+        resolve_device_selection(gpu_report(), anime)
+
+
 def test_anime4k_fails_closed_when_only_cpu_is_available():
     anime = anime_report()
     anime["available_processors"] = ["cpu"]
