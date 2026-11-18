@@ -536,6 +536,10 @@ class NiyomSilpCoreAdapter:
             }
             if source_icc_profile:
                 png_options["icc_profile"] = source_icc_profile
+            else:
+                # Pillow Image.convert() copies the source info dictionary.
+                # Remove a stale CMYK/Lab ICC inherited by RGB pixel samples.
+                output.info.pop("icc_profile", None)
             output.save(dst, format="PNG", **png_options)
         else:
             # Pass transparency as an explicit channel. Treating an RGBA
