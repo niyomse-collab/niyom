@@ -119,18 +119,18 @@ def test_installed_candidate_may_only_differ_by_nonproduction_gate_files():
 def test_candidate_build_cancels_superseded_runs_for_the_current_branch():
     workflow = _read(".github/workflows/v211-four-engine-bridge-windows.yml")
 
-    assert "group: niyomsil-v211-bridge-windows-${{ github.event.pull_request.head.ref || github.ref_name }}" in workflow
+    assert "group: niyomsil-v211-bridge-windows-${{ github.event.pull_request.head.ref }}" in workflow
     assert "cancel-in-progress: true" in workflow
 
 def test_candidate_build_uses_pr_head_commit_for_shop_evidence_identity():
     candidate = _read(".github/workflows/v211-four-engine-bridge-windows.yml")
 
-    expected_ref = "ref: ${{ github.event.pull_request.head.sha || github.sha }}"
-    assert "run-name: V2.1.1 Windows candidate - ${{ github.event.pull_request.head.sha || github.sha }}" in candidate
+    expected_ref = "ref: ${{ github.event.pull_request.head.sha }}"
+    assert "run-name: V2.1.1 Windows candidate - ${{ github.event.pull_request.head.sha }}" in candidate
     assert candidate.count(expected_ref) == 2
     assert candidate.count("fetch-depth: 0") == 2
     assert "V211_EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}" in candidate
-    assert "V211_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}" in candidate
+    assert "V211_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}" in candidate
     assert "v211_verify_candidate_provenance.ps1" in candidate
     assert "Parser]::ParseFile" in candidate
     verifier = _read("tools/v211_verify_candidate_provenance.ps1")
@@ -165,12 +165,22 @@ def test_shop_gpu_concurrency_is_scoped_to_evidence_job():
     assert "cancel-in-progress: false" in evidence_job
 
 
-def test_candidate_build_retriggers_for_tooling_powershell_changes():
+def test_candidate_build_retriggers_for_tooling_powershell_changes_without_duplicate_push_runs():
     workflow = _read(".github/workflows/v211-four-engine-bridge-windows.yml")
+    workflow_header = workflow.split("jobs:", 1)[0]
 
-    pull_request_paths = workflow.split("  pull_request:", 1)[1].split("  push:", 1)[0]
-    push_paths = workflow.split("  push:", 1)[1].split("  workflow_dispatch:", 1)[0]
+    # Draft PR #20 receives a pull_request synchronize event for every head push.
+    # A second push-triggered candidate shared the same cancel-in-progress group
+    # and could cancel the exact PR-head installer build before it created jobs.
+    assert "  pull_request:" in workflow_header
+    assert "  push:" not in workflow_header
+    assert "workflow_dispatch:" not in workflow_header
+    assert "github.event_name == 'push'" not in workflow
+    assert "github.event_name == 'workflow_dispatch'" not in workflow
+    assert "github.event.pull_request.head.sha || github.sha" not in workflow
 
-    for path_filters in (pull_request_paths, push_paths):
-        assert "'tools/*.ps1'" in path_filters
-        assert "'tools/**/*.ps1'" in path_filters
+    pull_request_paths = workflow_header.split("  pull_request:", 1)[1]
+    assert "'tools/*.ps1'" in pull_request_paths
+    assert "'tools/**/*.ps1'" in pull_request_paths
+    assert "'tests/test_v211_*.py'" in pull_request_paths
+    assert "'.github/workflows/v211-four-engine-bridge-windows.yml'" in pull_request_paths
