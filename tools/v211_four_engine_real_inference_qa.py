@@ -134,6 +134,7 @@ def _safe_process_record(value: dict | None) -> dict | None:
         "runtime_device_evidence_source",
         "runtime_device_nvml_memory_verified_process_count",
         "runtime_device_wddm_pdh_verified_process_count",
+        "runtime_device_wddm_only_verified_process_count",
         "runtime_gpu_engine_min_sample_count",
         "runtime_gpu_engine_min_active_sample_count",
         "runtime_gpu_engine_max_utilization_percent",
