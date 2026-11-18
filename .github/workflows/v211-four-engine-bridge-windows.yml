@@ -1,5 +1,5 @@
 name: V2.1.1 four-AI bridge Windows candidate
-run-name: V2.1.1 Windows candidate - ${{ github.event.pull_request.head.sha || github.sha }}
+run-name: V2.1.1 Windows candidate - ${{ github.event.pull_request.head.sha }}
 on:
   pull_request:
     branches:
@@ -18,48 +18,24 @@ on:
       - '.github/workflows/v211-four-engine-bridge-windows.yml'
       - '.github/workflows/v211-four-engine-manual-evidence.yml'
       - '.github/workflows/v211-four-engine-real-cli-smoke.yml'
-  push:
-    branches:
-      - work/v211-four-engine-v2-bridge-20261103
-    paths:
-      - 'signprint_ai/**'
-      - 'tools/v211_*.py'
-      - 'tools/*.ps1'
-      - 'tools/**/*.ps1'
-      - 'tests/test_v211_*.py'
-      - 'NiyomsilV2ArmCore.spec'
-      - 'build_windows.ps1'
-      - 'installer_v211_experimental.iss'
-      - 'run.py'
-      - 'requirements_v2_large_images.txt'
-      - '.github/workflows/v211-four-engine-bridge-windows.yml'
-      - '.github/workflows/v211-four-engine-manual-evidence.yml'
-      - '.github/workflows/v211-four-engine-real-cli-smoke.yml'
-  workflow_dispatch:
-
 permissions:
   contents: read
 concurrency:
-  group: niyomsil-v211-bridge-windows-${{ github.event.pull_request.head.ref || github.ref_name }}
-  # Push and PR events for one branch share a group; a newer commit replaces the old candidate.
-  # Legacy runs from the previous global group cannot block the current Draft PR head.
+  group: niyomsil-v211-bridge-windows-${{ github.event.pull_request.head.ref }}
+  # This candidate is PR #20-only. PR synchronize events cover branch pushes; avoid duplicate push/PR runs cancelling each other.
   cancel-in-progress: true
 
 jobs:
   bridge-tests:
     if: >-
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.ref == 'work/v211-four-engine-v2-bridge-20261103') ||
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103') ||
-      (github.event_name == 'push' &&
-       github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103')
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.ref == 'work/v211-four-engine-v2-bridge-20261103'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
       - uses: actions/setup-python@v7.1.0
         with:
@@ -81,12 +57,8 @@ jobs:
 
   windows-v2-candidate:
     if: >-
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.ref == 'work/v211-four-engine-v2-bridge-20261103') ||
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103') ||
-      (github.event_name == 'push' &&
-       github.ref == 'refs/heads/work/v211-four-engine-v2-bridge-20261103')
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.ref == 'work/v211-four-engine-v2-bridge-20261103'
     needs: bridge-tests
     runs-on: windows-latest
     timeout-minutes: 150
@@ -95,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
       - uses: actions/setup-python@v7.1.0
         with:
@@ -231,7 +203,7 @@ jobs:
         shell: pwsh
         env:
           V211_EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          V211_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          V211_EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: pwsh -NoProfile -File .\tools\v211_verify_candidate_provenance.ps1
 
       - name: Upload experimental package; no release published
