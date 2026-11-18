@@ -178,6 +178,7 @@ def resolve_device_selection(
     ]
     if (
         len(matches) != 1
+        or not _valid_device_index(matches[0].get("index"))
         or matches[0].get("index") != index
         or matches[0].get("name") != device_name
     ):
