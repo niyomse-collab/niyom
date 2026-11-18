@@ -158,6 +158,59 @@ def test_ncnn_selection_fails_closed_on_missing_or_ambiguous_inventory(mutate, m
         resolve_device_selection(gpu, anime_report())
 
 
+@pytest.mark.parametrize(
+    ("mutate_gpu", "mutate_anime", "message"),
+    [
+        (
+            lambda gpu: (
+                gpu["vulkan_device_inventory"][0].update(index=True),
+                gpu.update(vulkan_device_index=True),
+            ),
+            lambda anime: None,
+            "Vulkan",
+        ),
+        (
+            lambda gpu: (
+                gpu["vulkan_device_inventory"][0].update(index=1),
+                gpu.update(vulkan_device_index=True),
+            ),
+            lambda anime: None,
+            "Vulkan",
+        ),
+        (
+            lambda gpu: None,
+            lambda anime: anime["recommended_gpu_processor_device"].update(
+                device_index=True
+            ),
+            "Anime4KCPP recommended device selection",
+        ),
+    ],
+)
+def test_resolve_device_selection_rejects_boolean_indexes(
+    mutate_gpu, mutate_anime, message
+):
+    gpu = gpu_report()
+    anime = anime_report()
+    mutate_gpu(gpu)
+    mutate_anime(anime)
+    with pytest.raises(GPUDeviceBindingError, match=message):
+        resolve_device_selection(gpu, anime)
+
+
+@pytest.mark.parametrize(
+    ("engine_key", "message"),
+    [
+        ("ncnn_vulkan", "invalid NCNN Vulkan device index"),
+        ("anime4k", "invalid Anime4KCPP device index"),
+    ],
+)
+def test_bind_manifest_data_rejects_boolean_indexes(engine_key, message):
+    selection = resolve_device_selection(gpu_report(), anime_report())
+    selection[engine_key]["device_index"] = True
+    with pytest.raises(GPUDeviceBindingError, match=message):
+        bind_manifest_data(manifest_data(), selection)
+
+
 def test_rejects_non_nvidia_vendor_even_if_name_matches():
     gpu = gpu_report()
     gpu["vulkan_device_inventory"][0]["vendor_id"] = 0x8086
