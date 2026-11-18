@@ -670,3 +670,37 @@ def test_safe_error_summary_requires_explicit_vulkan_initialization_failure():
         loader_failure, missing_device, invalid_index,
         binding_failure, invalid_gpu_device,
     ))
+
+
+
+def test_safe_execution_record_preserves_wddm_only_gpu_attribution_for_shop_gate():
+    from tools.v211_shop_gpu_diagnostic import _runtime_device_evidence_verified
+
+    record = {
+        "runtime_device_use_verified": True,
+        "runtime_device_process_count": 2,
+        "runtime_device_verified_process_count": 2,
+        "runtime_device_all_processes_verified": True,
+        "runtime_device_sample_count": 5,
+        "runtime_device_probe_status": "verified",
+        "runtime_device_probe_conflict": False,
+        "runtime_device_nvml_memory_verified_process_count": 0,
+        "runtime_device_wddm_pdh_verified_process_count": 2,
+        "runtime_device_wddm_only_verified_process_count": 2,
+        "runtime_device_evidence_source": "windows_gpu_engine_pdh_dxgi_luid",
+        "runtime_gpu_engine_min_sample_count": 2,
+        "runtime_gpu_engine_min_active_sample_count": 1,
+        "runtime_gpu_engine_max_utilization_percent": 4.5,
+        "runtime_gpu_engine_adapter_luid_match": True,
+        "runtime_gpu_engine_adapter_luid": "0x00000000_0x0000e7f7",
+        "runtime_adapter_name": "NVIDIA GeForce GTX 1660 Ti",
+        "runtime_adapter_index": None,
+        "runtime_adapter_backend_apis": ["windows_gpu_engine_pdh"],
+        "private_local_path": "must-not-be-copied",
+    }
+
+    safe = runner._safe_execution_record(record)
+
+    assert safe["runtime_device_wddm_only_verified_process_count"] == 2
+    assert _runtime_device_evidence_verified(True, safe) is True
+    assert "private_local_path" not in safe
