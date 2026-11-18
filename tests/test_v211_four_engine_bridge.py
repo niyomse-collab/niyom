@@ -1426,3 +1426,118 @@ def test_large_bigtiff_end_to_end_tiled_fusion_fails_closed_without_real_adapter
     assert result["quality_certified"] is False
     assert digest(baseline) == accepted_v2_sha
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+
+@pytest.mark.parametrize(
+    ("target_size", "expected_seed"),
+    [
+        ((256, 256), (128, 128)),  # 4x source-to-print
+        ((512, 512), (256, 256)),  # 8x source-to-print, still one native 2x pass
+        ((256, 192), (128, 96)),   # anisotropic 4x by 3x
+    ],
+)
+def test_large_streamed_bridge_keeps_native_2x_geometry_for_custom_print_scales(
+    tmp_path, monkeypatch, target_size, expected_seed
+):
+    """Large jobs use a half-target seed; this is a bridge contract test, not GPU evidence."""
+    import shutil
+
+    source = tmp_path / "large-contract-source.png"
+    baseline = tmp_path / "large-contract-v2.png"
+    Image.new("RGB", (64, 64), (40, 80, 120)).save(source, dpi=(300, 300))
+    Image.new("RGB", target_size, (90, 100, 110)).save(baseline, dpi=(300, 300))
+    before = baseline.read_bytes()
+
+    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 1024)
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv(
+        "NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json")
+    )
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
+
+    def fake_prepare(source_path, v2_path, work_dir, *, resize_mode,
+                     cancel_check=None, progress_callback=None):
+        work_dir.mkdir(parents=True, exist_ok=True)
+        padded = (
+            target_size[0] + target_size[0] % 2,
+            target_size[1] + target_size[1] % 2,
+        )
+        seed_size = (padded[0] // 2, padded[1] // 2)
+        seed = work_dir / "native_2x_seed.png"
+        reference = work_dir / "v2_reference_native_2x.png"
+        with Image.open(source_path) as image:
+            image.resize(seed_size, Image.Resampling.LANCZOS).save(
+                seed, format="PNG", dpi=image.info.get("dpi")
+            )
+        with Image.open(v2_path) as image:
+            metadata = {
+                key: image.info[key]
+                for key in ("icc_profile", "dpi")
+                if key in image.info
+            }
+            image.save(reference, format="PNG", **metadata)
+        return seed, reference, target_size, padded, (64, 64), metadata
+
+    def fake_run(seed, output_dir, manifest, size, *, real_engines,
+                 v2_reference, **kwargs):
+        with Image.open(seed) as seed_image, Image.open(v2_reference) as v2_image:
+            assert seed_image.size == expected_seed
+            assert v2_image.size == tuple(size)
+            assert tuple(size) == (
+                target_size[0] + target_size[0] % 2,
+                target_size[1] + target_size[1] % 2,
+            )
+            fused = Path(output_dir) / "four_engine_fused_preview.png"
+            metadata = {
+                key: v2_image.info[key]
+                for key in ("icc_profile", "dpi")
+                if key in v2_image.info
+            }
+            v2_image.save(fused, format="PNG", **metadata)
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": 4,
+            "runtime_device_use_verified": True,
+            "per_engine_runtime_device_use_verified": {
+                name: True
+                for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
+            },
+            "failures": {},
+            "four_engine_fusion": {
+                "fusion_implemented": True,
+                "all_four_engine_pixels_contributed": True,
+                "output": str(fused),
+            },
+        }
+
+    def fake_crop(candidate, destination, *, target_size, padded_size,
+                  mode, metadata, cancel_check=None):
+        with Image.open(candidate) as image:
+            assert image.size == padded_size
+            assert image.mode == mode
+            image.crop((0, 0, target_size[0], target_size[1])).save(
+                destination, format="PNG", **metadata
+            )
+
+    from tools import v211_four_engine_run
+    monkeypatch.setattr(bridge, "prepare_native_2x_inputs_streamed", fake_prepare)
+    monkeypatch.setattr(bridge, "_save_cropped_png", fake_crop)
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
+
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+
+    assert result["status"] == "four_engine_fusion_preview_ready"
+    assert result["quality_certified"] is False
+    assert result["v2_output_preserved"] is True
+    assert result["four_engine_fusion_details"]["native_engine_scale"] == 2
+    assert result["four_engine_fusion_details"]["scale_policy"] == "native_2x_on_half_target_seed"
+    assert result["four_engine_fusion_details"]["engine_input_size"] == list(expected_seed)
+    assert result["four_engine_fusion_details"]["requested_output_size"] == list(target_size)
+    assert result["four_engine_fusion_details"]["requested_scale_from_source"] == [
+        round(target_size[0] / 64, 4), round(target_size[1] / 64, 4)
+    ]
+    assert baseline.read_bytes() == before
+    preview = Path(result["four_engine_fusion_output"])
+    assert preview.is_file() and ".V211-4AI-QA-" in preview.name
+    with Image.open(preview) as image:
+        assert image.size == target_size
+        assert image.info["dpi"][0] == pytest.approx(300, abs=0.1)
