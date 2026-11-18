@@ -19,6 +19,29 @@ ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
 
 
+def _rgb_png_compatible_icc(profile: object) -> bytes | None:
+    """Return a structurally valid RGB ICC only for an RGB/RGBA PNG raster.
+
+    A CMYK/Lab source profile cannot be attached to RGB sample values after
+    Pillow's mode conversion. Keep the source profile only when its ICC header
+    explicitly declares RGB; otherwise leave the RGB PNG untagged rather than
+    writing a misleading colour-space declaration.
+    """
+    if not isinstance(profile, (bytes, bytearray, memoryview)):
+        return None
+    data = bytes(profile)
+    if len(data) < 128:
+        return None
+    declared_size = int.from_bytes(data[0:4], "big")
+    if (
+        declared_size != len(data)
+        or data[16:20] != b"RGB "
+        or data[36:40] != b"acsp"
+    ):
+        return None
+    return data
+
+
 class NiyomSilpCoreAdapter:
     """Compatibility adapter for the NiyomSilp independently orchestrated PyTorch/CUDA core.
 
@@ -311,7 +334,7 @@ class NiyomSilpCoreAdapter:
             # space transform. Keep the source ICC bytes attached to the V2
             # raster so the durable PNG and the later four-engine QA path do
             # not silently become untagged RGB.
-            source_icc_profile = oriented.info.get("icc_profile")
+            source_icc_profile = _rgb_png_compatible_icc(oriented.info.get("icc_profile"))
             has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
             source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
 
