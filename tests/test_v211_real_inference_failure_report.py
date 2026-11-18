@@ -32,3 +32,19 @@ def test_failure_records_engine_and_never_claims_inference(tmp_path, monkeypatch
     assert set(report["failures"]) == set(qa.ENGINES)
     assert all(entry["error_type"] == "RuntimeError" for entry in report["failures"].values())
     assert report["engines"] == {}
+
+
+
+def test_safe_process_record_preserves_wddm_only_gpu_attribution_without_paths():
+    record = {
+        "runtime_device_wddm_pdh_verified_process_count": 2,
+        "runtime_device_wddm_only_verified_process_count": 2,
+        "runtime_device_evidence_source": "windows_gpu_engine_pdh_dxgi_luid",
+        "private_local_path": "must-not-be-copied",
+    }
+
+    safe = qa._safe_process_record(record)
+
+    assert safe["runtime_device_wddm_only_verified_process_count"] == 2
+    assert safe["runtime_device_evidence_source"] == "windows_gpu_engine_pdh_dxgi_luid"
+    assert "private_local_path" not in safe
