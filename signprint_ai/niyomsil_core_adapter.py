@@ -19,7 +19,7 @@ ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
 
 
-def _rgb_png_compatible_icc(profile: object) -> bytes | None:
+def _rgb_png_compatible_icc(profile: object, source_mode: str) -> bytes | None:
     """Return a structurally valid RGB ICC only for an RGB/RGBA PNG raster.
 
     A CMYK/Lab source profile cannot be attached to RGB sample values after
@@ -27,6 +27,8 @@ def _rgb_png_compatible_icc(profile: object) -> bytes | None:
     explicitly declares RGB; otherwise leave the RGB PNG untagged rather than
     writing a misleading colour-space declaration.
     """
+    if source_mode not in ("RGB", "RGBA", "P"):
+        return None
     if not isinstance(profile, (bytes, bytearray, memoryview)):
         return None
     data = bytes(profile)
@@ -334,7 +336,9 @@ class NiyomSilpCoreAdapter:
             # space transform. Keep the source ICC bytes attached to the V2
             # raster so the durable PNG and the later four-engine QA path do
             # not silently become untagged RGB.
-            source_icc_profile = _rgb_png_compatible_icc(oriented.info.get("icc_profile"))
+            source_icc_profile = _rgb_png_compatible_icc(
+                oriented.info.get("icc_profile"), oriented.mode
+            )
             has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
             source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
 
