@@ -35,8 +35,11 @@ MAX_STREAMED_PIXELS = 1_000_000_000
 MAX_STREAMED_ROW_BYTES = 64 * 1024 * 1024
 MAX_RGBA_VALIDATION_PIXELS = 18_000_000
 PNG_IDAT_CHUNK_BYTES = 1024 * 1024
-HALO = 8
+HALO = 12
 MAX_DETAIL_CHANGE = 6.0
+EDGE_HIGH_PASS_RADIUS = 1.0
+GRADIENT_GUARD_RADIUS = 3.0
+MIN_EDGE_TO_GRADIENT_RESPONSE = 0.40
 
 
 def _png_pixel_count_from_header(path: Path) -> int:
@@ -470,10 +473,12 @@ def _write_streamed_png(
         temporary.unlink(missing_ok=True)
 
 
-def _gray_highpass(region: Image.Image) -> np.ndarray:
+def _gray_highpass(
+    region: Image.Image, radius: float = EDGE_HIGH_PASS_RADIUS
+) -> np.ndarray:
     gray = region.convert("L")
     lum = np.asarray(gray, dtype=np.float32)
-    blurred = gray.filter(ImageFilter.GaussianBlur(radius=1.0))
+    blurred = gray.filter(ImageFilter.GaussianBlur(radius=radius))
     return lum - np.asarray(blurred, dtype=np.float32)
 
 
@@ -616,7 +621,14 @@ def fuse_four_engine_details(
                 base_rgb = np.asarray(base_region.convert("RGB"), dtype=np.float32)
                 center = (slice(y - yy, y - yy + h), slice(x - xx, x - xx + w))
                 base_c = base_rgb[center]
-                base_hp = _gray_highpass(base_region)[center]
+                base_hp = _gray_highpass(base_region, EDGE_HIGH_PASS_RADIUS)[center]
+                # A second, wider response identifies broad smooth curvature.
+                # Only scale-selective structure is treated as an existing edge;
+                # smooth ramps/S-curves remain V2-owned even if candidate models
+                # agree on added texture. HALO covers this wider filter at seams.
+                base_hp_wide = _gray_highpass(
+                    base_region, GRADIENT_GUARD_RADIUS
+                )[center]
                 # Preserve V2 RGB beneath transparent and antialiased cutout
                 # boundaries. Exact alpha alone is not enough: changing hidden
                 # RGB at partially transparent pixels can create fringes when
@@ -642,7 +654,14 @@ def fuse_four_engine_details(
                     consensus = (opinions >= 2) & (np.abs(core) >= 0.9)
                     # Preserve flat fills and smooth colour ramps: only edges
                     # already present in V2 can receive a controlled detail lift.
-                    edge_gate = consensus & (np.abs(base_hp) >= 2.5)
+                    edge_gate = (
+                        consensus
+                        & (np.abs(base_hp) >= 2.5)
+                        & (
+                            np.abs(base_hp)
+                            >= MIN_EDGE_TO_GRADIENT_RESPONSE * np.abs(base_hp_wide)
+                        )
+                    )
                     # Keep each model's exact weighted term so we can measure
                     # whether removing that model changes final RGB pixels.
                     terms = {
