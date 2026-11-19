@@ -159,3 +159,47 @@ def test_smooth_gradient_is_unchanged_while_consensus_edges_can_fuse(tmp_path):
     assert np.any(actual[8:, 6:10] != base[8:, 6:10])
     assert report["mean_abs_detail_delta"] > 0
     assert report["quality_certified"] is False
+
+def test_smooth_curved_gradient_is_unchanged_while_real_edges_can_fuse(tmp_path):
+    """A smooth S-curve must not be mistaken for a printable high-frequency edge."""
+    source = tmp_path / "curved-gradient-source.png"
+    baseline = tmp_path / "curved-gradient-v2.png"
+    source_pixels = np.full((8, 8, 3), 70, dtype=np.uint8)
+    base = np.empty((16, 16, 3), dtype=np.uint8)
+    ramp = (40 + 160 / (1 + np.exp(-(np.arange(16) - 8) / 1.0))).astype(np.uint8)
+    base[:8] = ramp[None, :, None]
+    base[8:, :8] = (70, 70, 70)
+    base[8:, 8:] = (170, 170, 170)
+    _save(source, source_pixels)
+    _save(baseline, base)
+
+    candidates = {}
+    for name, amount in (
+        ("real_esrgan", 9),
+        ("waifu2x", 7),
+        ("real_cugan", 8),
+        ("anime4k", 5),
+    ):
+        pixels = base.copy()
+        for x in range(4, 12):
+            sign = -1 if x % 2 else 1
+            pixels[2:5, x] = np.clip(
+                pixels[2:5, x].astype(np.int16) + sign * amount, 0, 255
+            ).astype(np.uint8)
+        # Keep a real, shared high-contrast contour as a positive control.
+        pixels[8:, 7] -= amount
+        pixels[8:, 8] += amount
+        path = tmp_path / f"{name}-curved-gradient.png"
+        _save(path, pixels)
+        candidates[name] = path
+
+    output = tmp_path / "curved-gradient-fused.png"
+    report = _fuse(source, baseline, candidates, output)
+    with Image.open(output) as result:
+        actual = np.asarray(result)
+    # The smooth nonlinear ramp is V2-owned even where all models add texture.
+    np.testing.assert_array_equal(actual[2:5, 3:13], base[2:5, 3:13])
+    # The positive-control contour remains eligible for bounded detail fusion.
+    assert np.any(actual[8:, 6:10] != base[8:, 6:10])
+    assert report["mean_abs_detail_delta"] > 0
+    assert report["quality_certified"] is False
