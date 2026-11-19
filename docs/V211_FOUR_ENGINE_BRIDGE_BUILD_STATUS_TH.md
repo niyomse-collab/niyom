@@ -917,3 +917,42 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - model_weights_and_license_certified=false and license_redistribution_approved=false remain hard-coded. The new checks do not authorize redistribution and do not certify bundled model weights. Any missing/untrusted/oversized license document makes the provenance workflow fail rather than silently reporting success.
 - Added offline regression tests for URL allowlisting, redirect rejection, size limit, UTF-8 validation, SHA256 recording, and all six license-source records without granting redistribution.
 - This commit changes only archive/license audit code, its tests, the corresponding workflow and this status document. It does not change inference, fusion, UI, installer payload, V1, V2 Stable, GFPGAN or model weights. Exact-head CI is pending; no shop GPU evidence was started.
+
+
+## 19 พฤศจิกายน 2569 16:58 ICT — Exact-head Candidate #970 / large-image disk-reserve verification
+
+### PR identity and scope
+- PR #20 branch: `work/v211-four-engine-v2-bridge-20261103`; exact code/test HEAD verified: `4726992a39ff1bd9b71ea636a04dbf9b678bb829`. The latest commit only adds the missing local `Path` import to the output-volume disk-guard regression test.
+- PR #18 remains the comparison/base at `288dd8501c230a118d9a7e60d2522a2cc7411bcc`. Compare to PR #20 reports **966 commits ahead / 0 behind / 77 changed paths**; this is commit ancestry, not 966 changed files.
+- No merge, rebase, reset, force-push or release was performed.
+
+### Windows Candidate #970 — exact HEAD success
+- [GitHub Actions #970](https://github.com/niyomse-collab/niyom/actions/runs/44443889725): **SUCCESS, 2/2 jobs** on exact source SHA `4726992a39ff1bd9b71ea636a04dbf9b678bb829`.
+- Bridge/Fusion/coordination: **416 passed**; privacy/provisioning/manifest/hash: **69 passed**; source compileall passed.
+- Frozen checks passed: V2 packaged imports; streamed single-page BigTIFF/libvips QA path; packaged four-engine provisioning `--check-only` without downloads; consented cache cleanup confined to the current profile; packaged diagnostic `--help`; PowerShell provenance verifier syntax; exact BUILD_PROOF/source SHA; installer-slice SHA256; experimental artifact upload.
+- Installer SHA256: `58747389b0fde4791229b4d5847b4737ee49cbd879f2f259a08bcf941eb27666`.
+- Artifact ID `14492943659`; size **2,584,761,859 bytes**; ZIP SHA256 `d1789de4c3c4ff8b4bab55aa342507834842d0bbfead0261d69fcbce37ce804e`; expires **26 พ.ย. 2569 09:44 ICT**. [Download Candidate #970](https://github.com/niyomse-collab/niyom/actions/runs/44443889725/artifacts/14492943659).
+- Non-fatal hosted-build warnings remain for driver-provided `nvcuda.dll`, optional Numba `tbb12.dll`, `pycparser.lextab/yacctab`, `scipy.special._cdflib` and Torch's optional `expecttest`. Do not bundle guessed driver/TBB DLLs; verify actual CUDA/NVML and optional Numba paths on the shop PC.
+
+### Independent Core #1579
+- [GitHub Actions #1579](https://github.com/niyomse-collab/niyom/actions/runs/44443889780): Windows **1,085 passed / 1 skipped**; Ubuntu **1,083 passed / 3 skipped**; compileall passed on both.
+
+### Official archive / source-license audit #296
+- [GitHub Actions #296](https://github.com/niyomse-collab/niyom/actions/runs/44443889730): archive audit **32 passed**, provisioning **11 passed**; all four official Windows archives were downloaded, SHA256-checked, safely audited and transactionally provisioned into ephemeral QA storage.
+- Archive SHA256: Real-ESRGAN v0.2.5.0 `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (**observed CI pin; no publisher digest**); Waifu2x 20250915 `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (**published digest**); Real-CUGAN 20220728 `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (**observed CI pin; no publisher digest**); Anime4KCPP v3.2.0 `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (**published digest**).
+- Six upstream source-license documents were retrieved and SHA256-hashed. `all_upstream_digests_pinned=false`, `model_weights_and_license_certified=false` and `license_redistribution_approved=false` remain intentional. No native binary, model weight or customer image is committed or bundled.
+
+### Native CLI Smoke #402 — diagnostic only, not 4/4 acceptance
+- [GitHub Actions #402](https://github.com/niyomse-collab/niyom/actions/runs/44443889732), JSON report artifact [14492122986](https://github.com/niyomse-collab/niyom/actions/runs/44443889732/artifacts/14492122986): **23 diagnostic tests passed**. On synthetic RGB and RGBA/ICC/300-DPI inputs, Real-CUGAN and Anime4KCPP produced validated 2x outputs; Real-ESRGAN was blocked by hosted-runner `vkCreateInstance failed -9`; Waifu2x was blocked by the same Vulkan initialization failure plus `0xC0000005`.
+- `completed_engine_count=2`, `physical_adapter_verification=0/4`, `runtime_vram_budget_passed=false`, `real_inference_verified=false` and `quality_improvement_verified=false`. Workflow SUCCESS classifies known hosted-runner Vulkan limits; it is not a native GPU 4/4 or quality pass and does not replace the owner's Windows 11 GTX 1660 Ti test.
+
+### Large-image, scale and memory policy
+- Disk-backed native inference starts above **18 MP**. The disk-reserve guard now checks the nearest existing directory on the actual output/work volume and reserves remaining candidate rasters, already-completed candidate bytes, fusion raster and temporary streamed-PNG space before launching the next engine. Regression coverage includes missing output parents and a shrinking free-space scenario.
+- Native tiles remain **512 px with 32 px overlap**; overlap disagreement is checked before stitching. RGBA alpha comes from accepted V2, and cancellation/failure keeps the V2 raster unchanged.
+- The auxiliary large-image path accepts PNG or single-page 8-bit RGB/RGBA TIFF/BigTIFF, converted to private PNG seed/reference files. JPEG/WebP, multipage TIFF, CMYK and unsupported bit depths remain V2-only.
+- Scale policy is **one native 2x pass on a half-target seed**. A requested final 4x/other target is prepared by resizing the original to half the target before the native pass; native 4x/8x multi-pass is not implemented or certified. The 6,144 MiB device-wide budget and 512 MiB reserve are enforced by the production guard, but peak VRAM on the shop GTX 1660 Ti has not been measured.
+
+### V2 / GFPGAN and shop acceptance
+- Protected files compared by Git Blob SHA between PR #18 base and exact PR #20 HEAD remain byte-identical **6/6**: `.github/workflows/verify-v211-face.yml`, `signprint_ai/face_module/face_protection.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`, and `tests/test_v211_large_face_audit.py`. The core adapter integration is additive and includes a regression proving that an applied GFPGAN result with unmapped face ROIs forces V2-only output.
+- No affirmative exact-head shop-GPU consent marker was supplied; no self-hosted shop runner was started. Native GPU 4/4 on the shop PC, peak VRAM stress, real-image A/B across faces/animals/objects/Thai-English-Chinese text/flat fills/gradients/transparent edges, Photoshop/MainTop and physical print acceptance remain **NOT CERTIFIED**.
+- PR #20 and PR #18 remain OPEN / DRAFT / UNMERGED. V2 remains the accepted master. No V1/V2 Stable changes, merge, release, customer images or native binaries/weights committed; no quality-superiority claim.
