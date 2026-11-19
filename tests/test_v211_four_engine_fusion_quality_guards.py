@@ -166,7 +166,7 @@ def test_smooth_curved_gradient_is_unchanged_while_real_edges_can_fuse(tmp_path)
     baseline = tmp_path / "curved-gradient-v2.png"
     source_pixels = np.full((8, 8, 3), 70, dtype=np.uint8)
     base = np.empty((16, 16, 3), dtype=np.uint8)
-    ramp = (40 + 160 / (1 + np.exp(-(np.arange(16) - 8) / 1.0))).astype(np.uint8)
+    ramp = (40 + 160 / (1 + np.exp(-(np.arange(16) - 8) / 1.5))).astype(np.uint8)
     base[:8] = ramp[None, :, None]
     base[8:, :8] = (70, 70, 70)
     base[8:, 8:] = (170, 170, 170)
