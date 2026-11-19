@@ -1,8 +1,9 @@
 """Disk-backed seed preparation and QA cropping for large four-engine jobs.
 
-This helper is research-only. It prepares the exact 2x native input from the
-already accepted V2 canvas using libvips regions/streaming, and writes a
-separate cropped QA PNG without decoding a large customer raster in Pillow.
+This helper is research-only. It streams RGB/RGBA PNG, JPEG, WebP and
+single-page TIFF/BigTIFF inputs through libvips, prepares the exact 2x native
+seed from the accepted V2 canvas, and writes a separate cropped QA PNG without
+decoding a large customer raster in Pillow.
 """
 from __future__ import annotations
 

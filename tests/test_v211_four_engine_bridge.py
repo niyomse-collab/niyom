@@ -702,31 +702,75 @@ def test_large_four_engine_seed_and_qa_crop_use_disk_backed_vips_without_full_pi
 
 @pytest.mark.parametrize(
     ("source_ext", "target_ext"),
-    [(".jpg", ".png"), (".png", ".jpg")],
+    [(".jpg", ".png"), (".webp", ".png"), (".png", ".jpg")],
 )
-def test_large_bridge_rejects_jpeg_source_or_v2_before_gpu(
+def test_large_bridge_streams_jpeg_webp_source_and_jpeg_v2_before_gpu(
     tmp_path, monkeypatch, source_ext, target_ext
 ):
-    """Large JPEG auxiliary jobs remain V2-only; no GPU work may start."""
+    """JPEG/WebP source and JPEG V2 use disk-backed libvips intermediates."""
+    pytest.importorskip("pyvips")
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
     source = tmp_path / ("large-source" + source_ext)
     baseline = tmp_path / ("accepted-v2" + target_ext)
-    Image.new("RGB", (128, 128), (40, 80, 120)).save(source)
-    Image.new("RGB", (256, 256), (40, 80, 120)).save(baseline)
+
+    source_options = {"icc_profile": profile}
+    if source_ext in (".jpg", ".jpeg"):
+        source_options.update({"quality": 95, "dpi": (300, 300)})
+    elif source_ext == ".webp":
+        source_options.update({"lossless": True})
+    else:
+        source_options.update({"dpi": (300, 300)})
+    Image.new("RGB", (128, 128), (40, 80, 120)).save(source, **source_options)
+
+    target_options = {"icc_profile": profile, "dpi": (300, 300)}
+    if target_ext in (".jpg", ".jpeg"):
+        target_options["quality"] = 95
+    Image.new("RGB", (256, 256), (40, 80, 120)).save(baseline, **target_options)
     before = baseline.read_bytes()
+
     monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
     monkeypatch.setenv(
         "NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json")
     )
     monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 1024)
 
-    def forbidden(*_args, **_kwargs):
-        pytest.fail("large JPEG jobs must fail before GPU binding or native launch")
+    prepared = []
+    original_prepare = bridge.prepare_native_2x_inputs_streamed
 
-    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", forbidden)
+    def capture_prepare(*args, **kwargs):
+        result = original_prepare(*args, **kwargs)
+        seed, reference, target, padded, source_size, metadata = result
+        with Image.open(seed) as seed_image, Image.open(reference) as reference_image:
+            prepared.append({
+                "seed_size": seed_image.size,
+                "reference_size": reference_image.size,
+                "icc_profile": reference_image.info.get("icc_profile"),
+                "dpi": reference_image.info.get("dpi"),
+                "target": target,
+                "padded": padded,
+                "source_size": source_size,
+                "metadata": metadata,
+            })
+        return result
+
+    monkeypatch.setattr(bridge, "prepare_native_2x_inputs_streamed", capture_prepare)
+
+    def stop_before_native(*_args, **_kwargs):
+        raise bridge.GPUDeviceBindingError("synthetic test stop before native launch")
+
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", stop_before_native)
     result = bridge.maybe_run_four_engine_assist(source, baseline)
-    assert result["status"] == "unsupported_target_geometry"
-    assert result["reason"] == "large_auxiliary_jobs_require_png_or_single_page_tiff_source_and_v2"
+
+    assert result["status"] == "gpu_binding_unverified"
     assert result["v2_output_preserved"] is True
+    assert len(prepared) == 1
+    assert prepared[0]["seed_size"] == (128, 128)
+    assert prepared[0]["reference_size"] == (256, 256)
+    assert prepared[0]["target"] == (256, 256)
+    assert prepared[0]["padded"] == (256, 256)
+    assert prepared[0]["source_size"] == (128, 128)
+    assert prepared[0]["icc_profile"] == profile
+    assert prepared[0]["dpi"][0] == pytest.approx(300, abs=0.1)
     assert baseline.read_bytes() == before
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
 

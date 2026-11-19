@@ -13,9 +13,10 @@ to the half-target seed. Therefore the original source-to-print geometry may
 be 2x, 3x, 4x, 8x, custom, or anisotropic without changing the native 2x pass.
 These are not native 3x/4x/8x inference or multi-pass AI.
 
-Jobs above 18 MP use disk-backed PNG or single-page RGB/RGBA 8-bit TIFF/BigTIFF
-inputs and accepted V2 rasters, converted to private PNG seed/reference files by
-libvips; JPEG/WebP and multipage/CMYK/unsupported-depth jobs remain V2-only.
+Jobs above 18 MP use disk-backed RGB/RGBA 8-bit PNG/JPEG/WebP or single-page
+TIFF/BigTIFF source inputs and accepted V2 PNG/JPEG/TIFF rasters, converted to
+private PNG seed/reference files by libvips. Multipage TIFF, CMYK and unsupported
+depths remain V2-only.
 Small jobs require a seed of at least 2x2 and disk-backed large jobs
 require at least 64x64. Every candidate remains local QA only, requires all
 four native processes to be verified on the selected GPU before publication,
@@ -120,7 +121,8 @@ AUXILIARY_MAX_PIXELS = 18_000_000
 _AUXILIARY_MAX_PIXELS = AUXILIARY_MAX_PIXELS
 _SOURCE_FORMATS = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}
 _V2_RASTER_FORMATS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
-_LARGE_STREAMED_FORMATS = {".png", ".tif", ".tiff"}
+_LARGE_STREAMED_SOURCE_FORMATS = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"}
+_LARGE_STREAMED_V2_FORMATS = {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 
 def _metadata(image: Image.Image) -> dict:
@@ -425,17 +427,17 @@ def maybe_run_four_engine_assist(
             }
         # The native model always receives a seed made from half of the
         # accepted V2 canvas, so the native inference geometry is exactly 2x
-        # regardless of the original source-to-print ratio. The streamed path
-        # accepts PNG or single-page RGB/RGBA 8-bit TIFF/BigTIFF containers;
-        # libvips converts them to private PNG seed/reference intermediates.
-        # JPEG/WebP, multipage TIFF, CMYK and unsupported bit depths remain V2-only.
+        # regardless of the original source-to-print ratio. libvips streams
+        # RGB/RGBA PNG, JPEG and WebP sources plus single-page TIFF/BigTIFF;
+        # accepted V2 PNG/JPEG/TIFF rasters become private PNG intermediates.
+        # CMYK, multipage TIFF and unsupported bit depths remain V2-only.
         if large_job and (
-            original.suffix.lower() not in _LARGE_STREAMED_FORMATS
-            or baseline.suffix.lower() not in _LARGE_STREAMED_FORMATS
+            original.suffix.lower() not in _LARGE_STREAMED_SOURCE_FORMATS
+            or baseline.suffix.lower() not in _LARGE_STREAMED_V2_FORMATS
         ):
             return {
                 "status": "unsupported_target_geometry",
-                "reason": "large_auxiliary_jobs_require_png_or_single_page_tiff_source_and_v2",
+                "reason": "large_auxiliary_jobs_require_supported_rgb_rgba_source_and_png_jpeg_tiff_v2",
                 "v2_output_preserved": True,
                 "quality_certified": False,
             }
