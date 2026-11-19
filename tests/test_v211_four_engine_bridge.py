@@ -1689,3 +1689,41 @@ def test_large_streamed_bridge_keeps_native_2x_geometry_for_custom_print_scales(
     with Image.open(preview) as image:
         assert image.size == target_size
         assert image.info["dpi"][0] == pytest.approx(300, abs=0.1)
+
+@pytest.mark.parametrize("extension", [".jpg", ".webp"])
+def test_jpeg_webp_exif_orientation_is_header_only_without_full_decode(
+    tmp_path, monkeypatch, extension
+):
+    """Large JPEG/WebP orientation is read from container metadata, not pixels."""
+    from signprint_ai.v211_large_image_bridge import inspect_image
+
+    source = tmp_path / ("oriented" + extension)
+    exif = Image.Exif()
+    exif[274] = 6  # Rotate 90 degrees clockwise when applying EXIF orientation.
+    image = Image.new("RGB", (64, 32), (40, 80, 120))
+    try:
+        if extension == ".jpg":
+            image.save(source, format="JPEG", quality=95, exif=exif.tobytes())
+        else:
+            image.save(source, format="WEBP", lossless=True, exif=exif.tobytes())
+    except (KeyError, OSError) as exc:
+        pytest.skip(f"this Pillow build does not support {extension}: {exc}")
+    finally:
+        image.close()
+
+    # Confirm the test file really contains the orientation tag before
+    # forbidding every full raster decode through Pillow.
+    with Image.open(source) as check:
+        assert check.getexif().get(274) == 6
+
+    def reject_pixel_decode(_image, *args, **kwargs):
+        raise AssertionError("large JPEG/WebP EXIF preflight must not decode pixels")
+
+    monkeypatch.setattr(ImageFile.ImageFile, "load", reject_pixel_decode)
+    size, mode, _metadata = inspect_image(source, orient=True)
+    assert size == (32, 64)
+    assert mode == "RGB"
+    raw_size, raw_mode, _raw_metadata = inspect_image(source, orient=False)
+    assert raw_size == (64, 32)
+    assert raw_mode == "RGB"
+
