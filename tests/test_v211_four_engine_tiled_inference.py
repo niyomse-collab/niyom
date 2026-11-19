@@ -374,6 +374,7 @@ def test_streamed_rgba_seed_bleeds_only_fully_transparent_hidden_rgb(tmp_path):
 def test_tiled_runner_checks_nearest_existing_output_ancestor_for_disk_space(
     tmp_path, monkeypatch
 ):
+    from pathlib import Path
     from types import SimpleNamespace
     import tools.v211_four_engine_tiled_inference as tiled
 
