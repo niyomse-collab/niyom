@@ -203,3 +203,65 @@ def test_smooth_curved_gradient_is_unchanged_while_real_edges_can_fuse(tmp_path)
     assert np.any(actual[8:, 6:10] != base[8:, 6:10])
     assert report["mean_abs_detail_delta"] > 0
     assert report["quality_certified"] is False
+
+
+def test_thin_antialiased_sign_strokes_and_small_marks_remain_fusible(tmp_path):
+    """Tiny diacritic-like marks and fine cross-strokes stay eligible without touching flat fill."""
+    source = tmp_path / "fine-sign-source.png"
+    baseline = tmp_path / "fine-sign-v2.png"
+    source_pixels = np.full((64, 64, 3), 240, dtype=np.uint8)
+    base = np.full((128, 128, 3), 240, dtype=np.uint8)
+
+    # Small upper marks, similar in scale to Thai tone marks and vowel marks.
+    base[18, 54:65] = (85, 85, 85)
+    base[17, 56:63] = (165, 165, 165)
+    base[19, 56:63] = (165, 165, 165)
+    base[15:19, 54] = (85, 85, 85)
+    base[15:19, 53] = (165, 165, 165)
+
+    # A thin main stem and crossbar with antialiased side pixels.
+    base[32:108, 60] = (70, 70, 70)
+    base[32:108, 59] = (150, 150, 150)
+    base[32:108, 61] = (150, 150, 150)
+    base[58, 38:83] = (75, 75, 75)
+    base[57, 38:83] = (155, 155, 155)
+    base[59, 38:83] = (155, 155, 155)
+
+    # A compact cross and diagonal strokes, representing small dense glyph detail.
+    base[36:51, 92] = (85, 85, 85)
+    base[43, 86:100] = (85, 85, 85)
+    for offset in range(12):
+        base[70 + offset, 88 + offset] = (85, 85, 85)
+        base[70 + offset, 87 + offset] = (160, 160, 160)
+
+    _save(source, source_pixels)
+    _save(baseline, base)
+
+    candidates = {}
+    for name, amount in (
+        ("real_esrgan", 10),
+        ("waifu2x", 8),
+        ("real_cugan", 9),
+        ("anime4k", 5),
+    ):
+        pixels = base.astype(np.int16)
+        pixels[base <= 100] -= amount
+        pixels[(base > 100) & (base < 230)] += amount
+        path = tmp_path / (name + "-fine-sign.png")
+        _save(path, np.clip(pixels, 0, 255).astype(np.uint8))
+        candidates[name] = path
+
+    output = tmp_path / "fine-sign-fused.png"
+    report = _fuse(source, baseline, candidates, output)
+    with Image.open(output) as result:
+        actual = np.asarray(result)
+
+    assert report["quality_certified"] is False
+    assert all(report["engine_pixel_effect_verified"].values())
+    assert np.any(actual[14:21, 52:67] != base[14:21, 52:67])
+    assert np.any(actual[32:60, 58:63] != base[32:60, 58:63])
+    assert np.any(actual[34:52, 84:102] != base[34:52, 84:102])
+    antialiased = (base > 100) & (base < 230)
+    assert np.any(actual[antialiased] != base[antialiased])
+    np.testing.assert_array_equal(actual[:12, :12], base[:12, :12])
+    assert int(np.abs(actual.astype(np.int16) - base.astype(np.int16)).max()) <= 6
