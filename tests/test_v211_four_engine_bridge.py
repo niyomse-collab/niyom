@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PIL import Image, ImageCms, PngImagePlugin
+from PIL import Image, ImageCms, ImageFile, PngImagePlugin
 
 from signprint_ai import v211_four_engine_bridge as bridge
 from tools.v211_gpu_device_binding import GPUDeviceBindingError
@@ -921,7 +921,8 @@ def test_large_bridge_streams_real_over_18mp_rasters_without_pillow_decode(
 
     monkeypatch.setattr(bridge, "prepare_native_2x_inputs_streamed", capture_prepare)
 
-    original_load = Image.Image.load
+    original_file_load = ImageFile.ImageFile.load
+    original_png_load = PngImagePlugin.PngImageFile.load
     forbidden_sizes = {size, (size[0] + 1, size[1] + 1)}
 
     def reject_full_customer_raster_decode(image, *args, **kwargs):
@@ -929,9 +930,21 @@ def test_large_bridge_streams_real_over_18mp_rasters_without_pillow_decode(
             raise AssertionError(
                 "over-18MP bridge inputs/reference must remain disk-backed in libvips"
             )
-        return original_load(image, *args, **kwargs)
+        return original_file_load(image, *args, **kwargs)
 
-    monkeypatch.setattr(Image.Image, "load", reject_full_customer_raster_decode)
+    def reject_full_png_raster_decode(image, *args, **kwargs):
+        if image.size in forbidden_sizes:
+            raise AssertionError(
+                "over-18MP PNG source/reference must remain disk-backed in libvips"
+            )
+        return original_png_load(image, *args, **kwargs)
+
+    monkeypatch.setattr(
+        ImageFile.ImageFile, "load", reject_full_customer_raster_decode
+    )
+    monkeypatch.setattr(
+        PngImagePlugin.PngImageFile, "load", reject_full_png_raster_decode
+    )
 
     def stop_before_native(*_args, **_kwargs):
         raise bridge.GPUDeviceBindingError(
