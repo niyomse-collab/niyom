@@ -114,3 +114,48 @@ def test_anime4k_cannot_create_consensus_without_primary_engines(tmp_path):
     assert report["all_four_engine_pixels_contributed"] is False
     assert not any(report["engine_pixel_effect_verified"].values())
     assert all(report["engine_pixel_effect_pixels"][name] == 0 for name in ENGINES)
+
+
+
+def test_smooth_gradient_is_unchanged_while_consensus_edges_can_fuse(tmp_path):
+    """High-frequency candidate noise must not be painted onto a smooth ramp."""
+    source = tmp_path / "gradient-source.png"
+    baseline = tmp_path / "gradient-v2.png"
+    source_pixels = np.full((8, 8, 3), 70, dtype=np.uint8)
+    base = np.empty((16, 16, 3), dtype=np.uint8)
+    ramp = np.array([40 + 5 * x for x in range(16)], dtype=np.uint8)
+    base[:8] = ramp[None, :, None]
+    base[8:, :8] = (70, 70, 70)
+    base[8:, 8:] = (170, 170, 170)
+    _save(source, source_pixels)
+    _save(baseline, base)
+
+    candidates = {}
+    for name, amount in (
+        ("real_esrgan", 9),
+        ("waifu2x", 7),
+        ("real_cugan", 8),
+        ("anime4k", 5),
+    ):
+        pixels = base.copy()
+        # Candidate texture is deliberately introduced inside the smooth ramp.
+        for x in range(4, 12):
+            sign = -1 if x % 2 else 1
+            pixels[2:5, x] = np.clip(
+                pixels[2:5, x].astype(np.int16) + sign * amount, 0, 255
+            ).astype(np.uint8)
+        # The same models agree on a genuine high-contrast contour below.
+        pixels[8:, 7] -= amount
+        pixels[8:, 8] += amount
+        path = tmp_path / f"{name}-gradient.png"
+        _save(path, pixels)
+        candidates[name] = path
+
+    output = tmp_path / "gradient-fused.png"
+    report = _fuse(source, baseline, candidates, output)
+    with Image.open(output) as result:
+        actual = np.asarray(result)
+    np.testing.assert_array_equal(actual[2:5, 3:13], base[2:5, 3:13])
+    assert np.any(actual[8:, 6:10] != base[8:, 6:10])
+    assert report["mean_abs_detail_delta"] > 0
+    assert report["quality_certified"] is False
