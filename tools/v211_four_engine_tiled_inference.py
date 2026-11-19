@@ -298,7 +298,27 @@ def run_tiled_candidates(
     if row_bytes > MAX_STREAMED_ROW_BYTES:
         raise RuntimeError("native tile target row exceeds the safe streaming buffer limit")
     raw_bytes = row_bytes * height
-    disk_root = output_dir.parent if output_dir.parent.exists() else Path.cwd()
+def _nearest_existing_directory(path: Path) -> Path:
+    """Find the nearest existing directory on the output volume for disk preflight."""
+    candidate = Path(path).expanduser()
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    candidate = candidate.absolute()
+    while not candidate.exists():
+        parent = candidate.parent
+        if parent == candidate:
+            break
+        candidate = parent
+    if candidate.exists() and not candidate.is_dir():
+        candidate = candidate.parent
+    if not candidate.is_dir():
+        raise DiskReserveError(
+            "cannot identify an existing directory for disk-space preflight"
+        )
+    return candidate
+
+
+    disk_root = _nearest_existing_directory(output_dir.parent)
     # Reserve worst-case uncompressed space for all four candidate PNGs plus
     # the disk-backed fusion raster and its atomic streamed-PNG temporary.
     # PNG compression is not a safe capacity estimate for customer artwork.

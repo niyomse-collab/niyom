@@ -369,3 +369,38 @@ def test_streamed_rgba_seed_bleeds_only_fully_transparent_hidden_rgb(tmp_path):
             seed_path.unlink(missing_ok=True)
         if reference_path is not None:
             reference_path.unlink(missing_ok=True)
+
+
+def test_tiled_runner_checks_nearest_existing_output_ancestor_for_disk_space(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    import tools.v211_four_engine_tiled_inference as tiled
+
+    source = tmp_path / "source.png"
+    Image.new("RGB", (64, 64), (20, 40, 60)).save(source)
+    v2 = tmp_path / "v2.png"
+    Image.new("RGB", (128, 128), (20, 40, 60)).save(v2)
+
+    # The output's immediate parent does not exist yet. Disk capacity must be
+    # queried on the nearest existing ancestor on that same destination volume,
+    # never on an unrelated process working directory.
+    output_volume = tmp_path / "output-volume"
+    output_volume.mkdir()
+    output = output_volume / "not-created-yet" / "four-engine-output"
+    observed_paths = []
+
+    def disk_usage(path):
+        observed_paths.append(Path(path))
+        return SimpleNamespace(free=0)
+
+    monkeypatch.setattr(tiled.shutil, "disk_usage", disk_usage)
+    with pytest.raises(RuntimeError, match="four native candidates and fusion workspace"):
+        run_tiled_candidates(
+            source, v2, output, (128, 128), _processors(),
+            tile_size=64, overlap=8,
+        )
+
+    assert observed_paths == [output_volume]
+    assert not output.exists()
+
