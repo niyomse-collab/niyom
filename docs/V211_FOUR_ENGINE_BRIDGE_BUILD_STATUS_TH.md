@@ -956,3 +956,39 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - Protected files compared by Git Blob SHA between PR #18 base and exact PR #20 HEAD remain byte-identical **6/6**: `.github/workflows/verify-v211-face.yml`, `signprint_ai/face_module/face_protection.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`, and `tests/test_v211_large_face_audit.py`. The core adapter integration is additive and includes a regression proving that an applied GFPGAN result with unmapped face ROIs forces V2-only output.
 - No affirmative exact-head shop-GPU consent marker was supplied; no self-hosted shop runner was started. Native GPU 4/4 on the shop PC, peak VRAM stress, real-image A/B across faces/animals/objects/Thai-English-Chinese text/flat fills/gradients/transparent edges, Photoshop/MainTop and physical print acceptance remain **NOT CERTIFIED**.
 - PR #20 and PR #18 remain OPEN / DRAFT / UNMERGED. V2 remains the accepted master. No V1/V2 Stable changes, merge, release, customer images or native binaries/weights committed; no quality-superiority claim.
+
+
+## 19 พฤศจิกายน 2569 17:44 ICT — Exact PR HEAD Candidate #971 / CI refresh
+
+### PR identity and source scope
+- PR #20 remains **OPEN / DRAFT / UNMERGED**, base `feature/v2.1.1-super-ai` at `288dd8501c230a118d9a7e60d2522a2cc7411bcc`; head branch `work/v211-four-engine-v2-bridge-20261103`, exact PR HEAD `98955b1685eaf51228e32cb3e388cc174ea6be6a`.
+- Compare against the PR #18 base reports **967 commits ahead / 0 behind / 77 changed paths**. This is commit ancestry, not a changed-file count.
+- Compare from the previously tested code/test HEAD `4726992a39ff1bd9b71ea636a04dbf9b678bb829` to the current PR HEAD shows exactly **one changed file**: this status document, **39 additions / 0 deletions**. No production source, tests, workflow, spec or installer input changed after Candidate #970's code/test source.
+- PR #18 remains **OPEN / DRAFT / UNMERGED** at base SHA `288dd8501c230a118d9a7e60d2522a2cc7411bcc`. No merge, rebase, reset, force-push or release was performed.
+
+### Windows Candidate #971 — exact PR HEAD success
+- [GitHub Actions #971](https://github.com/niyomse-collab/niyom/actions/runs/44502080756): **SUCCESS, 2/2 jobs** on exact PR HEAD `98955b1685eaf51228e32cb3e388cc174ea6be6a`.
+- Bridge/Fusion/coordination: **416 passed**; privacy/provisioning/manifest/hash: **69 passed**.
+- Frozen candidate checks passed: source syntax; V2 packaged imports; streamed single-page BigTIFF/libvips QA dispatch; packaged four-engine provisioning `--check-only` without downloads; consented model-cache cleanup confined to isolated synthetic/current-profile data; packaged diagnostic `--help`; read-only shop-runner diagnostic parsing; provenance verifier syntax; BUILD_PROOF exact source SHA; every installer slice SHA256; and experimental artifact upload. The workflow did not publish a Release.
+- Installer SHA256: `9f6f096029324d5d55900c7b127f76cafa5c8664d4a2f950376f86a872dbb63d`.
+- Artifact ID `14519388206`; size **2,584,705,201 bytes**; artifact ZIP SHA256 `e6a509642aa2a5f8bf9ddd60b772c13efd3825d8301bace20d53224fb9873fa0`; expires **26 พ.ย. 2569 17:28:59 ICT**. [Download Candidate #971](https://github.com/niyomse-collab/niyom/actions/runs/44502080756/artifacts/14519388206).
+- Non-fatal hosted-runner packaging warnings: driver-provided `nvcuda.dll` unavailable; optional Numba `tbb12.dll`, PyInstaller hidden imports `pycparser.lextab/yacctab` and `scipy.special._cdflib` unavailable; Torch optional `expecttest` and Triton warnings. Do not guess or bundle NVIDIA driver/TBB DLLs. Runtime relevance must be checked on the shop PC.
+
+### Independent Core #1581
+- [GitHub Actions #1581](https://github.com/niyomse-collab/niyom/actions/runs/44502080772): Windows **1,085 passed / 1 skipped**; Ubuntu **1,083 passed / 3 skipped**. Pytest and `compileall` completed successfully on both platforms.
+
+### Official Archive / source-license Audit #297
+- [GitHub Actions #297](https://github.com/niyomse-collab/niyom/actions/runs/44502080791): archive audit **32 passed**; provisioning **11 passed**. All four official Windows archives were downloaded, hash-checked, safely audited and transactionally provisioned into ephemeral QA storage. Six upstream source-license documents were retrieved and SHA256-hashed.
+- Archive SHA256 values are unchanged from #296: Real-ESRGAN v0.2.5.0 `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (**observed CI pin; no publisher digest**); Waifu2x 20250915 `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (**published digest**); Real-CUGAN 20220728 `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (**observed CI pin; no publisher digest**); Anime4KCPP v3.2.0 `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (**published digest**).
+- `all_provenance_checks_passed=true` for archive/source audit and provisioning, but `license_redistribution_approved=false`, `model_weights_and_license_certified=false` and `real_inference_verified=false` remain intentional. Source-license retrieval does not grant model-weight redistribution rights. No native binaries, model weights or customer images were committed or bundled.
+
+### Native CLI Smoke #403 — diagnostic only, not four-engine acceptance
+- [GitHub Actions #403](https://github.com/niyomse-collab/niyom/actions/runs/44502080797), JSON report artifact [14517287780](https://github.com/niyomse-collab/niyom/actions/runs/44502080797/artifacts/14517287780): **23 diagnostic tests passed** on synthetic RGB and synthetic RGBA with embedded ICC / 300 DPI.
+- Real-CUGAN and Anime4KCPP each started and exited 0, producing validated 2x outputs; alpha, ICC and DPI checks passed for these outputs. This is native CLI execution on a hosted runner, but physical GPU adapter use was not verified.
+- Real-ESRGAN was blocked by hosted-runner `vkCreateInstance failed -9`; Waifu2x had the same Vulkan initialization failure plus `0xC0000005`. `completed_engine_count=2`; physical adapter verification **0/4**; `runtime_vram_guard_enabled=false`; `runtime_vram_budget_verified=false`; `real_inference_verified=false`; `quality_improvement_verified=false`. Workflow SUCCESS means the known Vulkan-host limitation was classified, not that four-engine GPU inference passed. This does not negate the owner's earlier Windows 11 GTX 1660 Ti tests, and it is not a substitute for shop evidence.
+
+### PR #18 / V2 / GFPGAN protection
+- Direct Git Blob SHA comparison between PR #18 base and exact PR #20 HEAD confirms **6/6 byte-identical**: `.github/workflows/verify-v211-face.yml`, `signprint_ai/face_module/face_protection.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`, and `tests/test_v211_large_face_audit.py`.
+- The additive bridge still fails closed to V2 when applied GFPGAN output cannot be mapped to protected face ROIs. PR #20's optional HAT Assist execution route remains a separate compatibility difference from PR #18 and has not been silently restored.
+- No exact-head affirmative shop-GPU consent evidence exists, so no self-hosted shop runner was started. Shop installation/uninstallation, real four-engine inference on GTX 1660 Ti, per-process adapter binding, peak VRAM / 6 GB stress, cancellation under native load, real-image A/B, Photoshop/MainTop and physical print acceptance remain **NOT CERTIFIED**.
+- V2 remains the accepted master. PR #20 and PR #18 remain Draft/unmerged. No V1/V2 Stable changes, merge, release, customer images or native binaries/weights committed; no claim of quality superiority over V2.
