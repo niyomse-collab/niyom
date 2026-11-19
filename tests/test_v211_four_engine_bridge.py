@@ -865,6 +865,97 @@ def test_large_single_page_tiff_and_bigtiff_use_streamed_png_intermediates(
         assert preview.info.get("dpi")[0] == pytest.approx(300, abs=0.1)
 
 
+
+@pytest.mark.parametrize(
+    ("source_ext", "target_ext"),
+    [(".jpg", ".png"), (".webp", ".png"), (".png", ".jpg")],
+)
+def test_large_bridge_streams_real_over_18mp_rasters_without_pillow_decode(
+    tmp_path, monkeypatch, source_ext, target_ext
+):
+    """Real >18 MP JPEG/WebP/PNG inputs use libvips, not full Pillow decoding."""
+    pytest.importorskip("pyvips")
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    size = (4501, 4001)  # 18,008,501 pixels: strictly above the bridge threshold.
+    source = tmp_path / ("large-source" + source_ext)
+    baseline = tmp_path / ("accepted-v2" + target_ext)
+
+    source_options = {"icc_profile": profile}
+    if source_ext in (".jpg", ".jpeg"):
+        source_options.update({"quality": 95, "dpi": (300, 300)})
+    elif source_ext == ".webp":
+        source_options.update({"lossless": True})
+    else:
+        source_options.update({"dpi": (300, 300)})
+    Image.new("RGB", size, (40, 80, 120)).save(source, **source_options)
+
+    target_options = {"icc_profile": profile, "dpi": (300, 300)}
+    if target_ext in (".jpg", ".jpeg"):
+        target_options["quality"] = 95
+    Image.new("RGB", size, (40, 80, 120)).save(baseline, **target_options)
+    before = baseline.read_bytes()
+
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv(
+        "NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json")
+    )
+
+    prepared = []
+    original_prepare = bridge.prepare_native_2x_inputs_streamed
+
+    def capture_prepare(*args, **kwargs):
+        result = original_prepare(*args, **kwargs)
+        seed, reference, target, padded, source_size, metadata = result
+        with Image.open(seed) as seed_image, Image.open(reference) as reference_image:
+            prepared.append({
+                "seed_size": seed_image.size,
+                "reference_size": reference_image.size,
+                "icc_profile": reference_image.info.get("icc_profile"),
+                "dpi": reference_image.info.get("dpi"),
+                "target": target,
+                "padded": padded,
+                "source_size": source_size,
+                "metadata": metadata,
+            })
+        return result
+
+    monkeypatch.setattr(bridge, "prepare_native_2x_inputs_streamed", capture_prepare)
+
+    original_load = Image.Image.load
+    forbidden_sizes = {size, (size[0] + 1, size[1] + 1)}
+
+    def reject_full_customer_raster_decode(image, *args, **kwargs):
+        if image.size in forbidden_sizes:
+            raise AssertionError(
+                "over-18MP bridge inputs/reference must remain disk-backed in libvips"
+            )
+        return original_load(image, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "load", reject_full_customer_raster_decode)
+
+    def stop_before_native(*_args, **_kwargs):
+        raise bridge.GPUDeviceBindingError(
+            "synthetic test stop before native launch"
+        )
+
+    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", stop_before_native)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+
+    assert result["status"] == "gpu_binding_unverified"
+    assert result["v2_output_preserved"] is True
+    assert len(prepared) == 1
+    assert prepared[0]["seed_size"] == (2251, 2001)
+    assert prepared[0]["reference_size"] == (4502, 4002)
+    assert prepared[0]["target"] == size
+    assert prepared[0]["padded"] == (4502, 4002)
+    assert prepared[0]["source_size"] == size
+    assert prepared[0]["icc_profile"] == profile
+    assert prepared[0]["dpi"][0] == pytest.approx(300, abs=0.1)
+    assert prepared[0]["dpi"][1] == pytest.approx(300, abs=0.1)
+    assert baseline.read_bytes() == before
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+
+
 @pytest.mark.parametrize("multi_page_role", ["source", "v2"])
 def test_large_bridge_rejects_multipage_tiff_before_gpu_and_preserves_v2(
     tmp_path, monkeypatch, multi_page_role
