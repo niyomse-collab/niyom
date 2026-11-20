@@ -392,3 +392,26 @@ def test_candidate_runs_actual_inno_setup_consent_and_uninstall_lifecycle():
     assert "install-consented" in script
     assert "install-failed" in script
     assert "no model downloads or customer files" in script.casefold()
+
+
+
+def test_lifecycle_fixture_isolates_all_profile_and_registry_side_effects():
+    fixture = (ROOT / "tools" / "Test-V211-InstallerLifecycle.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "$originalLocalAppData = $env:LOCALAPPDATA" in fixture
+    assert "$profileRoot = Join-Path $tempRoot 'profile\\AppData\\Local'" in fixture
+    assert "$env:LOCALAPPDATA = $profileRoot" in fixture
+    assert "$cacheRoot = Join-Path $profileRoot 'NiyomSilp\\V211-FourAI-QA'" in fixture
+    assert "$oldDataRoot = '{localappdata}\\NiyomSilp\\V211-FourAI-QA'" in fixture
+    assert "$iss = $iss.Replace($oldDataRoot, $escapedCacheRoot)" in fixture
+    assert "$testRegistryKey = 'Software\\NiyomSilp\\V211ExperimentalLifecycle-'" in fixture
+    assert "$testRegistryPath = 'HKCU:\\' + $testRegistryKey" in fixture
+    assert "$testUninstallKey = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{'" in fixture
+    assert "$iss = $iss.Replace($oldRegistryKey, $testRegistryKey)" in fixture
+    assert "$iss = $iss.Replace($oldAppIdLine, ('AppId={{' + $testGuid + '}'))" in fixture
+    assert "$iss = $iss.Replace('{autoprograms}', $startMenuRoot)" in fixture
+    assert "$iss = $iss.Replace('{autodesktop}', $desktopRoot)" in fixture
+    assert "$env:LOCALAPPDATA = $originalLocalAppData" in fixture
+    assert "Remove-Item -LiteralPath $testRegistryPath -Recurse -Force" in fixture
+    assert "Remove-Item -LiteralPath $testUninstallKey -Recurse -Force" in fixture
