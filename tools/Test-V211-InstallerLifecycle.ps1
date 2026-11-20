@@ -122,7 +122,15 @@ internal static class Program {
     if ($LASTEXITCODE -ne 0) {
         throw 'Inno Setup could not compile the production installer script with the synthetic app fixture.'
     }
-    $outputNameMatch = [regex]::Match($iss, '(?m)^OutputBaseFilename=(.+)
+    $outputLine = [regex]::Split($iss, '\r?\n') | Where-Object { $_.StartsWith('OutputBaseFilename=') } | Select-Object -First 1
+    if (-not $outputLine) {
+        throw 'The production installer output filename could not be read.'
+    }
+    $setupBaseName = $outputLine.Substring('OutputBaseFilename='.Length).Trim()
+    $setupExe = Join-Path $compiledDir ($setupBaseName + '.exe')
+    if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) {
+        throw 'Synthetic lifecycle installer executable was not produced.'
+    }
 
     # Case 1: no task selected. Setup must not provision, create markers, or launch
     # the GUI in silent mode. Silent uninstall must preserve the dedicated cache.
