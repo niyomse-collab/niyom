@@ -367,3 +367,28 @@ def test_candidate_workflow_cancels_only_superseded_pr_builds_for_the_same_branc
     assert "  push:" not in header
     assert "workflow_dispatch:" not in header
     assert "github.event.pull_request.head.sha || github.sha" not in workflow
+
+
+def test_candidate_runs_actual_inno_setup_consent_and_uninstall_lifecycle():
+    workflow = (ROOT / ".github" / "workflows" /
+                "v211-four-engine-bridge-windows.yml").read_text(encoding="utf-8")
+    script = (ROOT / "tools" / "Test-V211-InstallerLifecycle.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Exercise Inno Setup consent and uninstall lifecycle on a synthetic fixture" in workflow
+    assert "Test-V211-InstallerLifecycle.ps1" in workflow
+    assert workflow.index("Test-V211-InstallerLifecycle.ps1") < workflow.index(
+        "Build V2-based experimental candidate"
+    )
+    assert "installfourai" in script
+    assert "/VERYSILENT" in script
+    assert "V211_FIXTURE_FAIL" in script
+    assert "setup-pending.flag" in script
+    assert "setup-complete.flag" in script
+    assert "unins000.exe" in script
+    assert "keep-after-silent-uninstall.txt" in script
+    assert "no-consent" in script
+    assert "install-consented" in script
+    assert "install-failed" in script
+    assert "No model downloads or customer files" in script
