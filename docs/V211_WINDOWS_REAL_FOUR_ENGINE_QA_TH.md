@@ -3,6 +3,8 @@
 สถานะ: ผ่านขั้นตอนตรวจ ZIP ทางการและสร้าง Manifest จากไฟล์จริงบน Windows CI
 ยัง **ไม่ใช่** ผลพิสูจน์ real inference ของสี่ตัวหรือคุณภาพเหนือ V2; ห้าม Merge/Release ก่อน QA ภาพจริง
 
+**Source update 20 พ.ย. 2569:** Large jobs above 18 MP now accept RGB/RGBA 8-bit PNG/JPEG/WebP source files and PNG/JPEG/single-page TIFF/BigTIFF accepted-V2 rasters through libvips-to-PNG intermediates. Earlier notes in this document that mark large JPEG/WebP as V2-only are historical and are superseded by the final source correction below. This is preparation/format support, not native GPU or print-quality certification.
+
 ## หลักการ
 - V2, GFPGAN, เครื่องมือแต่งภาพ, การส่งออก PNG/ICC/DPI และการป้องกันใบหน้า ต้องทำงานเหมือนเดิม
 - AI สี่ตัวรันจากภาพต้นฉบับเป็น candidate แยกกันที่ 2x ไม่ขยายต่อกันสี่รอบ
@@ -711,3 +713,16 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 - ขอบเขตทดสอบ: synthetic RGB และ RGBA/ICC/300-DPI เท่านั้น; ห้ามอ่าน/อัปโหลด/เก็บภาพลูกค้า, ห้ามดาวน์โหลดโมเดลหรือเปลี่ยน Driver ระหว่าง diagnostic, ห้ามแก้ accepted V2 output. อัปโหลดได้เฉพาะ JSON evidence และลบ workspace ชั่วคราว.
 - เกณฑ์ fail-closed: ต้องพิสูจน์ native output 2x ของทั้งสี่, binding ของ Real-ESRGAN/Waifu2x/Real-CUGAN ไปยัง GTX 1660 Ti ผ่าน Vulkan, backend/device ของ Anime4KCPP ผ่าน CUDA/OpenCL แยกต่างหาก, PID-to-adapter telemetry ของทุก process, device-wide VRAM budget 6,144 MiB พร้อม reserve 512 MiB, bridge/fusion, cancellation/cleanup และ privacy flags. หากขาดข้อใด ให้คงผลเป็นไม่ผ่านและรักษา V2.
 - แม้ synthetic GPU gate ผ่าน จะยืนยันเฉพาะ native process/device/VRAM/bridge contract บนเครื่องที่รันจริงเท่านั้น; ต้องคง `quality_improvement_verified=false`, `visual_quality_certified=false`, `print_quality_certified=false` จนกว่าจะมี A/B ภาพจริงที่เจ้าของตรวจและอนุมัติ.
+
+
+## 20 พฤศจิกายน 2569 — Source correction: large JPEG/WebP inputs
+
+This section supersedes earlier historical statements in this document that limited the >18 MP auxiliary route to PNG or marked large JPEG/WebP inputs as V2-only.
+
+- At PR #20 code/test HEAD `a9f84b517f4b8cf133932b4d74102a916b299e97`, `signprint_ai/v211_four_engine_bridge.py` defines large source formats as RGB/RGBA 8-bit PNG, JPEG, WebP, and single-page TIFF/BigTIFF. Accepted V2 raster formats are PNG, JPEG, and single-page TIFF/BigTIFF. WebP is supported as a large **source** format, not as an accepted V2 output format.
+- `signprint_ai/v211_large_image_bridge.py` reads the source and accepted V2 raster through libvips random-access graphs and creates private PNG seed/reference intermediates. `tools/v211_four_engine_tiled_inference.py` continues to consume PNG intermediates only; it does not decode the original large JPEG/WebP/TIFF in Pillow.
+- TIFF/BigTIFF must contain exactly one page. CMYK, multipage TIFF, unsupported bit depths/modes, PDF/PSD, and formats outside the allowlists remain V2-only. Source and accepted V2 mode/ICC presence and bytes must satisfy the existing fail-closed metadata contract.
+- Regression `test_large_bridge_streams_real_over_18mp_rasters_without_pillow_decode` uses synthetic 4,501 × 4,001 rasters (**18,008,501 pixels**) for JPEG/WebP/PNG source and PNG/JPEG accepted-V2 combinations. It asserts that Pillow does not decode the full large raster, checks half-target seed/reference geometry, ICC and 300-DPI metadata, and confirms the accepted V2 file remains byte-identical. The test deliberately stops at runtime GPU binding (`gpu_binding_unverified`); it does **not** launch the four native engines, prove GPU use, measure peak VRAM, or certify image quality.
+- JPEG/WebP EXIF orientation preflight also has a regression that reads orientation from container metadata without invoking a full pixel decode.
+- Candidate #990 separately passed the frozen single-page 24 MP BigTIFF seed/reference/streamed-QA smoke. That package smoke does not run native AI inference on the 24 MP image.
+- Native execution remains one 2× pass per engine on a half-target seed. A final 3×/4×/8× target size is not native 3×/4×/8× inference or multi-pass super-resolution. Real >18 MP GPU stress, per-process GTX 1660 Ti adapter proof, 6 GB peak-VRAM measurement, cancellation during native load, visual A/B, Photoshop/MainTop and print acceptance remain open.
