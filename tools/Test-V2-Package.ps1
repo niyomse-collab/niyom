@@ -68,6 +68,8 @@ try {
             -not $report.dpi_preserved -or
             -not $report.odd_target_crop_exact -or
             -not $report.accepted_v2_sha256_unchanged -or
+            -not $report.target_exceeds_18mp -or
+            [int64]$report.target_pixels -le 18000000 -or
             $report.gpu_runtime_initialized -or
             $report.native_ai_engines_started -or
             $report.network_access -or
