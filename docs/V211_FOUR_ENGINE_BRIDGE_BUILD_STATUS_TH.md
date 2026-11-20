@@ -1015,3 +1015,31 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 ### PR #18 / face protection
 - Direct Git Blob SHA comparison against PR #18 base confirms **9/9 protected GFPGAN/face files byte-identical** in PR #20: face protection, detection, selection, face-module init, large-face handling, face contract, face workflow and its two regression tests.
 - V2 remains the accepted master. No native binaries, model weights or customer images were committed; no visual A/B, Photoshop/MainTop or physical print acceptance is claimed.
+
+
+## 21 พฤศจิกายน 2569 03:36 ICT — Exact-head Candidate #1000 / scheduled verification
+
+### PR identity and source scope
+- PR #20 remains **OPEN / DRAFT / UNMERGED** on `work/v211-four-engine-v2-bridge-20261103`, exact HEAD `4f587adf8e1ae37b834cecb0dced3175a0d08c2f`; base remains PR #18 head `288dd8501c230a118d9a7e60d2522a2cc7411bcc`. PR #18 is also OPEN / DRAFT / UNMERGED.
+- The prior tested code/test HEAD was `a490929598bcbd4be6668c9f3d18ae5da77902a9`. The exact compare to `4f587ad` contains one documentation file only: this status document (+27 / -4); no production source, tests, spec or installer inputs changed after Candidate #999.
+- PR #20's changed-file list has no overlap with the six face/GFPGAN-related paths changed by PR #18: `.github/workflows/verify-v211-face.yml`, `signprint_ai/face_module/face_protection.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`, and `tests/test_v211_large_face_audit.py`. No executable, DLL, model-weight, archive or other binary-like file is present in PR #20's changed-file list.
+- No V1/V2 Stable edits, merge, rebase, reset, force-push or release were performed.
+
+### Windows Candidate #1000 — exact HEAD success
+- [GitHub Actions #1000](https://github.com/niyomse-collab/niyom/actions/runs/44797755790): **SUCCESS, 2/2 jobs** on exact PR HEAD `4f587adf8e1ae37b834cecb0dced3175a0d08c2f`.
+- Bridge/Fusion/coordination: **432 passed**; privacy/provisioning/manifest/hash: **69 passed**. The job log confirms both pytest commands completed successfully.
+- Frozen candidate checks passed: V2 imports; isolated Inno Setup consent/success/failure/uninstall lifecycle; verified-download retry fault injection; streamed 24 MP BigTIFF/libvips QA smoke; packaged four-engine provisioning `--check-only` without network access; isolated consented cache cleanup; packaged diagnostic help dispatch; exact BUILD_PROOF/source SHA and installer-slice SHA256 verification; experimental artifact upload. These checks do not execute all four native models on the shop GPU and do not certify print quality.
+- Installer SHA256 recorded by the candidate provenance report: `491aaaec0bbb0a263b5bcaddb55fb30f3ef8dd9b0d07fd5f43967d479d505335`.
+- Artifact ID `14662475255`; size **2,584,632,106 bytes**; ZIP SHA256 `98392c2370da6acba7a818e05aaa40ffb6407a0a47b16f60fc0706f78eb779f3`; expires **28 พ.ย. 2569 02:31 ICT**. [Download Candidate #1000](https://github.com/niyomse-collab/niyom/actions/runs/44797755790/artifacts/14662475255). This remains an experimental candidate, not a Stable installer or print acceptance.
+
+### Independent Core, archive audit and native CLI
+- [Independent Core #1643](https://github.com/niyomse-collab/niyom/actions/runs/44797756085): Windows **1,101 passed / 1 skipped**; Ubuntu **1,099 passed / 3 skipped**; pytest and compileall passed on both.
+- [Official Archive Audit #326](https://github.com/niyomse-collab/niyom/actions/runs/44797755747): archive audit **32 passed**, provisioning **11 passed**. Source-license retrieval and archive hashes are not a grant of model-weight redistribution rights; `model_weights_and_license_certified=false` and `license_redistribution_approved=false` remain intentional.
+- [Native CLI Smoke #442](https://github.com/niyomse-collab/niyom/actions/runs/44797755777) is diagnostic only: Real-CUGAN and Anime4KCPP produced validated synthetic 2x outputs; Real-ESRGAN and Waifu2x were blocked by hosted-runner Vulkan initialization (`vkCreateInstance failed -9`), with Waifu2x also reporting `0xC0000005`. Physical adapter verification is **0/4**; runtime VRAM stress and four-engine inference on the shop GTX 1660 Ti remain unverified. Workflow SUCCESS means the host limitation was classified, not that 4/4 GPU inference passed.
+
+### Current scale, image and acceptance contract
+- Exact supported source-to-target scales remain **2x and 4x only**. Final 4x uses a half-target seed followed by one native 2x pass per engine; it is not native 4x inference or multi-pass 8x. 3x, 8x and anisotropic ratios are rejected before manifest loading/native launch.
+- Above 18 MP, the auxiliary path uses disk-backed tiles, seam validation, streamed fusion/PNG output, disk-space preflight, V2-derived RGBA alpha, ICC/DPI checks and cancellation. The 24 MP Candidate check validates the frozen V2/libvips QA path, not four native AI engines on a 24 MP shop image.
+- Synthetic Fusion guards cover bounded Anime4K contribution, flat/linear and curved gradients, thin antialiased strokes/diacritic-like marks, RGBA alpha/hidden RGB, protected face/effect regions, ICC/DPI and cancellation. These tests do not replace A/B with real fonts/artwork or human review; the small-mark fixture is geometric and is not a Thai-language font-rendering/legibility test.
+- No exact-head affirmative shop-GPU consent marker was supplied; no self-hosted shop runner was started. Native 4/4 inference on Windows 11 GTX 1660 Ti, peak VRAM / 6 GB stress, cancellation under native load, real A/B for people/animals/objects/Thai-English-Chinese text/flat fills/gradients/transparent edges, Photoshop/MainTop and physical print acceptance remain **NOT CERTIFIED**.
+- V2 remains the accepted master. PR #20 and PR #18 remain Draft/unmerged. No customer images, native binaries or model weights were committed; no quality-superiority claim is made.
