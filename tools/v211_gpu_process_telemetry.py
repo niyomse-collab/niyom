@@ -973,6 +973,25 @@ class NvmlProcessProbe:
                     if not target_devices else "target_adapter_ambiguous"
                 ),
             })
+        # When NVML enumerates NVIDIA hardware but not the requested model,
+        # reconcile its generic missing-target result with the Windows DXGI
+        # inventory. This refines diagnostics only: it never upgrades a PID or
+        # VRAM observation to verified. If DXGI cannot enumerate reliably, keep
+        # the original NVML status rather than guessing.
+        if (
+            os.name == "nt"
+            and not target_devices
+            and result.get("status") == "target_adapter_missing"
+        ):
+            self._target_dxgi_luid()
+            dxgi_status = str(getattr(self, "_dxgi_status", ""))
+            if dxgi_status in {
+                "nvidia_dxgi_adapter_not_present",
+                "target_dxgi_adapter_missing",
+                "target_dxgi_adapter_ambiguous",
+            }:
+                result["status"] = dxgi_status
+                result["device_memory_status"] = dxgi_status
         fallback_statuses = {
             "gpu_memory_not_confirmed",
             "pid_not_observed",
