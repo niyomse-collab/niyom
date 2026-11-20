@@ -358,6 +358,19 @@ def test_wddm_target_luid_requires_one_matching_nvidia_dxgi_adapter(monkeypatch)
         lambda: [adapters[1]],
     )
     assert probe._target_dxgi_luid() is None
+    assert probe._dxgi_status == "nvidia_dxgi_adapter_not_present"
+
+    probe._dxgi_adapters = None
+    other_nvidia = {
+        "description": "NVIDIA GeForce RTX 4060",
+        "vendor_id": 0x10DE,
+        "luid": (0, 0xF1A0),
+    }
+    monkeypatch.setattr(
+        telemetry, "_enumerate_dxgi_adapters",
+        lambda: [adapters[1], other_nvidia],
+    )
+    assert probe._target_dxgi_luid() is None
     assert probe._dxgi_status == "target_dxgi_adapter_missing"
 
     probe._dxgi_adapters = None
