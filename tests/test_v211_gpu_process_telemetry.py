@@ -1274,3 +1274,84 @@ def test_runtime_vram_snapshot_requires_wddm_sample_provenance():
         result = validate_runtime_vram_snapshot(invalid)
         assert result["passed"] is False
         assert result["status"] == "invalid_snapshot"
+
+def test_nvml_missing_target_is_refined_by_dxgi_without_upgrading_verification(monkeypatch):
+    from types import SimpleNamespace
+    from tools import v211_gpu_process_telemetry as telemetry
+
+    cases = (
+        (
+            [{"description": "Intel UHD Graphics", "vendor_id": 0x8086, "luid": (0, 0x1100A)}],
+            "nvidia_dxgi_adapter_not_present",
+        ),
+        (
+            [{"description": "NVIDIA GeForce RTX 4060", "vendor_id": 0x10DE, "luid": (0, 0xF1A0)}],
+            "target_dxgi_adapter_missing",
+        ),
+    )
+    monkeypatch.setattr(telemetry, "os", SimpleNamespace(name="nt"))
+
+    for adapters, expected_status in cases:
+        probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+        probe.target_name = "gtx 1660 ti"
+        probe.status = "ready"
+        probe._devices = [{
+            "index": 0,
+            "name": "NVIDIA GeForce RTX 4060",
+            "handle": object(),
+        }]
+        probe._process_functions = {
+            "graphics": [("graphics_v1", object(), object)],
+            "compute": [],
+        }
+        probe._pdh_sessions = {}
+        probe._dxgi_adapters = adapters
+        probe._dxgi_status = "ready"
+        monkeypatch.setattr(probe, "_query_process_list", lambda *_args: (True, []))
+        monkeypatch.setattr(probe, "_query_device_memory", lambda *_args: {
+            "device_memory_available": False,
+            "device_memory_status": "not_available",
+        })
+
+        result = probe(4321, "real_cugan")
+
+        assert result["verified"] is False
+        assert result["status"] == expected_status
+        assert result["device_memory_available"] is False
+        assert result["device_memory_status"] == expected_status
+
+
+def test_nvml_missing_target_keeps_generic_status_when_dxgi_is_unavailable(monkeypatch):
+    from types import SimpleNamespace
+    from tools import v211_gpu_process_telemetry as telemetry
+
+    probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+    probe.target_name = "gtx 1660 ti"
+    probe.status = "ready"
+    probe._devices = [{
+        "index": 0,
+        "name": "NVIDIA GeForce RTX 4060",
+        "handle": object(),
+    }]
+    probe._process_functions = {
+        "graphics": [("graphics_v1", object(), object)],
+        "compute": [],
+    }
+    probe._pdh_sessions = {}
+    probe._dxgi_adapters = None
+    probe._dxgi_status = "not_initialized"
+    monkeypatch.setattr(telemetry, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(probe, "_query_process_list", lambda *_args: (True, []))
+    monkeypatch.setattr(probe, "_query_device_memory", lambda *_args: {
+        "device_memory_available": False,
+        "device_memory_status": "not_available",
+    })
+    monkeypatch.setattr(telemetry, "_enumerate_dxgi_adapters", lambda: [])
+
+    result = probe(4321, "real_cugan")
+
+    assert result["verified"] is False
+    assert result["status"] == "target_adapter_missing"
+    assert result["device_memory_available"] is False
+    assert result["device_memory_status"] == "target_adapter_missing"
+
