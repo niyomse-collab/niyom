@@ -167,6 +167,11 @@ def test_frozen_bigtiff_smoke_is_v211_candidate_only_and_checks_v2_preservation(
     assert "save_cropped_png_streamed" in run_source
     assert "multipage_rejected" in run_source
     assert "accepted_v2_sha256_unchanged" in run_source
+    assert "target_exceeds_18mp" in run_source
+    assert "18_000_000" in run_source
+    assert "(6001, 4001)" in run_source
+    assert "target_exceeds_18mp" in package_script
+    assert "18000000" in package_script
     assert "network_access" in run_source and "gpu_runtime_initialized" in run_source
     assert '"v211-tiff"' in package_script
     assert "NIYOMSIL_V211_TIFF_SMOKE" in package_script
