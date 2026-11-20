@@ -3,11 +3,20 @@ $repoRoot = (Get-Location).Path
 $tempRoot = Join-Path $env:RUNNER_TEMP ("v211-installer-lifecycle-" + [Guid]::NewGuid().ToString('N'))
 $fixtureDir = Join-Path $tempRoot 'fixture'
 $compiledDir = Join-Path $tempRoot 'compiled'
-$cacheRoot = Join-Path $env:LOCALAPPDATA 'NiyomSilp\V211-FourAI-QA'
+$originalLocalAppData = $env:LOCALAPPDATA
+$profileRoot = Join-Path $tempRoot 'profile\AppData\Local'
+$env:LOCALAPPDATA = $profileRoot
+$cacheRoot = Join-Path $profileRoot 'NiyomSilp\V211-FourAI-QA'
+$testGuid = [Guid]::NewGuid().ToString('D').ToUpperInvariant()
+$testRegistryKey = 'Software\NiyomSilp\V211ExperimentalLifecycle-' + $testGuid.Replace('-', '')
+$testRegistryPath = 'HKCU:\' + $testRegistryKey
+$testUninstallKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{' + $testGuid + '}_is1'
+$startMenuRoot = Join-Path $tempRoot 'StartMenu'
+$desktopRoot = Join-Path $tempRoot 'Desktop'
 $completeMarker = Join-Path $cacheRoot 'setup-complete.flag'
 $pendingMarker = Join-Path $cacheRoot 'setup-pending.flag'
 
-New-Item -ItemType Directory -Force -Path $fixtureDir, $compiledDir | Out-Null
+New-Item -ItemType Directory -Force -Path $fixtureDir, $compiledDir, $profileRoot, $startMenuRoot, $desktopRoot | Out-Null
 
 function Reset-FixtureCache {
     if (Test-Path -LiteralPath $cacheRoot) {
@@ -109,6 +118,40 @@ internal static class Program {
         throw 'Could not identify the production installer [Files] source for a fixture-only substitution.'
     }
     $iss = $iss.Replace($oldFilesLine, $newFilesLine)
+
+    # Keep every installer side effect inside this synthetic profile. Inno's
+    # {localappdata} constant is resolved by Setup itself, so replacing only
+    # the PowerShell environment variable would NOT isolate these paths.
+    $oldDataRoot = '{localappdata}\NiyomSilp\V211-FourAI-QA'
+    if (-not $iss.Contains($oldDataRoot)) {
+        throw 'Could not identify the production per-user model-cache root.'
+    }
+    $escapedCacheRoot = $cacheRoot.Replace("'", "''")
+    $iss = $iss.Replace($oldDataRoot, $escapedCacheRoot)
+
+    $oldRegistryKey = 'Software\NiyomSilp\V211Experimental'
+    if (-not $iss.Contains($oldRegistryKey)) {
+        throw 'Could not identify the production experimental registry key.'
+    }
+    $iss = $iss.Replace($oldRegistryKey, $testRegistryKey)
+
+    $oldAppIdLine = 'AppId={{4B6A2C18-0F95-47EE-A6B8-0F2DD7B0CE11}'
+    if (-not $iss.Contains($oldAppIdLine)) {
+        throw 'Could not identify the production experimental AppId.'
+    }
+    $iss = $iss.Replace($oldAppIdLine, ('AppId={{' + $testGuid + '}'))
+
+    $oldAppNameLine = '#define MyAppName "NiyomSilp Design V2.1.1 EXPERIMENTAL"'
+    if (-not $iss.Contains($oldAppNameLine)) {
+        throw 'Could not identify the production experimental app name.'
+    }
+    $iss = $iss.Replace(
+        $oldAppNameLine,
+        ('#define MyAppName "NiyomSilp V211 Lifecycle Test ' + $testGuid + '"')
+    )
+    $iss = $iss.Replace('{autoprograms}', $startMenuRoot)
+    $iss = $iss.Replace('{autodesktop}', $desktopRoot)
+
     $oldIconLine = 'SetupIconFile=assets\app_icon.ico'
     $newIconLine = 'SetupIconFile=' + (Join-Path $repoRoot 'assets\app_icon.ico')
     if (-not $iss.Contains($oldIconLine)) {
@@ -200,6 +243,17 @@ internal static class Program {
 finally {
     Remove-Item Env:V211_FIXTURE_FAIL -ErrorAction SilentlyContinue
     Reset-FixtureCache
+    if (Test-Path -LiteralPath $testRegistryPath) {
+        Remove-Item -LiteralPath $testRegistryPath -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $testUninstallKey) {
+        Remove-Item -LiteralPath $testUninstallKey -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if ($originalLocalAppData) {
+        $env:LOCALAPPDATA = $originalLocalAppData
+    } else {
+        Remove-Item Env:LOCALAPPDATA -ErrorAction SilentlyContinue
+    }
     if (Test-Path -LiteralPath $tempRoot) {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
