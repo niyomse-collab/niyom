@@ -1051,3 +1051,38 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - Every engine still performs **one native 2× pass on the half-target seed**. A final 4× or 8× output does not mean native 4×/8× inference and does not use multi-pass AI. The low-level `SUPPORTED_FUSION_SCALES=(2, 4)` remains a guard for direct seed/reference runner calls.
 - Large auxiliary inputs are streamed through libvips: source PNG/JPEG/WebP or single-page 8-bit RGB/RGBA TIFF/BigTIFF; accepted V2 reference PNG/JPEG/TIFF/BigTIFF. They are converted to private PNG seed/reference files before native tiled inference. Multipage TIFF, CMYK and unsupported bit depths remain V2-only.
 - These are synthetic geometry/streaming regression tests, **not** proof of native GPU use, 6 GB VRAM behavior, image-quality improvement or print acceptance on the shop GTX 1660 Ti. The accepted V2 raster remains untouched and all four native processes must still pass runtime GPU verification before a QA sidecar is exposed.
+
+
+## 21 พฤศจิกายน 2569 06:40 ICT — Exact-head Candidate #1002 completed
+
+### PR / source identity
+- PR #20 remains **OPEN / DRAFT / UNMERGED** at exact HEAD b8bf36f6c6fc334414e847698d24b78df86b7f38 on work/v211-four-engine-v2-bridge-20261103; base remains 288dd8501c230a118d9a7e60d2522a2cc7411bcc (PR #18 head).
+- PR #18 remains **OPEN / DRAFT / UNMERGED**, base fix/v21-real-quality, head feature/v2.1.1-super-ai.
+- Compare from code/test baseline 4f587adf8e1ae37b834cecb0dced3175a0d08c2f to b8bf36f6c6fc334414e847698d24b78df86b7f38: two documentation commits, one changed file only, docs/V211_FOUR_ENGINE_BRIDGE_BUILD_STATUS_TH.md (+36 / -0). No production source, tests, PyInstaller spec, installer inputs or workflow code changed after Candidate #1000's code/test baseline.
+
+### Windows Candidate #1002 — exact HEAD SUCCESS
+- [GitHub Actions #1002](https://github.com/niyomse-collab/niyom/actions/runs/44828922189): **SUCCESS, 2/2 jobs** on exact PR HEAD b8bf36f; both bridge-tests and windows-v2-candidate completed successfully.
+- Bridge/Fusion/coordination: **432 passed**; privacy/provisioning/manifest/hash: **69 passed**.
+- Frozen candidate checks passed: verified-download retry fault injection without network; V2-based experimental build; Inno Setup synthetic lifecycle (no consent, explicit-consent success, fail-closed setup failure, silent-uninstall cache preservation); frozen V2/import smoke; single-page BigTIFF and streamed libvips QA path; packaged provisioning --check-only without downloads; isolated consented model-cache cleanup; diagnostic --help dispatch; read-only shop-runner and provenance PowerShell syntax; exact BUILD_PROOF/source identity and every installer-slice SHA256; experimental artifact upload.
+- The spec explicitly includes hidden imports for signprint_ai.v211_four_engine_bridge, signprint_ai.v211_auto_setup, signprint_ai.v211_setup_cli, tools.v211_four_engine_run, tools.v211_four_engine_coordinator, tools.v211_four_engine_fusion, tools.v211_four_engine_tiled_inference, the manifest/provisioner, GPU binding and telemetry modules. The frozen smoke validates imports/dispatch and packaging contracts; it does **not** run the four native models or prove GPU inference.
+- Installer SHA256 from the Windows build log: 7f139627e3b4553ff35c039fb3d137e1943eb1a78e04bd25e38c574fef92a11e.
+- Experimental artifact ID 14676728193; size **2,584,697,712 bytes**; ZIP SHA256 2c80d41a5c366a3e1b4d10ece2498b51c4fd35fec1a385a02644707a59352f6c; expires **28 Nov 2026 05:57:56 ICT**. [Download Candidate #1002](https://github.com/niyomse-collab/niyom/actions/runs/44828922189/artifacts/14676728193). This is not a Stable release or shop-PC acceptance.
+
+### Exact-head independent regression
+- [Independent Core #1647](https://github.com/niyomse-collab/niyom/actions/runs/44828921821): Windows **1,101 passed / 1 skipped**; Ubuntu **1,099 passed / 3 skipped**; pytest and compileall passed on both.
+
+### Official archive / source-license audit
+- [Official Archive Audit #328](https://github.com/niyomse-collab/niyom/actions/runs/44828922176): **32 archive checks + 11 provisioning checks passed**; four official Windows archives were downloaded, hash-checked, safely audited and transactionally provisioned into ephemeral QA storage.
+- Archive pins: Real-ESRGAN abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d (observed CI pin; no publisher digest); Waifu2x 7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87 (published digest); Real-CUGAN c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01 (observed CI pin; no publisher digest); Anime4KCPP 82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19 (published digest).
+- Upstream source-license files were retrieved and hashed. all_upstream_digests_pinned=false, model_weights_and_license_certified=false, and license_redistribution_approved=false remain false. Source-license retrieval does not certify model-weight terms or grant redistribution rights. No native binaries/weights were committed.
+
+### Native CLI smoke — classified host limitation, not inference acceptance
+- [Native CLI Smoke #444](https://github.com/niyomse-collab/niyom/actions/runs/44828922198): **23 diagnostic tests passed** and official executables were invoked on synthetic RGB and RGBA/ICC/300-DPI images.
+- Real-CUGAN and Anime4KCPP produced validated synthetic 2x outputs. Real-ESRGAN was blocked by hosted-runner vkCreateInstance failed -9; Waifu2x had the same Vulkan initialization failure plus 0xC0000005. DXGI found no NVIDIA adapter; physical adapter verification **0/4**; runtime VRAM budget not passed; real_inference_verified=false.
+- Workflow SUCCESS means the hosted-runner failures were safely classified and evidence retained, not that four-engine GPU inference passed. Repeat on the shop Windows 11 GTX 1660 Ti before acceptance.
+
+### PR #18 / face protection and safety
+- Direct Git Blob SHA comparison from PR #20 base 288dd8501c230a118d9a7e60d2522a2cc7411bcc to PR #20 HEAD b8bf36f confirms **9/9** protected face/GFPGAN files byte-identical: face workflow; face protection, detection, selection and module init; large-face handling; face contract; and its two regression tests.
+- PR #20 changed-file list contains **79 paths** and no executable, DLL, archive, model-weight or customer-artwork files. Shared build/spec changes remain guarded to the exact V2.1.1 experimental version; V1 and accepted V2 stable package paths were not changed.
+- The 24 MP BigTIFF test remains a frozen V2/libvips streaming QA test, not a four-engine GPU run on a 24 MP shop image. Shop GPU adapter binding, 6 GiB VRAM stress, cancellation under native load, real A/B (people/animals/objects/frames/Thai-English-Chinese lettering/flat colours/gradients/RGBA/faces), Photoshop/MainTop and physical print acceptance remain **NOT CERTIFIED**.
+- V2 remains the accepted master. PR #20 and PR #18 remain Draft/unmerged. No V1/V2 Stable modification, merge, release or quality-superiority claim.
