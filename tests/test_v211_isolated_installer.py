@@ -378,8 +378,8 @@ def test_candidate_runs_actual_inno_setup_consent_and_uninstall_lifecycle():
 
     assert "Exercise Inno Setup consent and uninstall lifecycle on a synthetic fixture" in workflow
     assert "Test-V211-InstallerLifecycle.ps1" in workflow
-    assert workflow.index("Test-V211-InstallerLifecycle.ps1") < workflow.index(
-        "Build V2-based experimental candidate"
+    assert workflow.index("Build V2-based experimental candidate") < workflow.index(
+        "Test-V211-InstallerLifecycle.ps1"
     )
     assert "installfourai" in script
     assert "/VERYSILENT" in script
