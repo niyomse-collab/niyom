@@ -78,7 +78,6 @@ def _run_v211_tiff_smoke(output_dir):
         )
         if actual_target != (6001, 4001) or padded != (6002, 4002):
             raise RuntimeError("Frozen >18 MP BigTIFF even-padding geometry is incorrect")
-            raise RuntimeError("Frozen BigTIFF even-padding geometry is incorrect")
         if actual_source != (3000, 1000):
             raise RuntimeError("Frozen BigTIFF source geometry changed")
         with Image.open(seed) as seed_image:
