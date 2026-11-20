@@ -4,7 +4,7 @@ import sys
 
 
 def _run_v211_tiff_smoke(output_dir):
-    """Exercise the frozen V2.1.1 TIFF/BigTIFF -> libvips -> QA path offline."""
+    """Exercise the frozen V2.1.1 >18 MP BigTIFF -> libvips -> QA path offline."""
     import hashlib
     import json
     import shutil
@@ -53,18 +53,18 @@ def _run_v211_tiff_smoke(output_dir):
                 extratags=[(34675, "B", len(profile), profile, False)],
             )
 
-        # Odd target dimensions exercise even padding and exact QA cropping.
-        write_bigtiff(source, (128, 96), (220, 30, 40))
-        write_bigtiff(baseline, (257, 193), (245, 245, 245))
+        # A 24 MP odd target exercises the real >18 MP disk-backed path, even padding and exact QA crop.
+        write_bigtiff(source, (3000, 1000), (220, 30, 40))
+        write_bigtiff(baseline, (6001, 4001), (245, 245, 245))
         baseline_sha_before = digest(baseline)
 
         source_size, source_mode, source_metadata = inspect_image(
             source, orient=True
         )
         target_size, target_mode, metadata = inspect_image(baseline)
-        if source_size != (128, 96) or source_mode != "RGB":
+        if source_size != (3000, 1000) or source_mode != "RGB":
             raise RuntimeError("Frozen TIFF source header inspection failed")
-        if target_size != (257, 193) or target_mode != "RGB":
+        if target_size != (6001, 4001) or target_mode != "RGB":
             raise RuntimeError("Frozen accepted-V2 TIFF header inspection failed")
         if source_metadata.get("icc_profile") != profile:
             raise RuntimeError("Frozen source TIFF ICC profile was not preserved")
@@ -76,12 +76,13 @@ def _run_v211_tiff_smoke(output_dir):
                 source, baseline, work, resize_mode="fit"
             )
         )
-        if actual_target != (257, 193) or padded != (258, 194):
+        if actual_target != (6001, 4001) or padded != (6002, 4002):
+            raise RuntimeError("Frozen >18 MP BigTIFF even-padding geometry is incorrect")
             raise RuntimeError("Frozen BigTIFF even-padding geometry is incorrect")
-        if actual_source != (128, 96):
+        if actual_source != (3000, 1000):
             raise RuntimeError("Frozen BigTIFF source geometry changed")
         with Image.open(seed) as seed_image:
-            if seed_image.size != (129, 97):
+            if seed_image.size != (3001, 2001):
                 raise RuntimeError("Frozen BigTIFF half-target seed geometry is incorrect")
             if seed_image.info.get("icc_profile") != profile:
                 raise RuntimeError("Frozen seed ICC profile was not preserved")
@@ -127,6 +128,10 @@ def _run_v211_tiff_smoke(output_dir):
         if baseline_sha_after != baseline_sha_before:
             raise RuntimeError("Frozen TIFF smoke modified the accepted V2 raster")
 
+    target_pixels = actual_target[0] * actual_target[1]
+    if target_pixels <= 18_000_000:
+        raise RuntimeError("Frozen BigTIFF smoke did not cross the 18 MP streaming threshold")
+
     report = {
         "passed": True,
         "single_page_bigtiff_inspection": True,
@@ -136,9 +141,11 @@ def _run_v211_tiff_smoke(output_dir):
         "dpi_preserved": True,
         "odd_target_crop_exact": True,
         "accepted_v2_sha256_unchanged": True,
-        "target_size": [257, 193],
-        "seed_size": [129, 97],
-        "padded_size": [258, 194],
+        "target_size": [6001, 4001],
+        "target_pixels": target_pixels,
+        "target_exceeds_18mp": target_pixels > 18_000_000,
+        "seed_size": [3001, 2001],
+        "padded_size": [6002, 4002],
         "gpu_runtime_initialized": False,
         "native_ai_engines_started": False,
         "network_access": False,
