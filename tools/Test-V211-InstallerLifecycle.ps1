@@ -122,7 +122,85 @@ internal static class Program {
     if ($LASTEXITCODE -ne 0) {
         throw 'Inno Setup could not compile the production installer script with the synthetic app fixture.'
     }
-    $setupExe = Join-Path $compiledDir 'NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe'
+    $outputNameMatch = [regex]::Match($iss, '(?m)^OutputBaseFilename=(.+)
+
+    # Case 1: no task selected. Setup must not provision, create markers, or launch
+    # the GUI in silent mode. Silent uninstall must preserve the dedicated cache.
+    Reset-FixtureCache
+    $noConsentDir = Join-Path $tempRoot 'install-no-consent'
+    $exitCode = Invoke-FixtureSetup $noConsentDir '' 'no-consent-setup.log'
+    if ($exitCode -ne 0) { throw "No-consent installer returned $exitCode instead of 0." }
+    if ((Test-Path $pendingMarker) -or (Test-Path $completeMarker) -or
+        (Test-Path (Join-Path $noConsentDir 'provision-invoked.flag'))) {
+        throw 'No-consent install unexpectedly started four-engine provisioning.'
+    }
+    New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
+    $noConsentSentinel = Join-Path $cacheRoot 'keep-after-silent-uninstall.txt'
+    Set-Content -LiteralPath $noConsentSentinel -Value 'synthetic user data'
+    Invoke-FixtureUninstall $noConsentDir
+    if (-not (Test-Path -LiteralPath $noConsentSentinel -PathType Leaf)) {
+        throw 'Silent uninstall removed the dedicated model cache without consent.'
+    }
+
+    # Case 2: explicit installer task selected. The fixture must see the fresh
+    # pending marker, then replace it with a completion marker before Setup exits.
+    Reset-FixtureCache
+    $successDir = Join-Path $tempRoot 'install-consented'
+    $exitCode = Invoke-FixtureSetup $successDir 'installfourai' 'consented-setup.log'
+    if ($exitCode -ne 0) { throw "Consented fixture install returned $exitCode instead of 0." }
+    if (-not (Test-Path -LiteralPath $completeMarker -PathType Leaf) -or
+        (Test-Path -LiteralPath $pendingMarker)) {
+        throw 'Consented install did not publish the completion marker after clearing pending.'
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $successDir 'provision-invoked.flag'))) {
+        throw 'The selected installer task did not execute the provisioning command.'
+    }
+    if (Test-Path -LiteralPath (Join-Path $successDir 'editor-launched.flag')) {
+        throw 'Silent installer unexpectedly launched the editor.'
+    }
+    $successSentinel = Join-Path $cacheRoot 'keep-after-silent-uninstall.txt'
+    Set-Content -LiteralPath $successSentinel -Value 'synthetic user data'
+    Invoke-FixtureUninstall $successDir
+    if (-not (Test-Path -LiteralPath $successSentinel -PathType Leaf)) {
+        throw 'Silent uninstall removed consented models without a separate cleanup choice.'
+    }
+
+    # Case 3: the selected task fails. Setup must return non-zero, keep the
+    # pending gate, publish no success marker and never launch the editor.
+    Reset-FixtureCache
+    $env:V211_FIXTURE_FAIL = '1'
+    $failureDir = Join-Path $tempRoot 'install-failed'
+    $exitCode = Invoke-FixtureSetup $failureDir 'installfourai' 'failed-setup.log'
+    Remove-Item Env:V211_FIXTURE_FAIL -ErrorAction SilentlyContinue
+    if ($exitCode -eq 0) {
+        throw 'A failed four-engine setup returned success from the installer.'
+    }
+    if (-not (Test-Path -LiteralPath $pendingMarker -PathType Leaf) -or
+        (Test-Path -LiteralPath $completeMarker)) {
+        throw 'Failed setup did not retain pending state and suppress the success marker.'
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $failureDir 'provision-invoked.flag'))) {
+        throw 'Failure fixture did not reach the selected provisioning command.'
+    }
+    if (Test-Path -LiteralPath (Join-Path $failureDir 'editor-launched.flag')) {
+        throw 'Failed setup unexpectedly launched the editor.'
+    }
+    Invoke-FixtureUninstall $failureDir
+
+    Write-Output 'Inno Setup lifecycle passed: no-consent, explicit-consent success, fail-closed setup failure, and silent-uninstall cache preservation. Synthetic fixture only; no model downloads or customer files.'
+}
+finally {
+    Remove-Item Env:V211_FIXTURE_FAIL -ErrorAction SilentlyContinue
+    Reset-FixtureCache
+    if (Test-Path -LiteralPath $tempRoot) {
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+)
+    if (-not $outputNameMatch.Success) {
+        throw 'The production installer output filename could not be read.'
+    }
+    $setupExe = Join-Path $compiledDir ($outputNameMatch.Groups[1].Value.Trim() + '.exe')
     if (-not (Test-Path -LiteralPath $setupExe -PathType Leaf)) {
         throw 'Synthetic lifecycle installer executable was not produced.'
     }
