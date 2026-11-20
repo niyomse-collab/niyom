@@ -1174,10 +1174,19 @@ class NvmlProcessProbe:
         if not self._dxgi_adapters:
             self._dxgi_status = "dxgi_adapter_enumeration_unavailable"
             return None
-        matches = [
+        nvidia_adapters = [
             item for item in self._dxgi_adapters
-            if item.get("vendor_id") == 0x10DE
-            and self.target_name in str(item.get("description", "")).casefold()
+            if isinstance(item, dict) and item.get("vendor_id") == 0x10DE
+        ]
+        if not nvidia_adapters:
+            # A hosted runner with only Microsoft/Intel adapters is not evidence
+            # that the requested shop GPU is misconfigured. Keep this distinct
+            # from a machine that has NVIDIA hardware but not the requested model.
+            self._dxgi_status = "nvidia_dxgi_adapter_not_present"
+            return None
+        matches = [
+            item for item in nvidia_adapters
+            if self.target_name in str(item.get("description", "")).casefold()
         ]
         if not matches:
             self._dxgi_status = "target_dxgi_adapter_missing"
