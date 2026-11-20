@@ -391,4 +391,4 @@ def test_candidate_runs_actual_inno_setup_consent_and_uninstall_lifecycle():
     assert "no-consent" in script
     assert "install-consented" in script
     assert "install-failed" in script
-    assert "No model downloads or customer files" in script
+    assert "no model downloads or customer files" in script.casefold()
