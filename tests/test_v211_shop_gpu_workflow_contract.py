@@ -111,6 +111,7 @@ def test_installed_candidate_may_only_differ_by_nonproduction_gate_files():
     assert ".github/workflows/v211-four-engine-manual-evidence.yml" in allowed
     assert "tests/test_v211_shop_gpu_workflow_contract.py" in allowed
     assert "docs/V211_WINDOWS_REAL_FOUR_ENGINE_QA_TH.md" in allowed
+    assert "docs/V211_FOUR_ENGINE_BRIDGE_BUILD_STATUS_TH.md" in allowed
     assert "signprint_ai/" not in allowed
     assert "tools/" not in allowed
     assert "Where-Object { $_ -notin $allowedFiles }" in workflow
