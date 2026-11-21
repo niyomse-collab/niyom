@@ -73,7 +73,8 @@ foreach ($service in $runnerServices) {
 }
 
 $runnerProcesses = @()
-$runnerProcessAccountMatches = $false
+$runnerProcessOwnerVerifiedCount = 0
+$runnerProcessAccountMatchCount = 0
 try {
     $runnerProcesses = @(
         Get-CimInstance -ClassName Win32_Process -Filter "Name='Runner.Listener.exe'" -ErrorAction Stop
@@ -82,10 +83,11 @@ try {
         try {
             $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner -ErrorAction Stop
             if ($owner.ReturnValue -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$owner.User)) {
+                $runnerProcessOwnerVerifiedCount++
                 $ownerDomain = [string]$owner.Domain
                 if ([string]::IsNullOrWhiteSpace($ownerDomain)) { $ownerDomain = $env:COMPUTERNAME }
                 $processAccount = Normalize-AccountName ($ownerDomain + '\' + [string]$owner.User)
-                if ($processAccount -eq $currentAccount) { $runnerProcessAccountMatches = $true }
+                if ($processAccount -eq $currentAccount) { $runnerProcessAccountMatchCount++ }
             }
         } catch {
             # Access denied or unknown ownership is not treated as a match.
@@ -94,6 +96,12 @@ try {
 } catch {
     $runnerProcesses = @()
 }
+$runnerProcessPresent = $runnerProcesses.Count -gt 0
+$runnerProcessAccountsAllMatch = (
+    $runnerProcessPresent -and
+    $runnerProcessOwnerVerifiedCount -eq $runnerProcesses.Count -and
+    $runnerProcessAccountMatchCount -eq $runnerProcesses.Count
+)
 
 $uninstallSubkey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{4B6A2C18-0F95-47EE-A6B8-0F2DD7B0CE11}_is1'
 $installedExePresent = $false
@@ -154,7 +162,7 @@ if ([string]::IsNullOrWhiteSpace($nvidiaSmiPath)) {
     }
 }
 
-$targetGpu = $null
+$targetGpuMatches = @()
 if (-not [string]::IsNullOrWhiteSpace($nvidiaSmiPath)) {
     try {
         $gpuLines = @(& $nvidiaSmiPath '--query-gpu=name,driver_version,memory.total,memory.free' '--format=csv,noheader,nounits' 2>$null)
@@ -165,21 +173,29 @@ if (-not [string]::IsNullOrWhiteSpace($nvidiaSmiPath)) {
                     $total = 0
                     $free = 0
                     if ([int]::TryParse($parts[2], [ref]$total) -and [int]::TryParse($parts[3], [ref]$free)) {
-                        $targetGpu = [ordered]@{
+                        $targetGpuMatches += [ordered]@{
                             name_match = $true
                             driver_version = $parts[1]
                             memory_total_mib = $total
                             memory_free_mib = $free
+                            memory_reading_valid = ($total -gt 0 -and $free -ge 0 -and $free -le $total)
+                            six_gib_capacity_verified = ($total -ge 5500)
                         }
-                        break
                     }
                 }
             }
         }
     } catch {
-        $targetGpu = $null
+        $targetGpuMatches = @()
     }
 }
+$targetGpuMatchCount = $targetGpuMatches.Count
+$targetGpu = if ($targetGpuMatchCount -eq 1) { $targetGpuMatches[0] } else { $null }
+$targetGpuCapacityVerified = (
+    $null -ne $targetGpu -and
+    $targetGpu.memory_reading_valid -eq $true -and
+    $targetGpu.six_gib_capacity_verified -eq $true
+)
 
 $vulkanLoaderPath = Join-Path $env:WINDIR 'System32\vulkan-1.dll'
 $vulkanLoaderPresent = Test-Path -LiteralPath $vulkanLoaderPath -PathType Leaf
@@ -193,16 +209,30 @@ if (-not [string]::IsNullOrWhiteSpace($ExpectedCandidateSha)) {
 }
 
 $runningService = @($serviceRecords | Where-Object { $_.running })
-$serviceAccountMatch = @($runningService | Where-Object { $_.account_matches_interactive_user }).Count -gt 0
-$runnerProcessPresent = $runnerProcesses.Count -gt 0
+$serviceAccountsAllMatch = (
+    $runningService.Count -gt 0 -and
+    @($runningService | Where-Object { -not $_.account_matches_interactive_user }).Count -eq 0
+)
+$runningServiceMetadataAllPresent = (
+    $runningService.Count -gt 0 -and
+    @($runningService | Where-Object { -not $_.runner_metadata_present }).Count -eq 0
+)
 $blockers = @()
-if ($runningService.Count -eq 0 -and -not $runnerProcessPresent) {
+if ($runningService.Count -gt 0) {
+    if (-not $serviceAccountsAllMatch) {
+        $blockers += 'runner_service_account_differs_from_interactive_user'
+    }
+    if (-not $runningServiceMetadataAllPresent) {
+        $blockers += 'running_runner_service_metadata_missing_or_invalid'
+    }
+    if (-not $runnerProcessPresent) {
+        $blockers += 'runner_listener_not_running_for_active_service'
+    }
+}
+elseif (-not $runnerProcessPresent) {
     $blockers += 'runner_service_or_listener_not_running'
 }
-if ($runningService.Count -gt 0 -and -not $serviceAccountMatch) {
-    $blockers += 'runner_service_account_differs_from_interactive_user'
-}
-if ($runningService.Count -eq 0 -and $runnerProcessPresent -and -not $runnerProcessAccountMatches) {
+if ($runnerProcessPresent -and -not $runnerProcessAccountsAllMatch) {
     $blockers += 'runner_listener_account_differs_or_cannot_be_verified'
 }
 if (-not $installedExePresent -or -not $buildProofPresent) {
@@ -214,8 +244,12 @@ if ($null -ne $expectedShaMatches -and $expectedShaMatches -ne $true) {
 if (-not $manifestPresent -or -not $manifestShapeValid) {
     $blockers += 'four_engine_manifest_missing_or_invalid_shape_in_current_user_localappdata'
 }
-if ($null -eq $targetGpu) {
+if ($targetGpuMatchCount -eq 0) {
     $blockers += 'gtx_1660_ti_not_found_by_nvidia_smi'
+} elseif ($targetGpuMatchCount -ne 1) {
+    $blockers += 'gtx_1660_ti_adapter_count_not_exactly_one_by_nvidia_smi'
+} elseif (-not $targetGpuCapacityVerified) {
+    $blockers += 'gtx_1660_ti_vram_capacity_or_memory_reading_invalid'
 }
 if (-not $vulkanLoaderPresent) {
     $blockers += 'vulkan_loader_dll_not_found_in_system32'
@@ -239,8 +273,16 @@ $report = [ordered]@{
     services_changed = $false
     current_user_profile_checked = $true
     runner_services = $serviceRecords
+    runner_service_count = $runnerServices.Count
+    running_runner_service_count = $runningService.Count
+    running_runner_service_accounts_all_match_interactive_user = $serviceAccountsAllMatch
+    running_runner_service_metadata_all_present = $runningServiceMetadataAllPresent
     runner_listener_process_present = $runnerProcessPresent
-    runner_listener_account_matches_interactive_user = $runnerProcessAccountMatches
+    runner_listener_process_count = $runnerProcesses.Count
+    runner_listener_owner_verified_count = $runnerProcessOwnerVerifiedCount
+    runner_listener_account_match_count = $runnerProcessAccountMatchCount
+    runner_listener_accounts_all_match_interactive_user = $runnerProcessAccountsAllMatch
+    runner_listener_account_matches_interactive_user = $runnerProcessAccountsAllMatch
     required_github_runner_labels = @('self-hosted', 'Windows', 'X64', 'niyom-shop-gpu')
     github_runner_labels_verified_locally = $false
     candidate_installed_for_current_user = ($installedExePresent -and $buildProofPresent)
@@ -249,6 +291,8 @@ $report = [ordered]@{
     four_engine_manifest_present = $manifestPresent
     four_engine_manifest_shape_valid = $manifestShapeValid
     manifest_hashes_verified = $false
+    target_gpu_match_count = $targetGpuMatchCount
+    target_gpu_capacity_verified = $targetGpuCapacityVerified
     target_gpu = $targetGpu
     vulkan_loader_file_present = $vulkanLoaderPresent
     note = 'This script does not verify GitHub labels, model/executable SHA256, native inference, adapter use or image quality. It only identifies local runner/profile prerequisites.'

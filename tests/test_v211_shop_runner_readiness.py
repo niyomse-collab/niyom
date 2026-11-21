@@ -63,3 +63,27 @@ def test_shop_runner_readiness_script_does_not_claim_labels_or_hash_verification
     assert "manifest_hashes_verified = $false" in script
     assert "does not verify GitHub labels, model/executable SHA256" in script
     assert "local_preflight_ready_github_labels_still_require_confirmation" in script
+
+
+def test_shop_runner_readiness_requires_live_listener_and_all_process_owners_to_match():
+    script = (ROOT / "tools" / "Test-V211-ShopRunner.ps1").read_text(encoding="utf-8")
+
+    assert "$runnerProcessOwnerVerifiedCount" in script
+    assert "$runnerProcessAccountMatchCount -eq $runnerProcesses.Count" in script
+    assert "runner_listener_not_running_for_active_service" in script
+    assert "runner_listener_account_differs_or_cannot_be_verified" in script
+    assert "running_runner_service_metadata_missing_or_invalid" in script
+    assert "running_runner_service_accounts_all_match_interactive_user" in script
+    assert "runner_listener_accounts_all_match_interactive_user" in script
+
+
+def test_shop_runner_readiness_requires_one_real_six_gib_gtx_1660_ti_adapter():
+    script = (ROOT / "tools" / "Test-V211-ShopRunner.ps1").read_text(encoding="utf-8")
+
+    assert "$targetGpuMatchCount -ne 1" in script
+    assert "gtx_1660_ti_adapter_count_not_exactly_one_by_nvidia_smi" in script
+    assert "$total -ge 5500" in script
+    assert "$free -le $total" in script
+    assert "gtx_1660_ti_vram_capacity_or_memory_reading_invalid" in script
+    assert "target_gpu_match_count" in script
+    assert "target_gpu_capacity_verified" in script

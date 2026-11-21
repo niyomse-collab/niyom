@@ -726,3 +726,13 @@ This section supersedes earlier historical statements in this document that limi
 - JPEG/WebP EXIF orientation preflight also has a regression that reads orientation from container metadata without invoking a full pixel decode.
 - Candidate #990 separately passed the frozen single-page 24 MP BigTIFF seed/reference/streamed-QA smoke. That package smoke does not run native AI inference on the 24 MP image.
 - Native execution remains one 2× pass per engine on a half-target seed. A final 3×/4×/8× target size is not native 3×/4×/8× inference or multi-pass super-resolution. Real >18 MP GPU stress, per-process GTX 1660 Ti adapter proof, 6 GB peak-VRAM measurement, cancellation during native load, visual A/B, Photoshop/MainTop and print acceptance remain open.
+
+
+## 21 พฤศจิกายน 2569 — read-only Shop Runner preflight hardening
+
+- `tools/Test-V211-ShopRunner.ps1` เป็น local preflight แบบอ่านอย่างเดียว; เรียกจาก checkout ของ branch นี้ ภายใต้ Windows account เดียวกับที่ติดตั้ง Candidate และ provision Manifest:
+  `pwsh -NoProfile -ExecutionPolicy Bypass -File .\\tools\\Test-V211-ShopRunner.ps1 -ExpectedCandidateSha <40-character-source-SHA>`
+- Preflight จะยอมรับ service-mode เมื่อ service ที่กำลังทำงานมี .runner metadata ถูกต้อง, service account ตรงกับ interactive user และมี Runner.Listener.exe ที่ยืนยัน owner ได้ครบทุก process; interactive-mode ยอมรับ listener ได้เมื่อทุก process เป็น account ปัจจุบันและตรวจ owner ได้.
+- NVIDIA-SMI ต้องพบ GTX 1660 Ti หนึ่งตัวพอดี, memory reading ต้องอยู่ในช่วงที่ถูกต้อง และ total VRAM ต้องไม่น้อยกว่า 5,500 MiB; ต้องพบ vulkan-1.dll ใน System32 ด้วย.
+- JSON เพิ่มจำนวน runner service/listener, owner verification, จำนวน adapter match และผลตรวจ capacity. manifest_hashes_verified=false และ github_runner_labels_verified_locally=false ยังคงเป็นค่าบังคับ: local script ไม่ได้แทนการตรวจ Manifest SHA256 ใน packaged diagnostic หรือการยืนยัน label ใน GitHub.
+- Script ไม่ดาวน์โหลดโมเดล, ไม่เปลี่ยน service/registry/driver, ไม่เปิด Native Engine, ไม่แตะภาพลูกค้า และไม่เขียนไฟล์. สถานะ ready หมายถึง local prerequisites เท่านั้น ไม่ใช่การอนุมัติให้เริ่ม self-hosted job; ต้องมี exact Candidate BUILD_PROOF และ explicit owner consent แยกต่างหาก.
