@@ -722,15 +722,24 @@ def maybe_run_four_engine_assist(
         device_binding["runtime_device_use_verified"] = runtime_verified
         device_binding["per_engine_runtime_device_use_verified"] = per_engine_runtime
         if private_output is not None and qa_evidence_report is not None:
-            qa_evidence_report = _write_qa_evidence_report(
-                qa_evidence_report,
-                result,
-                source_sha256=source_sha256 or "",
-                v2_reference_sha256=v2_reference_sha256 or "",
-                qa_image=Path(private_output),
-                source_size=source_size,
-                target_size=target_size,
-            )
+            try:
+                qa_evidence_report = _write_qa_evidence_report(
+                    qa_evidence_report,
+                    result,
+                    source_sha256=source_sha256 or "",
+                    v2_reference_sha256=v2_reference_sha256 or "",
+                    qa_image=Path(private_output),
+                    source_size=source_size,
+                    target_size=target_size,
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                # The image remains a separate QA preview, but the stricter
+                # same-run A/B tool must refuse it without complete evidence.
+                _LOG.warning(
+                    "Optional V2.1.1 A/B evidence sidecar unavailable (%s)",
+                    type(exc).__name__,
+                )
+                qa_evidence_report = None
         return {
             "status": (
                 "four_engine_fusion_preview_ready"
