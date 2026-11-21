@@ -66,6 +66,8 @@ def _fixture(tmp_path, *, alpha_match=True, icc_match=True, dpi_match=True):
         "fusion_implemented": True,
         "all_four_engine_candidates_consumed": True,
         "all_four_engine_pixels_contributed": True,
+        "engine_pixel_effect_verified": {name: True for name in ENGINES},
+        "engine_pixel_effect_pixels": {name: 7 for name in ENGINES},
         "v2_output_preserved": True,
         "quality_certified": False,
         "privacy": {
@@ -84,7 +86,9 @@ def test_ab_report_creates_private_human_review_pack_without_quality_claims(tmp_
 
     assert report["status"] == "ready_for_human_review"
     assert report["source_v2_pair_bound_by_bridge"] is True
-    assert report["evidence_verified"] is True
+    assert report["evidence_metadata_consistent"] is True
+    assert report["evidence_verified"] is False
+    assert report["evidence_authenticity_verified"] is False
     assert report["same_source_generation_proven"] is False
     assert report["quality_certified"] is False
     assert report["visual_quality_certified"] is False
@@ -113,6 +117,30 @@ def test_ab_report_fails_closed_when_physical_gpu_evidence_is_incomplete(tmp_pat
     assert "physical_gpu_adapter_not_verified_for_all_engines" in report["block_reasons"]
     assert not (output / "ab_contact_sheet.png").exists()
     assert report["quality_certified"] is False
+
+
+def test_ab_report_fails_closed_when_any_engine_has_no_pixel_effect(tmp_path):
+    source, v2, candidate, evidence = _fixture(tmp_path)
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["engine_pixel_effect_verified"]["waifu2x"] = False
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "ab-no-waifu-pixel-effect"
+    report = run(source, v2, candidate, evidence, output)
+    assert report["status"] == "blocked"
+    assert "engine_pixel_effect_not_verified_for_all_engines" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
+
+
+def test_ab_report_fails_closed_when_engine_pixel_effect_count_is_zero(tmp_path):
+    source, v2, candidate, evidence = _fixture(tmp_path)
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["engine_pixel_effect_pixels"]["anime4k"] = 0
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "ab-zero-anime4k-contribution"
+    report = run(source, v2, candidate, evidence, output)
+    assert report["status"] == "blocked"
+    assert "engine_pixel_effect_pixels_incomplete" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
 
 
 def test_ab_report_blocks_alpha_mismatch(tmp_path):

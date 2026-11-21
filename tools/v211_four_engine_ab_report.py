@@ -1,4 +1,8 @@
-"""Create a private, evidence-bound V2 vs V2.1.1 four-engine visual A/B pack."""
+"""Create a private V2 vs V2.1.1 A/B pack.
+
+The bridge sidecar is unsigned: this tool checks its schema and file-hash
+bindings, but does not cryptographically authenticate the sidecar's claims.
+"""
 from __future__ import annotations
 
 import argparse
@@ -120,6 +124,23 @@ def _verify_evidence(
         or not all(_valid_sha(candidate_hashes.get(name)) for name in ENGINES)
     ):
         reasons.append("engine_candidate_hash_manifest_incomplete")
+    effect_verified = evidence.get("engine_pixel_effect_verified")
+    if (
+        not isinstance(effect_verified, dict)
+        or set(effect_verified) != set(ENGINES)
+        or any(effect_verified.get(name) is not True for name in ENGINES)
+    ):
+        reasons.append("engine_pixel_effect_not_verified_for_all_engines")
+    effect_pixels = evidence.get("engine_pixel_effect_pixels")
+    if (
+        not isinstance(effect_pixels, dict)
+        or set(effect_pixels) != set(ENGINES)
+        or any(
+            type(effect_pixels.get(name)) is not int or effect_pixels.get(name) <= 0
+            for name in ENGINES
+        )
+    ):
+        reasons.append("engine_pixel_effect_pixels_incomplete")
     for key in ("native_seed_sha256", "native_v2_reference_sha256", "fusion_output_sha256"):
         if not _valid_sha(evidence.get(key)):
             reasons.append(key + "_missing")
@@ -276,7 +297,10 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
     output_dir = _ensure_private_output_dir(Path(output_dir))
     report = {
         "schema_version": 1, "status": "blocked", "block_reasons": [],
-        "source_v2_pair_bound_by_bridge": False, "evidence_verified": False,
+        "source_v2_pair_bound_by_bridge": False,
+        "evidence_metadata_consistent": False,
+        "evidence_verified": False,
+        "evidence_authenticity_verified": False,
         "quality_certified": False, "visual_quality_certified": False,
         "print_quality_certified": False, "human_review_required": True,
         "delta_metrics_are_quality_scores": False, "artifacts": [],
@@ -309,6 +333,7 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
         report["block_reasons"].extend(evidence_reasons)
         _write_report(output_dir, report)
         return report
+    report["evidence_metadata_consistent"] = True
 
     try:
         v2_info, candidate_info = _metadata(v2_reference), _metadata(candidate)
@@ -398,7 +423,13 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
     report.update({
         "status": "ready_for_human_review",
         "source_v2_pair_bound_by_bridge": True,
-        "evidence_verified": True,
+        "evidence_metadata_consistent": True,
+        "evidence_verified": False,
+        "evidence_authenticity_verified": False,
+        "evidence_verification_scope": (
+            "unsigned sidecar schema and SHA256 bindings checked; bridge claims are "
+            "not cryptographically authenticated"
+        ),
         "source_sha256": source_sha,
         "v2_reference_sha256": v2_sha,
         "qa_image_sha256": candidate_sha,
