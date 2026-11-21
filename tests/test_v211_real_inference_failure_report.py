@@ -22,11 +22,29 @@ def test_failure_records_engine_and_never_claims_inference(tmp_path, monkeypatch
         qa, "make_processors",
         lambda _: {engine: fail for engine in qa.ENGINES},
     )
-    with pytest.raises(RuntimeError, match="deliberate test failure"):
-        qa.run(tmp_path / "unused.json", source, output_dir)
+    # A broken individual engine no longer aborts the whole set. Every
+    # engine should be attempted and all failures recorded independently.
+    result = qa.run(tmp_path / "unused.json", source, output_dir)
+    assert result["completed_engine_count"] == 0
     report = json.loads((output_dir / "real_inference_report.json").read_text())
     assert report["real_inference_verified"] is False
     assert report["quality_improvement_verified"] is False
-    assert report["failed_engine"] == qa.ENGINES[0]
-    assert report["failure_type"] == "RuntimeError"
+    assert set(report["failures"]) == set(qa.ENGINES)
+    assert all(entry["error_type"] == "RuntimeError" for entry in report["failures"].values())
     assert report["engines"] == {}
+
+
+
+def test_safe_process_record_preserves_wddm_only_gpu_attribution_without_paths():
+    record = {
+        "runtime_device_wddm_pdh_verified_process_count": 2,
+        "runtime_device_wddm_only_verified_process_count": 2,
+        "runtime_device_evidence_source": "windows_gpu_engine_pdh_dxgi_luid",
+        "private_local_path": "must-not-be-copied",
+    }
+
+    safe = qa._safe_process_record(record)
+
+    assert safe["runtime_device_wddm_only_verified_process_count"] == 2
+    assert safe["runtime_device_evidence_source"] == "windows_gpu_engine_pdh_dxgi_luid"
+    assert "private_local_path" not in safe

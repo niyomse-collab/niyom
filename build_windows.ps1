@@ -9,6 +9,11 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+# Normalize the legacy V2 default before validating the workspace.
+if ($Channel -eq "v2" -and $Version -eq "1.0.1") { $Version = "2.0.0-beta.1" }
+$experimentalV211Pattern = '\A2\.1\.1(?:-beta\.[0-9]+)?\z'
+$experimentalV211 = ($Channel -eq "v2" -and $Version -match $experimentalV211Pattern)
+
 # Never clean or replace files from a previously built/approved V1 checkout.
 # V2 should be built in an independent clean workspace. Check BEFORE venv,
 # metadata, model downloads or any build/release folder deletion.
@@ -43,6 +48,16 @@ $python = $pythonCmd.Source
 Write-Host "Build Python:"
 & $python --version
 
+# The shared script removes build/, dist/ and release/. Never let a V2 build
+# erase an accepted V2 installer or an unknown workspace. Only a previous
+# V2.1.1 candidate with matching build_info + BUILD_PROOF may be replaced.
+if ($experimentalV211) {
+    & $python ".\\tools\\v211_build_workspace_guard.py" --root $PSScriptRoot --requested-version $Version
+    if ($LASTEXITCODE -ne 0) {
+        throw "V2 build refused: existing build outputs are not verified V2.1.1 candidate artifacts. Use a clean isolated checkout; accepted V1/V2 files were preserved."
+    }
+}
+
 if (Test-Path ".venv-build") {
     Remove-Item ".venv-build" -Recurse -Force
 }
@@ -52,13 +67,134 @@ if ($LASTEXITCODE -ne 0) { throw "Could not create build venv" }
 
 $py = ".\.venv-build\Scripts\python.exe"
 
-if ($Channel -eq "v2" -and $Version -eq "1.0.1") { $Version = "2.0.0-beta.1" }
 $sourceCommit = (& git rev-parse HEAD).Trim()
 @{ channel = $Channel; version = $Version; source_commit = $sourceCommit } |
     ConvertTo-Json | Set-Content ".\build_info.json" -Encoding utf8
 $proofName = if ($Channel -eq "v2") { "BUILD_PROOF.txt" } else { "ARM_CORE_BUILD_PROOF.txt" }
-$installerScript = if ($Channel -eq "v2") { ".\installer_v2.iss" } else { ".\installer.iss" }
-$installerName = if ($Channel -eq "v2") { "NiyomSilp-Design-v2-Setup.exe" } else { "NiyomSilp-Design-v1-Setup.exe" }
+$installerScript = if ($experimentalV211) { ".\installer_v211_experimental.iss" } elseif ($Channel -eq "v2") { ".\installer_v2.iss" } else { ".\installer.iss" }
+$installerName = if ($experimentalV211) { "NiyomSilp-Design-v211-EXPERIMENTAL-Setup.exe" } elseif ($Channel -eq "v2") { "NiyomSilp-Design-v2-Setup.exe" } else { "NiyomSilp-Design-v1-Setup.exe" }
+$installerPrefix = [System.IO.Path]::GetFileNameWithoutExtension($installerName)
+
+function Ensure-VerifiedDownload {
+    param(
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)][string]$Url,
+        [Parameter(Mandatory=$true)][string]$ExpectedHash,
+        [Parameter(Mandatory=$true)][string]$Label
+    )
+
+    $parent = Split-Path -Parent $Path
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+
+    # Preserve the original V1 and stable-V2 download contract exactly:
+    # always download to the established path, then verify the expected hash.
+    # The reuse/atomic-retry behavior below is strictly V2.1.1-only.
+    if (-not $experimentalV211) {
+        Invoke-WebRequest -Uri $Url -OutFile $Path
+        $actualHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $ExpectedHash.ToLowerInvariant()) {
+            throw "Downloaded $Label SHA256 mismatch: $actualHash"
+        }
+        Write-Host "Downloaded and verified ${Label}: $actualHash"
+        return $actualHash
+    }
+
+    # V2.1.1 only: reuse a previously verified regular file. Never follow
+    # reparse points or replace a different model in the isolated candidate.
+    if (Test-Path -LiteralPath $Path) {
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+            throw "Existing $Label path is not a regular file; refusing to replace it."
+        }
+        $existing = Get-Item -LiteralPath $Path
+        if (($existing.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Existing $Label is a link; refusing to follow or replace it."
+        }
+        $existingHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($existingHash -ne $ExpectedHash.ToLowerInvariant()) {
+            throw "Existing $Label SHA256 differs from the pinned model; refusing to overwrite the existing file."
+        }
+        Write-Host "Reusing existing verified ${Label}: $existingHash"
+        return $existingHash
+    }
+
+    # V2.1.1 only: retry transient gateway/network failures into a same-folder
+    # temporary file, verify SHA256, then atomically publish. Existing files
+    # are never truncated or replaced by a partial/invalid download.
+    $maxAttempts = 5
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        $temporaryPath = Join-Path $parent (
+            "." + [System.IO.Path]::GetFileName($Path) + "." +
+            [guid]::NewGuid().ToString("N") + ".part"
+        )
+        $requestInProgress = $true
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $temporaryPath -TimeoutSec 90
+            # PowerShell 7 can wrap an abrupt remote close as IOException.
+            # Stop classifying request failures once the body has been received:
+            # hash, destination and atomic-publish failures must never be retried.
+            $requestInProgress = $false
+            if (-not (Test-Path -LiteralPath $temporaryPath -PathType Leaf)) {
+                throw "Download did not create a regular temporary file for $Label."
+            }
+            $actualHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $ExpectedHash.ToLowerInvariant()) {
+                throw "Downloaded $Label SHA256 mismatch: $actualHash"
+            }
+            if (Test-Path -LiteralPath $Path) {
+                throw "Destination appeared during $Label download; refusing to overwrite it."
+            }
+            [System.IO.File]::Move($temporaryPath, $Path)
+            Write-Host "Downloaded and verified ${Label}: $actualHash"
+            return $actualHash
+        } catch {
+            $downloadError = $_
+            if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+                Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction SilentlyContinue
+            }
+            $statusCode = 0
+            try { $statusCode = [int]$downloadError.Exception.Response.StatusCode } catch { }
+            $transientNetwork = $false
+            if ($requestInProgress) {
+                # Walk the exception chain. Invoke-WebRequest may surface the
+                # same remote transport close as IOException (not WebException),
+                # which previously bypassed the V2.1.1 retry loop.
+                $exception = $downloadError.Exception
+                while ($null -ne $exception) {
+                    if ($exception -is [System.Net.WebException]) {
+                        if ($exception.Status -in @(
+                            [System.Net.WebExceptionStatus]::Timeout,
+                            [System.Net.WebExceptionStatus]::ConnectFailure,
+                            [System.Net.WebExceptionStatus]::ReceiveFailure,
+                            [System.Net.WebExceptionStatus]::ConnectionClosed
+                        )) {
+                            $transientNetwork = $true
+                            break
+                        }
+                    }
+                    $exceptionType = $exception.GetType().FullName
+                    $exceptionMessage = [string]$exception.Message
+                    if (($exception -is [System.IO.IOException] -and
+                         $exceptionMessage -match '(?i)(transport connection|forcibly closed|connection (was )?(closed|reset|aborted)|unexpected (end|eof)|underlying connection)') -or
+                        $exceptionType -eq "System.Net.Http.HttpRequestException") {
+                        $transientNetwork = $true
+                        break
+                    }
+                    $exception = $exception.InnerException
+                }
+            }
+            $transientHttp = $statusCode -in @(408, 425, 429, 500, 502, 503, 504)
+            if (-not ($transientHttp -or $transientNetwork) -or $attempt -ge $maxAttempts) {
+                throw
+            }
+            $delaySeconds = [int][Math]::Min(2 * [Math]::Pow(2, $attempt - 1), 12)
+            Write-Warning ("Transient download failure for " + $Label +
+                " (HTTP " + $statusCode + "); retry " + ($attempt + 1) +
+                "/" + $maxAttempts + " in " + $delaySeconds + " seconds.")
+            Start-Sleep -Seconds $delaySeconds
+        }
+    }
+    throw "Download retries exhausted for $Label."
+}
 
 & $py -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { throw "pip upgrade failed" }
@@ -76,41 +212,26 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path ".\assets\app_icon.ico")) {
     throw "Could not generate transparent Niyomsil Design icon."
 }
 
-Write-Host "Downloading exact RealESRGAN_x4plus model used by the tested ARM core..."
-New-Item -ItemType Directory -Force -Path ".\models" | Out-Null
+Write-Host "Verifying the exact RealESRGAN_x4plus model used by the V2 core..."
 $modelUrl = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
-$modelPath = ".\models\RealESRGAN_x4plus.pth"
-Invoke-WebRequest -Uri $modelUrl -OutFile $modelPath
-
+$modelPath = ".\\models\\RealESRGAN_x4plus.pth"
 $expectedModelHash = "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1"
-$actualModelHash = (Get-FileHash -Algorithm SHA256 $modelPath).Hash.ToLower()
-if ($actualModelHash -ne $expectedModelHash) {
-    throw "RealESRGAN_x4plus SHA256 mismatch: $actualModelHash"
-}
+$actualModelHash = Ensure-VerifiedDownload -Path $modelPath -Url $modelUrl -ExpectedHash $expectedModelHash -Label "RealESRGAN_x4plus"
 Write-Host "MODEL SHA256 OK: $actualModelHash"
 
-Write-Host "Downloading optional Face Protect models..."
+Write-Host "Verifying optional Face Protect models without replacing existing files..."
 $faceModelDir = ".\\models\\face"
-New-Item -ItemType Directory -Force -Path $faceModelDir | Out-Null
 
 $gfpganUrl = "https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth"
 $gfpganPath = Join-Path $faceModelDir "GFPGANv1.4.pth"
-Invoke-WebRequest -Uri $gfpganUrl -OutFile $gfpganPath
 $expectedGfpganHash = "e2cd4703ab14f4d01fd1383a8a8b266f9a5833dacee8e6a79d3bf21a1b6be5ad"
-$actualGfpganHash = (Get-FileHash -Algorithm SHA256 $gfpganPath).Hash.ToLower()
-if ($actualGfpganHash -ne $expectedGfpganHash) {
-    throw "GFPGANv1.4 SHA256 mismatch: $actualGfpganHash"
-}
+$actualGfpganHash = Ensure-VerifiedDownload -Path $gfpganPath -Url $gfpganUrl -ExpectedHash $expectedGfpganHash -Label "GFPGANv1.4"
 
 $retinaUrl = "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth"
 $retinaPath = Join-Path $faceModelDir "detection_Resnet50_Final.pth"
-Invoke-WebRequest -Uri $retinaUrl -OutFile $retinaPath
 $expectedRetinaHash = "6d1de9c2944f2ccddca5f5e010ea5ae64a39845a86311af6fdf30841b0a5a16d"
-$actualRetinaHash = (Get-FileHash -Algorithm SHA256 $retinaPath).Hash.ToLower()
-if ($actualRetinaHash -ne $expectedRetinaHash) {
-    throw "RetinaFace SHA256 mismatch: $actualRetinaHash"
-}
-Write-Host "FACE MODELS VERIFIED"
+$actualRetinaHash = Ensure-VerifiedDownload -Path $retinaPath -Url $retinaUrl -ExpectedHash $expectedRetinaHash -Label "RetinaFace detector"
+Write-Host "FACE MODELS VERIFIED: $actualGfpganHash / $actualRetinaHash"
 
 Write-Host "Validating ARM core + optional face module imports..."
 & $py -m py_compile run.py signprint_ai\app_v2.py signprint_ai\arm_core_adapter.py signprint_ai\face_module\__init__.py signprint_ai\face_module\face_protection.py signprint_ai\independent_core.py tools\generate_brand_assets.py
@@ -237,7 +358,7 @@ if (-not $SkipInstaller) {
         Set-Content ".\release\$installerName.sha256.txt" -Encoding ascii
 
     if ($Channel -eq "v2") {
-        Get-ChildItem ".\release\NiyomSilp-Design-v2-Setup*" -File |
+        Get-ChildItem ".\release\$installerPrefix*" -File |
             Where-Object { $_.Extension -in ".exe", ".bin" } |
             ForEach-Object { "$((Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower())  $($_.Name)" } |
             Set-Content ".\release\SHA256SUMS.txt" -Encoding ascii

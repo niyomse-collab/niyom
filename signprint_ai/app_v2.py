@@ -27,6 +27,9 @@ from .v2_output import output_folder as v2_output_folder, output_path as v2_outp
 from .preview_viewport import PreviewViewport
 from .face_module.detection import FaceDetector
 from .face_module.selection import choose_faces
+from .effect_region_selection import select_effect_regions
+from .v211_ui_status import four_engine_preview_allowed, four_engine_preview_caption, four_engine_ui_status
+from .v211_cuda_compat import format_cuda_driver_status, probe_cuda_12_8_driver_compatibility
 
 APP_NAME = "NiyomSilp Design"
 from .v21_brand import release_label
@@ -55,6 +58,9 @@ class App(tk.Tk):
         self.pipeline = NiyomSilpCoreAdapter()
         self._face_detector = FaceDetector()
         self._face_reviews = {}
+        # Per-file, source-normalized ROIs copied from V2 during optional fusion.
+        # This is a pixel-protection mask only; no text is read or reconstructed.
+        self._effect_reviews = {}
         self._face_scanning = set()
         self._resume_after_faces = False
         self.files: list[Path] = []
@@ -80,6 +86,9 @@ class App(tk.Tk):
         self._completed_signature = None
         self._active_index: int | None = None
         self._active_settings: EnhanceSettings | None = None
+        self._v211_setup_prompted = False
+        self._v211_setup_running = False
+        self._v211_setup_thread: threading.Thread | None = None
 
         self.viewport = PreviewViewport()
         self._preview_cache = {}
@@ -101,7 +110,9 @@ class App(tk.Tk):
         self.after(80, self._drain_events)
         self.after(1000, self._tick_elapsed)
         self._set_status("พร้อมใช้งาน")
-
+        self._start_cuda_driver_compatibility_probe()
+        # Ask once on first launch only when no verified manifest or prior decline exists.
+        self.after(600, self._offer_v211_four_ai_setup)
     def _pick_ui_font(self) -> str:
         """Choose a Thai-friendly Windows UI font and avoid italic fallback."""
         try:
@@ -204,6 +215,25 @@ class App(tk.Tk):
         except Exception:
             pass
         return info
+
+    def _start_cuda_driver_compatibility_probe(self):
+        """Show a non-blocking CUDA 12.8 driver hint; never gate native Vulkan engines."""
+        if os.name != "nt":
+            return
+
+        def worker():
+            try:
+                report = probe_cuda_12_8_driver_compatibility()
+            except Exception:
+                report = {"status": "driver_probe_failed", "driver_version": None}
+            self._events.put(("cuda_compatibility", report))
+
+        self._cuda_compatibility_thread = threading.Thread(
+            target=worker,
+            name="NiyomSilpCudaDriverCompatibility",
+            daemon=True,
+        )
+        self._cuda_compatibility_thread.start()
 
     def _tick_elapsed(self):
         try:
@@ -552,13 +582,20 @@ class App(tk.Tk):
         ttk.Button(row9, text="เลือกโฟลเดอร์", command=self.choose_output_dir).pack(side="left", padx=(6, 0))
 
         # ===== STATUS BAR =====
-        status = tk.Frame(root, bg="#071016", height=31)
+        status = tk.Frame(root, bg="#071016", height=50)
         status.grid(row=3, column=0, columnspan=2, sticky="ew")
         status.grid_propagate(False)
         status.columnconfigure(2, weight=1)
 
         self.status_label = tk.Label(status, text="", bg="#071016", fg="#DDE6EC", anchor="w")
         self.status_label.grid(row=0, column=0, sticky="w", padx=(10, 8))
+        self.runtime_warning_label = tk.Label(
+            status, text="", bg="#071016", fg="#FFB74D", anchor="w",
+            font=(self.ui_font_family, 8, "bold"),
+        )
+        self.runtime_warning_label.grid(
+            row=1, column=0, columnspan=5, sticky="ew", padx=10, pady=(0, 3)
+        )
         tk.Label(
             status,
             text=f"GPU: {self.hardware_info['gpu']}  |  AI Engine: {self.hardware_info['engine']}  |  Device: {self.hardware_info['device']}",
@@ -718,6 +755,16 @@ class App(tk.Tk):
             row=12, column=0, columnspan=3, sticky="ew", pady=(5, 0))
         self.face_strength_var = tk.IntVar(value=65)
         self._slider(quality, "Face Strength", self.face_strength_var, 10, 10, 80)
+        ttk.Button(
+            quality, text="เลือกพื้นที่ปกป้องข้อความเอฟเฟกต์…",
+            command=self._select_effect_regions,
+        ).grid(row=13, column=0, columnspan=3, sticky="ew", pady=(7, 0))
+        self.effect_region_status_var = tk.StringVar(value="เลือกภาพก่อนกำหนดพื้นที่ปกป้อง")
+        tk.Label(
+            quality, textvariable=self.effect_region_status_var,
+            bg="#111820", fg="#FFD54F", anchor="w", justify="left",
+            wraplength=285,
+        ).grid(row=14, column=0, columnspan=3, sticky="ew", pady=(4, 0))
         tk.Label(
             quality,
             text="Recover: ฟื้นฟูใบหน้า (แนะนำ) • Protect: ใช้ใบหน้าต้นฉบับ ไม่ฟื้นฟู • Studio AI: ฟื้นฟูและแต่งผิว",
@@ -765,6 +812,7 @@ class App(tk.Tk):
         self._completed_signature = None
         self._queued_indices.clear()
         self._reserved_output_paths.clear()
+        self._effect_reviews.clear()
         while True:
             try:
                 self._job_queue.get_nowait()
@@ -772,6 +820,7 @@ class App(tk.Tk):
             except queue.Empty:
                 break
         self.current_index = None
+        self._update_effect_region_status()
         self._last_result = None
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -817,6 +866,68 @@ class App(tk.Tk):
             windnd.hook_dropfiles(self, func=dropped)
         except Exception:
             return
+
+    def _update_effect_region_status(self):
+        if not hasattr(self, "effect_region_status_var"):
+            return
+        if self.current_index is None or self.current_index >= len(self.files):
+            self.effect_region_status_var.set("เลือกภาพก่อนกำหนดพื้นที่ปกป้อง")
+            return
+        try:
+            key = self._face_key(self.files[self.current_index])
+            regions = self._effect_reviews.get(key, ())
+        except OSError:
+            regions = ()
+        if regions:
+            self.effect_region_status_var.set(
+                f"ปกป้อง {len(regions)} พื้นที่ • คงพิกเซล V2 เดิมในบริเวณที่เลือก"
+            )
+        else:
+            self.effect_region_status_var.set(
+                "ยังไม่กำหนด ROI • ไม่มีการปกป้องเอฟเฟกต์เฉพาะจุด"
+            )
+
+    def _select_effect_regions(self):
+        if self.current_index is None or self.current_index >= len(self.files):
+            messagebox.showinfo(APP_NAME, "กรุณาเลือกภาพก่อนกำหนดพื้นที่ปกป้อง")
+            return
+        if self._processing_active() or self._queued_indices:
+            messagebox.showinfo(
+                APP_NAME,
+                "กรุณาหยุดหรือรอคิวปัจจุบันให้เสร็จก่อนเปลี่ยนพื้นที่ปกป้อง",
+            )
+            return
+        path = self.files[self.current_index]
+        try:
+            key = self._face_key(path)
+            source_size = image_size(path)
+            preview = thumbnail(path, (1000, 680))
+            selected = select_effect_regions(
+                self, preview, source_size, self._effect_reviews.get(key, ())
+            )
+        except Exception as exc:
+            messagebox.showerror(
+                APP_NAME,
+                "ไม่สามารถเปิดตัวเลือกพื้นที่ปกป้องได้\n\n" + str(exc),
+            )
+            return
+        if selected is None:
+            return
+        if selected:
+            self._effect_reviews[key] = tuple(selected)
+        else:
+            self._effect_reviews.pop(key, None)
+        self._update_effect_region_status()
+        self._settings_changed(schedule_preview=False)
+        self._set_status(
+            f"{path.name} • ปกป้องข้อความ/เอฟเฟกต์ {len(selected)} พื้นที่จาก V2"
+        )
+
+    def _effect_region_signature(self):
+        return tuple(sorted(
+            (repr(key), tuple(tuple(region) for region in regions))
+            for key, regions in self._effect_reviews.items()
+        ))
 
     @staticmethod
     def _face_key(path):
@@ -969,6 +1080,7 @@ class App(tk.Tk):
                 except ValueError:
                     pass
             self.left_caption.configure(text=f"{p.name}   •   {w:,} × {h:,} px")
+            self._update_effect_region_status()
             if hasattr(self, "input_path_label"):
                 self.input_path_label.configure(text=str(p))
             self._refresh_preview_images()
@@ -1218,16 +1330,18 @@ class App(tk.Tk):
                               settings.color_mode, self._reserved_output_paths)
 
     @staticmethod
-    def _settings_signature(settings, output_directory):
+    def _settings_signature(settings, output_directory, effect_region_signature=()):
         """Snapshot all UI/print settings used for one batch of completed files.
 
         Never rely on the mutable Settings object itself: the user may move a
         slider or choose a new format/ICC/output folder after the first export.
-        Keep this separate from per-file face rectangles assigned at enqueue.
+        Per-file face/effect rectangles are assigned at enqueue; include the
+        complete ROI map here so changing one file's protection forces a rerun.
         """
         return (type(settings).__qualname__,
                 tuple((field.name, repr(getattr(settings, field.name)))
                       for field in fields(settings)),
+                repr(effect_region_signature),
                 str(output_directory))
 
     def _processing_active(self) -> bool:
@@ -1250,8 +1364,13 @@ class App(tk.Tk):
                     self._events.put(("row_status", idx, "รอตรวจจับ / ยืนยันใบหน้า"))
                     continue
                 regions = self._face_reviews[key]
-                job_settings = replace(settings, face_regions=regions,
-                                       face_protection=bool(regions) and settings.face_protection)
+                effect_regions = self._effect_reviews.get(key, ())
+                job_settings = replace(
+                    settings,
+                    face_regions=regions,
+                    face_protection=bool(regions) and settings.face_protection,
+                    v211_protected_effect_regions=effect_regions,
+                )
                 out = self._output_path(src, job_settings)
                 self._reserved_output_paths.add(out)
                 self._job_queue.put((idx, src, out, job_settings))
@@ -1392,18 +1511,51 @@ class App(tk.Tk):
                   else "real_esrgan")
         )
         if requested_scale > 1 and not self.pipeline.selected_model_available(chosen_model):
-            guidance = (
-                "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\n\n"
-                "โปรดติดตั้งโมเดลเสริมเฉพาะที่ต้องใช้ ไม่ดาวน์โหลดอัตโนมัติ"
-                if chosen_model == "v2_swinir_pre" else
-                "V2 + NAFNet Deblur ต้องมี Real-ESRGAN ของ V2 และ NAFNet GoPro ที่ตรวจสอบ SHA-256 แล้ว\n\n"
-                "ตัวนี้ใช้กับภาพถ่ายเบลอเท่านั้น; ไม่ติดตั้งน้ำหนักโมเดลโดยอัตโนมัติ"
-                if chosen_model == "v2_nafnet_deblur" else
-                "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\n\n"
-                "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน"
-            )
-            messagebox.showerror(APP_NAME, guidance)
-            return
+            if chosen_model == "v2_nafnet_deblur":
+                # NAFNet is an unrelated optional photo-deblur checkpoint,
+                # NOT one of the four native AI engines. Do not silently
+                # download its weights, or strand the user at a hard error.
+                from .v211_nafnet_deblur import (
+                    nafnet_checkpoint_path, verify_nafnet_checkpoint
+                )
+                checkpoint = nafnet_checkpoint_path()
+                if not self.pipeline.selected_model_available("real_esrgan"):
+                    messagebox.showerror(
+                        APP_NAME,
+                        "ไม่พบโมเดล Real-ESRGAN หลักของ V2\n\n"
+                        "ต้องซ่อมชุดโมเดล V2 ก่อนเริ่มประมวลผล",
+                    )
+                    return
+                try:
+                    verify_nafnet_checkpoint(checkpoint)
+                    reason = "ไม่สามารถเปิดใช้โหมด NAFNet ได้"
+                except (OSError, RuntimeError, ValueError) as exc:
+                    reason = str(exc)
+                approved = messagebox.askyesno(
+                    APP_NAME,
+                    "โหมด V2 + NAFNet Deblur ยังไม่พร้อมใช้งาน\n"
+                    + reason
+                    + "\n\nตำแหน่งไฟล์ NAFNet ที่ต้องใช้:\n"
+                    + str(checkpoint)
+                    + "\n\nต้องการเปลี่ยนกลับไปใช้ V2 Real-ESRGAN (เดิม) "
+                    "แล้วดำเนินการประมวลผลต่อหรือไม่?\n\n"
+                    "ระบบ AI 4 ตัวแยกจาก NAFNet และจะทำงานเองเมื่อมีโมเดลครบ "
+                    "และไฟล์ตรงเงื่อนไข 2×",
+                )
+                if not approved:
+                    return
+                self.v211_photo_model_var.set("V2 Real-ESRGAN (เดิม)")
+                chosen_model = "real_esrgan"
+            else:
+                guidance = (
+                    "V2 + SwinIR Pre-Restore ต้องมี Real-ESRGAN V2 และโมเดล SwinIR ที่ตรวจสอบแล้ว\n\n"
+                    "โปรดติดตั้งโมเดลเสริมเฉพาะที่ต้องใช้ ไม่ดาวน์โหลดอัตโนมัติ"
+                    if chosen_model == "v2_swinir_pre" else
+                    "ไม่พบโมเดล Real-ESRGAN ของ NiyomSilp Design Engine\n\n"
+                    "โปรแกรมจะไม่ fallback ไปใช้ NCNN หรือ Lanczos แทน"
+                )
+                messagebox.showerror(APP_NAME, guidance)
+                return
         if self.color_mode_var.get() == "CMYK":
             if self.format_var.get() == "PNG":
                 messagebox.showerror(
@@ -1425,7 +1577,10 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, f"ค่าการตั้งค่าไม่ถูกต้อง: {exc}")
             return
 
-        signature = self._settings_signature(settings, self.output_dir_var.get())
+        effect_signature = getattr(self, "_effect_region_signature", lambda: ())()
+        signature = self._settings_signature(
+            settings, self.output_dir_var.get(), effect_signature
+        )
         if self._processing_active() or self._queued_indices:
             if self._completed_signature is not None and signature != self._completed_signature:
                 # Do not mix two independent slider configurations within one
@@ -1511,6 +1666,84 @@ class App(tk.Tk):
         except Exception as exc:
             messagebox.showerror(APP_NAME, str(exc))
 
+    def _offer_v211_four_ai_setup(self):
+        """Ask once before any network access; V2 remains available on No/failure."""
+        if self._v211_setup_prompted:
+            return
+        self._v211_setup_prompted = True
+        if os.name != "nt":
+            return
+        try:
+            from .v211_auto_setup import initial_setup_state, record_setup_declined
+            state = initial_setup_state()
+        except Exception:
+            self._set_status("ตรวจสอบสถานะ AI 4 ตัวไม่สำเร็จ • V2 ยังใช้งานได้")
+            return
+
+        status = state.get("status")
+        if status in {"already_installed", "declined"}:
+            return
+        if status in {"invalid_existing_manifest", "invalid_decline_marker"}:
+            self._set_status("AI 4 ตัว: ข้อมูลติดตั้งเดิมไม่ผ่านการตรวจ • ใช้ V2 เดิม")
+            messagebox.showwarning(
+                APP_NAME,
+                "พบข้อมูลติดตั้ง AI 4 ตัวที่ตรวจสอบไม่ได้\n"
+                "ระบบจะไม่ดาวน์โหลดทับหรือแก้ไขข้อมูลเดิมโดยอัตโนมัติ\n\n"
+                "NiyomSilp V2 ยังใช้งานได้ตามปกติ",
+                parent=self,
+            )
+            return
+        if status != "needs_consent":
+            return
+
+        accepted = messagebox.askyesno(
+            APP_NAME + " · V2.1.1",
+            "ต้องการดาวน์โหลดและติดตั้ง AI ทั้ง 4 ตัวจากต้นทางทางการหรือไม่?\n\n"
+            "• Real-ESRGAN, Waifu2x, Real-CUGAN และ Anime4KCPP\n"
+            "• จัดเก็บในโปรไฟล์ Windows นี้ และใช้แบบออฟไลน์ได้หลังติดตั้ง\n"
+            "• จะเริ่มดาวน์โหลดเมื่อกด Yes เท่านั้น\n"
+            "• ไม่มีการอัปโหลดภาพลูกค้า และไม่แก้ไข V1 / V2 Stable\n\n"
+            "หากเลือก No จะไม่ถามซ้ำในครั้งถัดไป",
+            parent=self,
+            default=messagebox.NO,
+        )
+        if not accepted:
+            try:
+                record_setup_declined()
+            except Exception:
+                self._set_status("ข้ามการติดตั้ง AI 4 ตัว • V2 ยังใช้งานได้")
+            else:
+                self._set_status("ข้ามการติดตั้ง AI 4 ตัว • V2 ยังใช้งานได้")
+            return
+        self._start_v211_four_ai_setup()
+
+    def _start_v211_four_ai_setup(self):
+        if self._v211_setup_running:
+            return
+        self._v211_setup_running = True
+        self._set_status("กำลังดาวน์โหลดและตรวจสอบ AI ทั้ง 4 ตัว • V2 ยังใช้งานได้")
+
+        def worker():
+            try:
+                from .v211_setup_cli import provision_after_user_consent
+                report = provision_after_user_consent(consent=True)
+            except Exception as exc:
+                try:
+                    from .v211_setup_cli import safe_failure_code
+                    failure = safe_failure_code(exc)
+                except Exception:
+                    failure = "setup_failed"
+                self._events.put(("four_ai_setup_failed", failure))
+            else:
+                self._events.put(("four_ai_setup_done", report))
+
+        self._v211_setup_thread = threading.Thread(
+            target=worker,
+            name="v211-four-ai-first-launch-setup",
+            daemon=True,
+        )
+        self._v211_setup_thread.start()
+
     def _set_status(self, text: str):
         self.status_label.configure(text=text)
 
@@ -1531,6 +1764,10 @@ class App(tk.Tk):
                             bars = max(0, min(10, round(file_progress / 10)))
                             vals[4] = f"{'█' * bars}{'░' * (10 - bars)}  {file_progress}%"
                             self.tree.item(str(idx), values=vals)
+                elif kind == "cuda_compatibility":
+                    report = ev[1] if len(ev) > 1 and isinstance(ev[1], dict) else {}
+                    warning_text, warning_colour = format_cuda_driver_status(report)
+                    self.runtime_warning_label.configure(text=warning_text, fg=warning_colour)
                 elif kind == "row_status":
                     i, st = ev[1], ev[2]
                     if self.tree.exists(str(i)):
@@ -1553,6 +1790,39 @@ class App(tk.Tk):
                     _, generation, preview_index, error = ev
                     if generation == self._preview_generation and preview_index == self.current_index:
                         self.right_caption.configure(text="Preview ผิดพลาด: " + error)
+                elif kind == "four_ai_setup_done":
+                    self._v211_setup_running = False
+                    report = ev[1] if len(ev) > 1 and isinstance(ev[1], dict) else {}
+                    names = set(report.get("verified_engine_names", ()))
+                    required = {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
+                    if names == required:
+                        self._set_status("ติดตั้งและตรวจสอบ AI ทั้ง 4 ตัวแล้ว • พร้อมใช้งานออฟไลน์")
+                        messagebox.showinfo(
+                            APP_NAME,
+                            "ติดตั้งและตรวจสอบ AI ทั้ง 4 ตัวเรียบร้อยแล้ว\n"
+                            "พร้อมใช้งานแบบออฟไลน์สำหรับงานวิจัย V2.1.1\n\n"
+                            "ไฟล์งาน V2 เดิมยังคงเป็น Master",
+                            parent=self,
+                        )
+                    else:
+                        self._set_status("AI 4 ตัว: ผลตรวจติดตั้งไม่ครบ • ใช้ V2 เดิม")
+                        messagebox.showwarning(
+                            APP_NAME,
+                            "ผลตรวจติดตั้ง AI ทั้ง 4 ตัวไม่ครบ\n"
+                            "ระบบจะไม่เปิดใช้ Four-Engine QA และ V2 เดิมยังใช้งานได้",
+                            parent=self,
+                        )
+                elif kind == "four_ai_setup_failed":
+                    self._v211_setup_running = False
+                    code = str(ev[1]) if len(ev) > 1 else "setup_failed"
+                    self._set_status("ติดตั้ง AI 4 ตัวไม่สำเร็จ • V2 ยังใช้งานได้")
+                    messagebox.showerror(
+                        APP_NAME,
+                        "ไม่สามารถดาวน์โหลดและตรวจสอบ AI ทั้ง 4 ตัวได้\n"
+                        "V2 เดิมยังใช้งานได้ และไม่มีการเปลี่ยนไฟล์งานที่อนุมัติแล้ว\n\n"
+                        "รหัสสาเหตุ: " + code,
+                        parent=self,
+                    )
                 elif kind == "result_done":
                     _, idx, path, result = ev
                     face = result.get("face_protection") or {}
@@ -1571,16 +1841,59 @@ class App(tk.Tk):
                     if face_warnings:
                         face_text = f" • Face QA เตือน {len(face_warnings)}"
 
+                    four_ai_result = result.get("four_engine_research")
+                    four_ai = four_ai_result or {}
+                    qa_file = four_ai.get("four_engine_fusion_output")
+                    qa_file_exists = bool(qa_file and Path(qa_file).is_file())
+                    ai_ui_status = four_engine_ui_status(
+                        four_ai.get("status"),
+                        qa_file_exists=qa_file_exists if four_ai_result is not None else None,
+                    )
+
                     if self.tree.exists(str(idx)):
                         vals = list(self.tree.item(str(idx), "values"))
                         while len(vals) < 6:
                             vals.append("")
-                        vals[5] = "สำเร็จ" + face_text
+                        row_status = ai_ui_status["row"] if ai_ui_status else "สำเร็จ"
+                        vals[5] = str(row_status) + face_text
                         self.tree.item(str(idx), values=vals)
 
                     if idx == self.current_index:
-                        self._last_result = Path(path)
+                        show_ai_preview = four_engine_preview_allowed(
+                            qa_file_exists,
+                            four_ai.get("status"),
+                        )
+                        # Display the real combined four-AI pixels on the right
+                        # only after all candidate processes and fusion succeed.
+                        # The saved V2 print export remains at the chosen path.
+                        self._last_result = Path(qa_file) if show_ai_preview else Path(path)
                         caption = f"ผลลัพธ์จริง: {result['output_size'][0]:,} × {result['output_size'][1]:,} px"
+                        if show_ai_preview:
+                            caption += " • " + four_engine_preview_caption(four_ai.get("status"))
+                        elif ai_ui_status is not None:
+                            caption += " • " + str(ai_ui_status["caption"])
+                        elif four_ai.get("status") == "four_engine_applied_to_v2_raster":
+                            caption += " • AI 4 ตัวเสริมผลลัพธ์แล้ว (ยังไม่รับรองคุณภาพ)"
+                        elif four_ai.get("status") == "models_not_installed":
+                            caption += " • AI 4 ตัว: ยังไม่มีโมเดลที่ติดตั้งสำหรับ V2.1.1"
+                        elif four_ai.get("status") == "face_protection_v2_only":
+                            caption += " • AI 4 ตัว: ข้ามเพื่อปกป้องใบหน้าเมื่อไม่มีขอบเขตใบหน้าที่ยืนยัน • ใช้ภาพ V2 เดิม"
+                        elif four_ai.get("status") == "large_image_tiling_pending":
+                            caption += " • AI 4 ตัว: งานใหญ่ยังไม่รองรับ • ใช้ภาพ V2 เดิม"
+                        elif four_ai.get("status") == "cancelled":
+                            caption += " • AI 4 ตัว: ยกเลิกแล้ว • ไฟล์ V2 เดิมยังอยู่"
+                        elif four_ai.get("status") in (
+                            "auxiliary_image_too_large", "auxiliary_engine_scale_mismatch",
+                            "unsupported_output_format", "unsupported_source_format",
+                            "unsupported_source_mode", "unsupported_colour_mode",
+                        ):
+                            caption += " • AI 4 ตัว: สเกล/รูปแบบนี้ยังไม่รองรับ • ใช้ภาพ V2 เดิม"
+                        elif four_ai.get("status") in (
+                            "error", "incomplete_four_engine_candidates",
+                            "candidate_research_complete", "four_engine_error",
+                            "four_engine_incomplete", "four_engine_no_pixel_effect",
+                        ):
+                            caption += " • AI 4 ตัว: ยังไม่สร้าง QA ครบ • ใช้ภาพ V2 เดิม"
                         if result["output_size"][0] < result["original_size"][0] or result["output_size"][1] < result["original_size"][1]:
                             caption += " • ลดพิกเซลตามขนาด/DPI ที่ตั้ง"
                         if face.get("enabled"):
