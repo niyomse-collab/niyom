@@ -27,6 +27,8 @@ separate release gate.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import math
 import os
@@ -50,6 +52,125 @@ _MANIFEST = "NIYOMSIL_V211_FOUR_AI_MANIFEST"
 _EVIDENCE = "NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR"
 
 _ENGINE_NAMES = ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _write_qa_evidence_report(
+    report_path: Path,
+    result: dict,
+    *,
+    source_sha256: str,
+    v2_reference_sha256: str,
+    qa_image: Path,
+    source_size: tuple[int, int],
+    target_size: tuple[int, int],
+) -> Path:
+    """Write path-free evidence only after all four GPU PIDs and pixels are verified."""
+    fusion = result.get("four_engine_fusion")
+    per_engine = result.get("per_engine_runtime_device_use_verified")
+    candidate_hashes = result.get("candidate_sha256")
+    completed_names = result.get("completed_engine_names")
+    if not isinstance(fusion, dict):
+        raise RuntimeError("four-engine fusion evidence is missing")
+    if (
+        result.get("runtime_device_use_verified") is not True
+        or not isinstance(per_engine, dict)
+        or set(per_engine) != set(_ENGINE_NAMES)
+        or not all(per_engine.get(name) is True for name in _ENGINE_NAMES)
+    ):
+        raise RuntimeError("all four physical GPU process records are required")
+    if (
+        result.get("completed_engine_count") != len(_ENGINE_NAMES)
+        or not isinstance(completed_names, list)
+        or set(completed_names) != set(_ENGINE_NAMES)
+        or len(completed_names) != len(_ENGINE_NAMES)
+    ):
+        raise RuntimeError("all four native engine candidates are required")
+    if (
+        result.get("fusion_implemented") is not True
+        or fusion.get("fusion_implemented") is not True
+        or fusion.get("all_four_engine_candidates_consumed") is not True
+        or fusion.get("all_four_engine_pixels_contributed") is not True
+    ):
+        raise RuntimeError("four-engine pixel contribution evidence is incomplete")
+    if not isinstance(candidate_hashes, dict) or set(candidate_hashes) != set(_ENGINE_NAMES):
+        raise RuntimeError("four native candidate hashes are incomplete")
+    native_seed_sha = result.get("source_sha256")
+    native_reference_sha = result.get("v2_reference_sha256")
+    fusion_output_sha = fusion.get("output_sha256")
+    hashes = (
+        source_sha256, v2_reference_sha256, native_seed_sha,
+        native_reference_sha, fusion_output_sha, _sha256_file(qa_image),
+        *candidate_hashes.values(),
+    )
+    if any(
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(char not in "0123456789abcdef" for char in value.lower())
+        for value in hashes
+    ):
+        raise RuntimeError("four-engine QA SHA256 evidence is incomplete")
+    if not Path(qa_image).is_file():
+        raise RuntimeError("four-engine QA image is missing")
+
+    payload = {
+        "schema_version": 1,
+        "evidence_type": "niyomsil_v211_four_engine_qa",
+        "source_v2_pair_bound_by_bridge": True,
+        "source_sha256": source_sha256,
+        "v2_reference_sha256": v2_reference_sha256,
+        "qa_image_sha256": _sha256_file(qa_image),
+        "native_seed_sha256": native_seed_sha,
+        "native_v2_reference_sha256": native_reference_sha,
+        "fusion_output_sha256": fusion_output_sha,
+        "engine_candidate_sha256": {
+            name: candidate_hashes[name] for name in _ENGINE_NAMES
+        },
+        "completed_engine_count": len(_ENGINE_NAMES),
+        "completed_engine_names": list(_ENGINE_NAMES),
+        "per_engine_runtime_device_use_verified": {
+            name: True for name in _ENGINE_NAMES
+        },
+        "runtime_device_use_verified": True,
+        "fusion_implemented": True,
+        "all_four_engine_candidates_consumed": True,
+        "all_four_engine_pixels_contributed": True,
+        "engine_pixel_effect_verified": fusion.get("engine_pixel_effect_verified"),
+        "engine_pixel_effect_pixels": fusion.get("engine_pixel_effect_pixels"),
+        "source_size": [int(source_size[0]), int(source_size[1])],
+        "target_size": [int(target_size[0]), int(target_size[1])],
+        "native_scale_policy": "native_2x_on_half_target_seed",
+        "v2_output_preserved": True,
+        "quality_certified": False,
+        "visual_quality_certified": False,
+        "print_quality_certified": False,
+        "human_review_required": True,
+        "privacy": {
+            "paths_included": False,
+            "commands_included": False,
+            "logs_included": False,
+            "image_pixels_included": False,
+        },
+    }
+    report_path = Path(report_path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = report_path.with_name(report_path.name + "." + uuid4().hex + ".tmp")
+    try:
+        temporary.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, report_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return report_path
 
 
 def map_protected_effect_regions(regions, source_size, target_size, resize_mode="fit"):
@@ -379,6 +500,9 @@ def maybe_run_four_engine_assist(
     output_dir: Path | None = None
     persistent_output_dir = False
     sidecar: Path | None = None
+    qa_evidence_report: Path | None = None
+    source_sha256: str | None = None
+    v2_reference_sha256: str | None = None
     try:
         source_size, source_mode, _source_metadata = inspect_image(
             original, orient=True
@@ -395,6 +519,10 @@ def maybe_run_four_engine_assist(
                 "v2_output_preserved": True,
                 "quality_certified": False,
             }
+        # Bind the original source and accepted V2 files to this bridge invocation.
+        # Only hashes are retained; local paths and customer pixels are never recorded.
+        source_sha256 = _sha256_file(original)
+        v2_reference_sha256 = _sha256_file(baseline)
         # Native CLIs are fixed at 2x. Build their input from exactly half of
         # the accepted V2 canvas. The original source-to-target ratio may be
         # custom or anisotropic: resize_mode applies the same stretch/fit
@@ -533,6 +661,7 @@ def maybe_run_four_engine_assist(
                 )
                 fusion["output"] = str(cropped)
                 private_output = str(cropped)
+                qa_evidence_report = output_dir / "four_engine_qa_evidence.json"
         else:
             # Intermediate candidates remain in a private temporary directory.
             # Retain only the QA PNG beside V2; the approved raster stays intact.
@@ -564,6 +693,7 @@ def maybe_run_four_engine_assist(
                     )
                     fusion["output"] = str(sidecar)
                     private_output = str(sidecar)
+                    qa_evidence_report = sidecar.with_name(sidecar.stem + ".qa.json")
 
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
@@ -591,6 +721,16 @@ def maybe_run_four_engine_assist(
         device_binding = dict(device_binding) if isinstance(device_binding, dict) else {}
         device_binding["runtime_device_use_verified"] = runtime_verified
         device_binding["per_engine_runtime_device_use_verified"] = per_engine_runtime
+        if private_output is not None and qa_evidence_report is not None:
+            qa_evidence_report = _write_qa_evidence_report(
+                qa_evidence_report,
+                result,
+                source_sha256=source_sha256 or "",
+                v2_reference_sha256=v2_reference_sha256 or "",
+                qa_image=Path(private_output),
+                source_size=source_size,
+                target_size=target_size,
+            )
         return {
             "status": (
                 "four_engine_fusion_preview_ready"
@@ -605,6 +745,7 @@ def maybe_run_four_engine_assist(
             ),
             "completed_engine_count": result.get("completed_engine_count", 0),
             "four_engine_fusion_output": private_output,
+            "qa_evidence_report": str(qa_evidence_report) if qa_evidence_report else None,
             "four_engine_fusion_details": {
                 "mean_abs_detail_delta": fusion.get("mean_abs_detail_delta"),
                 "engine_detail_contribution_mean_abs": fusion.get("engine_detail_contribution_mean_abs"),
@@ -640,12 +781,16 @@ def maybe_run_four_engine_assist(
             shutil.rmtree(output_dir, ignore_errors=True)
         if sidecar is not None:
             sidecar.unlink(missing_ok=True)
+        if qa_evidence_report is not None:
+            qa_evidence_report.unlink(missing_ok=True)
         return {"status": "cancelled", "v2_output_preserved": True}
     except GPUDeviceBindingError as exc:
         if persistent_output_dir and output_dir is not None:
             shutil.rmtree(output_dir, ignore_errors=True)
         if sidecar is not None:
             sidecar.unlink(missing_ok=True)
+        if qa_evidence_report is not None:
+            qa_evidence_report.unlink(missing_ok=True)
         _LOG.warning(
             "Optional V2.1.1 four-engine GPU binding blocked (%s)",
             type(exc).__name__,
@@ -662,6 +807,8 @@ def maybe_run_four_engine_assist(
             shutil.rmtree(output_dir, ignore_errors=True)
         if sidecar is not None:
             sidecar.unlink(missing_ok=True)
+        if qa_evidence_report is not None:
+            qa_evidence_report.unlink(missing_ok=True)
         # Native exception messages can include customer filenames, LOCALAPPDATA
         # locations, or command details. Keep diagnostics useful without logging
         # or returning the sensitive message.

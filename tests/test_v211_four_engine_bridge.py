@@ -1727,3 +1727,79 @@ def test_jpeg_webp_exif_orientation_is_header_only_without_full_decode(
     assert raw_size == (64, 32)
     assert raw_mode == "RGB"
 
+
+
+def test_real_four_engine_preview_writes_path_free_evidence_sidecar(tmp_path, monkeypatch):
+    import hashlib
+    import json
+
+    source, baseline = _images(tmp_path)
+    before = baseline.read_bytes()
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(tmp_path / "manifest.json"))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
+    from tools import v211_four_engine_run
+
+    def sha(path):
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def fake_run(seed, output_dir, manifest, size, *, real_engines, v2_reference, **kwargs):
+        output = Path(output_dir) / "four_engine_fused_preview.png"
+        with Image.open(v2_reference) as reference:
+            reference.save(output, format="PNG")
+        candidate_hashes = {
+            name: hashlib.sha256(name.encode("ascii")).hexdigest()
+            for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
+        }
+        return {
+            "ready_for_fusion_research": True,
+            "real_engine_manifest_preflight_passed": True,
+            "source_sha256": sha(seed),
+            "v2_reference_sha256": sha(v2_reference),
+            "runtime_device_use_verified": True,
+            "per_engine_runtime_device_use_verified": {
+                name: True for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
+            },
+            "completed_engine_count": 4,
+            "completed_engine_names": ["real_esrgan", "waifu2x", "real_cugan", "anime4k"],
+            "candidate_sha256": candidate_hashes,
+            "fusion_implemented": True,
+            "four_engine_fusion": {
+                "fusion_implemented": True,
+                "all_four_engine_candidates_consumed": True,
+                "all_four_engine_pixels_contributed": True,
+                "engine_pixel_effect_verified": {
+                    name: True for name in candidate_hashes
+                },
+                "engine_pixel_effect_pixels": {
+                    name: 12 for name in candidate_hashes
+                },
+                "output": str(output),
+                "output_sha256": sha(output),
+            },
+            "failures": {},
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", fake_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+
+    assert result["status"] == "four_engine_fusion_preview_ready"
+    assert result["quality_certified"] is False
+    assert result["v2_output_preserved"] is True
+    assert result["qa_evidence_report"]
+    evidence_path = Path(result["qa_evidence_report"])
+    assert evidence_path.is_file()
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    qa_path = Path(result["four_engine_fusion_output"])
+    assert evidence["source_sha256"] == sha(source)
+    assert evidence["v2_reference_sha256"] == sha(baseline)
+    assert evidence["qa_image_sha256"] == sha(qa_path)
+    assert evidence["runtime_device_use_verified"] is True
+    assert evidence["all_four_engine_pixels_contributed"] is True
+    assert evidence["quality_certified"] is False
+    assert str(tmp_path) not in json.dumps(evidence)
+    assert baseline.read_bytes() == before

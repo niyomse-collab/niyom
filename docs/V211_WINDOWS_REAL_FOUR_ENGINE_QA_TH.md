@@ -736,3 +736,15 @@ This section supersedes earlier historical statements in this document that limi
 - NVIDIA-SMI ต้องพบ GTX 1660 Ti หนึ่งตัวพอดี, memory reading ต้องอยู่ในช่วงที่ถูกต้อง และ total VRAM ต้องไม่น้อยกว่า 5,500 MiB; ต้องพบ vulkan-1.dll ใน System32 ด้วย.
 - JSON เพิ่มจำนวน runner service/listener, owner verification, จำนวน adapter match และผลตรวจ capacity. manifest_hashes_verified=false และ github_runner_labels_verified_locally=false ยังคงเป็นค่าบังคับ: local script ไม่ได้แทนการตรวจ Manifest SHA256 ใน packaged diagnostic หรือการยืนยัน label ใน GitHub.
 - Script ไม่ดาวน์โหลดโมเดล, ไม่เปลี่ยน service/registry/driver, ไม่เปิด Native Engine, ไม่แตะภาพลูกค้า และไม่เขียนไฟล์. สถานะ ready หมายถึง local prerequisites เท่านั้น ไม่ใช่การอนุมัติให้เริ่ม self-hosted job; ต้องมี exact Candidate BUILD_PROOF และ explicit owner consent แยกต่างหาก.
+
+
+## 22 พฤศจิกายน 2569 — local V2 vs Four-Engine A/B review pack
+
+- The V2.1.1 bridge now writes a small companion .qa.json beside each accepted QA sidecar only after all four native child processes are verified on the selected GTX 1660 Ti and every engine contributes to the fused pixels. It contains SHA256 bindings for the original source, accepted V2 raster, QA PNG, native seed/reference and four engine candidates; it contains no file paths, command lines, logs or image pixels.
+- tools/v211_four_engine_ab_report.py consumes the original source, accepted V2 PNG, V2.1.1 QA PNG and companion evidence JSON. It verifies source/V2/candidate hashes, four-engine contribution, physical adapter evidence, equal dimensions, RGB/RGBA mode, exact ICC/DPI and exact V2 alpha before creating review images.
+- Run locally on the shop PC, using a new output directory outside the repository:
+  ~~~powershell
+  python tools/v211_four_engine_ab_report.py --source "D:\private\source.png" --v2-reference "D:\private\accepted-v2.png" --candidate "D:\private\accepted-v2.V211-4AI-QA-12345678.png" --evidence "D:\private\accepted-v2.V211-4AI-QA-12345678.qa.json" --output-dir "$env:LOCALAPPDATA\NiyomSilp\V211-FourAI-QA\AB-Review"
+  ~~~
+- Output includes a full-image side-by-side contact sheet, default 3×3 review crops (or explicit --crop x,y,width,height selections), and ab_report.json. Images above 18 MP are read with bounded libvips regions; no customer pixels are uploaded or written into Git.
+- The report measures pixel differences only. It never labels a candidate better, never certifies visual/print quality, and requires human review. It records that the bridge binds the source and accepted V2 files to one invocation but does not independently prove the historical generation of the accepted V2 raster.

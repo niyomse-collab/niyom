@@ -510,6 +510,7 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         "native_tiled_inference": result.get("native_tiled_inference"),
         "quality_certified": False,
         "source_sha256": _sha256(source),
+        "v2_reference_sha256": _sha256(v2_reference) if v2_reference is not None else None,
         "candidate_sha256": {item.engine: _sha256(item.path) for item in result["candidates"]},
         "candidates": {item.engine: str(item.path) for item in result["candidates"]},
         "failures": {
@@ -559,6 +560,7 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
                     preserve_all_v2_effects=preserve_all_v2_effects,
                     cancel_check=cancel,
                 )
+                fusion["output_sha256"] = _sha256(Path(fusion["output"]))
                 report["four_engine_fusion"] = fusion
                 report["fusion_implemented"] = bool(fusion["fusion_implemented"])
             except InterruptedError:
