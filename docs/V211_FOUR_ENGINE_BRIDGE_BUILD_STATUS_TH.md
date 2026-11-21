@@ -1337,3 +1337,44 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - The successful frozen candidate validates packaging, dispatch, consent/uninstall synthetic fixtures, source provenance and installer slices. It does **not** certify interactive install/uninstall on the shop PC, GPU adapter binding, 4/4 inference on the GTX 1660 Ti, 6 GiB VRAM stress, cancellation under native load, >18 MP native inference, visual A/B, Photoshop/MainTop or physical print quality.
 - The >18 MP path remains disk-backed with 512 px tiles, 32 px overlap, seam checks, disk reserve and cancellation; source-level GPU policy remains 6,144 MiB budget / 512 MiB reserve / 2,048 MiB minimum free prelaunch VRAM. These are guardrails, not measured stress results. Overall 4x print geometry still uses a half-target seed plus one native 2x pass; it is not native 4x or multipass AI.
 - No exact-head affirmative consent for a shop self-hosted GPU run was supplied; no shop PC/runner was accessed. PR #20 and PR #18 remain Draft/unmerged. V2 remains accepted master. No V1/V2 Stable edits, merge, release, customer images, native binaries or model weights committed; no quality-superiority claim.
+
+
+## 21 พฤศจิกายน 2569 14:25 ICT — Exact-head Candidate #1009 / Core #1661 / Archive #335
+
+### PR identity and source scope
+- PR #20 remains **OPEN / DRAFT / UNMERGED** on `work/v211-four-engine-v2-bridge-20261103`, exact head `940ca3f02982bc9ae711b28d403e2c191ab9573a`, base `feature/v2.1.1-super-ai` at `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- PR #18 remains **OPEN / DRAFT / UNMERGED**, head `288dd8501c230a118d9a7e60d2522a2cc7411bcc`, base `fix/v21-real-quality` at `104b380b7e7283471c41643216311ff2c4661c6c`.
+- Compare from code/test HEAD `8ac897eff7d409bde3c910a173aa9fab0600f6be` to current PR head `940ca3f02982bc9ae711b28d403e2c191ab9573a`: **3 commits, one changed file only**, this status document (**+130 / -0**). No Production Source, tests, workflow, PyInstaller spec or installer inputs changed after the code/test HEAD.
+- Current PR has 79 changed files relative to its base. No merge/release action was taken.
+
+### Windows Candidate #1009 — SUCCESS 2/2
+- [GitHub Actions #1009](https://github.com/niyomse-collab/niyom/actions/runs/44874710218), exact PR HEAD `940ca3f`: both `bridge-tests` and `windows-v2-candidate` completed **SUCCESS**.
+- Bridge/Fusion/coordination tests: **432 passed**. Privacy/provisioning/hash tests: **69 passed**.
+- Frozen checks passed: V2 imports; synthetic Inno Setup consent/failure/uninstall lifecycle; single-page BigTIFF and streamed libvips QA; packaged provisioning `--check-only` without downloads; isolated consented cache cleanup and cross-profile rejection; diagnostic help dispatch; read-only shop-runner diagnostic parsing; BUILD_PROOF/source provenance and every installer-slice SHA256; artifact upload.
+- Build log explicitly reports `icc_preserved=true`, `dpi_preserved=true`, and `accepted_v2_sha256_unchanged=true`. This is fixture/provenance evidence, not a shop-PC image-quality or print test.
+- Installer SHA256: `2fa089c1705f06997ab90db5dec713c86b04fb243bdc33009c0061d0213a5e61`.
+- Experimental artifact ID **14696098806**, size **2,584,795,201 bytes**, ZIP SHA256 `b2f8c25da75bb035898ca80c9822642a762ad61e152da7cc39851a99f0a56be2`; expires **28 Nov 2026 13:48:36 ICT**. [Download Candidate #1009](https://github.com/niyomse-collab/niyom/actions/runs/44874710218/artifacts/14696098806).
+- Non-fatal PyInstaller warnings remain: missing `expecttest`, generated `pycparser.lextab/yacctab`, `scipy.special._cdflib`, driver-provided `nvcuda.dll`, and optional Numba `tbb12.dll`. Do not bundle guessed driver/runtime DLLs; verify runtime relevance on the shop PC.
+
+### Independent Core #1661 — SUCCESS on Windows and Ubuntu
+- [Actions #1661](https://github.com/niyomse-collab/niyom/actions/runs/44874710307): Windows **1,101 passed / 1 skipped**; Ubuntu **1,099 passed / 3 skipped**. Pytest and compileall passed on both.
+
+### Official Archive Audit #335 — SUCCESS, with explicit license boundary
+- [Actions #335](https://github.com/niyomse-collab/niyom/actions/runs/44874710193): **32 archive/audit checks** and **11 provisioning tests** passed. Four official Windows archives were downloaded, hash-audited and transactionally provisioned into ephemeral QA storage. Manifest loaded exactly `real_esrgan`, `waifu2x`, `real_cugan`, `anime4k`.
+- Archive SHA256 values remain: Real-ESRGAN `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (observed CI pin, no publisher digest); Waifu2x `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (published digest); Real-CUGAN `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (observed CI pin, no publisher digest); Anime4KCPP `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (published digest).
+- All retrieved upstream license documents were hashed. Audit flags remain `all_upstream_digests_pinned=false`, `model_weights_and_license_certified=false`, and `license_redistribution_approved=false`. Do not redistribute or bundle model weights on this evidence.
+
+### Native CLI Smoke #451 — classified diagnostic, not GPU acceptance
+- [Actions #451](https://github.com/niyomse-collab/niyom/actions/runs/44874710210) completed **SUCCESS as a classified diagnostic** after invoking official binaries on synthetic RGB and RGBA/ICC/300-DPI inputs.
+- Real-CUGAN and Anime4KCPP produced validated native 2x synthetic outputs, but actual GPU adapter binding was **not** verified. Real-ESRGAN failed Vulkan initialization (`vkCreateInstance failed -9`); Waifu2x hit the same Vulkan failure plus access violation `0xC0000005`.
+- Both input cases report `completed_engine_count=2`, `candidate_output_validation_complete=false`, `real_inference_verified=false`, and `quality_improvement_verified=false`. NVIDIA DXGI adapter was absent; per-process GPU/VRAM verification was zero. The successful workflow conclusion means known Hosted Runner limitations were classified, not that all four engines passed.
+- Diagnostic JSON artifact ID **14695097695**; [download from Actions](https://github.com/niyomse-collab/niyom/actions/runs/44874710210/artifacts/14695097695).
+
+### GFPGAN preservation — direct 9/9 Blob SHA recheck
+- Compared each protected file at PR #20 base `288dd8501c230a118d9a7e60d2522a2cc7411bcc` against exact PR #20 head `940ca3f02982bc9ae711b28d403e2c191ab9573a`. **9/9 Git Blob SHAs are identical**: face workflow; `face_protection.py`, `detection.py`, `selection.py`, `face_module/__init__.py`, `large_faces.py`, `v211_face_contract.py`, `test_v211_face_contract.py`, and `test_v211_large_face_audit.py`.
+- HAT execution remains a separate compatibility choice; this 9/9 check specifically establishes byte identity of the protected GFPGAN/face files.
+
+### Acceptance boundary
+- Candidate #1009 certifies frozen packaging, dispatch fixtures, provenance and installer slice hashes only. It does **not** certify interactive install/uninstall on the shop PC, four-engine GPU inference on Windows 11 GTX 1660 Ti, per-process adapter binding, 6 GiB VRAM stress, cancellation under native load, >18 MP native processing, visual A/B, Photoshop/MainTop or physical print quality.
+- Existing source policy remains 512 px tiles / 32 px overlap, 6,144 MiB VRAM budget / 512 MiB reserve / 2,048 MiB minimum free prelaunch check. These are guardrails, not measured shop-PC stress results. Overall 4x output still uses a half-target seed followed by one native 2x pass; it is not native 4x or multipass AI.
+- PR #20 and PR #18 remain OPEN/DRAFT/UNMERGED. V2 remains accepted master. No V1/V2 Stable edits, merge, release, customer images, native binaries or model weights committed; no quality-superiority claim.
