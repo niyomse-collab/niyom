@@ -1378,3 +1378,47 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - Candidate #1009 certifies frozen packaging, dispatch fixtures, provenance and installer slice hashes only. It does **not** certify interactive install/uninstall on the shop PC, four-engine GPU inference on Windows 11 GTX 1660 Ti, per-process adapter binding, 6 GiB VRAM stress, cancellation under native load, >18 MP native processing, visual A/B, Photoshop/MainTop or physical print quality.
 - Existing source policy remains 512 px tiles / 32 px overlap, 6,144 MiB VRAM budget / 512 MiB reserve / 2,048 MiB minimum free prelaunch check. These are guardrails, not measured shop-PC stress results. Overall 4x output still uses a half-target seed followed by one native 2x pass; it is not native 4x or multipass AI.
 - PR #20 and PR #18 remain OPEN/DRAFT/UNMERGED. V2 remains accepted master. No V1/V2 Stable edits, merge, release, customer images, native binaries or model weights committed; no quality-superiority claim.
+
+
+## 21 พฤศจิกายน 2569 15:17 ICT — Exact-head Candidate #1011 / Core #1665 / Archive #337 / Native CLI #453
+
+### PR identity and source delta
+- PR #20 remains **OPEN / DRAFT / UNMERGED** on `work/v211-four-engine-v2-bridge-20261103`, exact checked HEAD `6612b0cd38a97a35455c9e76b4bd31a67741156b`; base remains PR #18 head `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- PR #18 remains **OPEN / DRAFT / UNMERGED**. No merge or release action was taken.
+- Compare from the previous documented HEAD `940ca3f02982bc9ae711b28d403e2c191ab9573a` to `6612b0c`: **2 commits / 3 files** — the manual shop-evidence workflow (+2/-1), its workflow-contract test (+1), and this status document (+41). No production engine, fusion, adapter, installer, or PyInstaller spec source changed in this delta.
+- The shop-evidence workflow correction now allows this status document in its candidate-source freshness allowlist while retaining the explicit consent marker / workflow-dispatch confirmation requirement. A push without `[shop-gpu-evidence yes candidate=<40-character-SHA>]` runs only the hosted status job and does not schedule the physical shop runner.
+
+### Windows Candidate #1011 — SUCCESS 2/2 on exact PR HEAD
+- [GitHub Actions #1011](https://github.com/niyomse-collab/niyom/actions/runs/44880538286): event `pull_request`, branch `work/v211-four-engine-v2-bridge-20261103`, head SHA `6612b0c`; both `bridge-tests` and `windows-v2-candidate` completed **SUCCESS**.
+- Bridge/Fusion/coordination tests: **432 passed**. Privacy/provisioning/hash tests: **69 passed**.
+- Frozen candidate checks passed: synthetic download retry/fail-closed fault injection; V2-based experimental build; synthetic Inno Setup no-consent / explicit-consent / failure / uninstall lifecycle; frozen V2 imports; BigTIFF + streamed libvips QA; packaged provisioning `--check-only` without downloads; isolated consented cache cleanup; diagnostic `--help`; read-only shop-runner diagnostic parsing; provenance verifier syntax; exact BUILD_PROOF/source SHA; installer-slice SHA256 verification; artifact upload.
+- Build version: **2.1.1-beta.1011**. Workspace guard reported `v1_files_preserved=true`, `stable_v2_files_preserved=true`; package QA reported `icc_preserved=true`, `dpi_preserved=true`, and `accepted_v2_sha256_unchanged=true`.
+- Installer SHA256 from the Windows build log: `0b348edcdfcb415a19166416a83ea3fe16eda91c1fbb64fd10a11ff2f13b4415`.
+- Experimental artifact ID **14698846562**, size **2,584,812,774 bytes**, artifact ZIP SHA256 `4f2dc7061ead012476306a5992907d83bd7058976fd08ad826721a1fa2bddeef`; expires **28 พ.ย. 2569 15:01 ICT**. [Download Candidate #1011](https://github.com/niyomse-collab/niyom/actions/runs/44880538286/artifacts/14698846562).
+- Candidate #1011 is an exact-head frozen-package/provenance pass with synthetic lifecycle fixtures. It does **not** certify interactive shop installation, physical GPU inference, image-quality improvement, or print acceptance.
+
+### Independent Core #1665 — SUCCESS on exact PR HEAD
+- [GitHub Actions #1665](https://github.com/niyomse-collab/niyom/actions/runs/44880538333): Windows **1,101 passed / 1 skipped**; Ubuntu **1,099 passed / 3 skipped**. Pytest and compileall passed on both platforms.
+
+### Official Archive Audit #337 — SUCCESS with license boundary retained
+- [GitHub Actions #337](https://github.com/niyomse-collab/niyom/actions/runs/44880538258): **32 archive/audit checks + 11 provisioning checks passed**. All four official Windows archives were downloaded, hash-audited, safely inspected and transactionally provisioned in ephemeral QA storage; `all_provenance_checks_passed=true`.
+- Official release asset metadata was rechecked. Waifu2x 20250915 and Anime4KCPP v3.2.0 publish SHA256 digests matching the audited pins. The GitHub release API still returns `digest=null` for the selected Real-ESRGAN v0.2.5.0 and Real-CUGAN 20220728 Windows ZIP assets; their hashes remain **observed CI pins**, not publisher digests.
+- The audit explicitly retains `model_weights_and_license_certified=false` and `license_redistribution_approved=false`. Retrieved source-license text and archive hashes do not establish every model-weight/third-party right or permission to redistribute. No native binaries or model weights are committed or bundled.
+
+### Native CLI Smoke #453 — classified diagnostic only, not GPU acceptance
+- [GitHub Actions #453](https://github.com/niyomse-collab/niyom/actions/runs/44880538325) completed workflow SUCCESS after classifying the known hosted Windows runner limitations; it is **not** four-engine GPU acceptance.
+- Official binaries were invoked on synthetic RGB and RGBA/ICC/300-DPI PNGs. Real-CUGAN and Anime4KCPP produced validated native 2x outputs. Real-ESRGAN failed Vulkan initialization (`vkCreateInstance failed -9`); Waifu2x had the same Vulkan initialization failure plus `0xC0000005`.
+- Both synthetic cases report `completed_engine_count=2`, `candidate_output_validation_complete=false`, `real_inference_verified=false`, `quality_improvement_verified=false`, and `runtime_vram_budget_passed=false`. Physical adapter verification remains **0/4**. This is a hosted-runner limitation classification; it neither negates nor re-certifies the owner's earlier Windows 11 GTX 1660 Ti tests.
+
+### PR #18 / GFPGAN preservation — direct exact-head Blob SHA check
+- Compared the following nine protected files at PR #20 base / PR #18 head `288dd8501c230a118d9a7e60d2522a2cc7411bcc` against exact PR #20 HEAD `6612b0c`. All **9/9 Git Blob SHAs are identical**: face workflow; `face_protection.py`, `detection.py`, `selection.py`, `face_module/__init__.py`, `large_faces.py`, `v211_face_contract.py`, `test_v211_face_contract.py`, and `test_v211_large_face_audit.py`.
+- Shared app/core integration files are not included in this byte-identity count; their face-safety contract remains covered by the adapter regressions. PR #20 continues to disable the HAT Assist execution route as a separate compatibility difference; this is not a GFPGAN file modification.
+
+### Large-image / scale / memory — source and CI coverage, not hardware certification
+- Current source uses the disk-backed path above 18 MP, libvips region reads, **512 px native tiles / 32 px overlap**, overlap-seam validation, worst-case disk reservation, per-tile cancellation and streamed PNG output. The fusion pass also processes bounded tiles and writes a separate atomic QA PNG.
+- Runtime policy remains **6,144 MiB device-wide VRAM budget**, **512 MiB reserve**, and **2,048 MiB minimum free VRAM before each native process**. These are guardrails and CI-tested logic, not measured peak VRAM under four real engines on the shop GPU.
+- Overall source-to-print 4x geometry still creates a half-target seed and performs one native 2x pass per engine. It is **not native 4x or multi-pass 8x inference**. Unsupported modes/depths and formats remain V2-only.
+- No affirmative exact-head shop-GPU consent marker was supplied; no self-hosted shop runner or local PC was accessed. Native 4/4 inference on the GTX 1660 Ti, runtime adapter binding, 6 GiB stress, cancellation under native load, >18 MP real inference, visual A/B across people/animals/objects/Thai-English-Chinese lettering/flat fills/gradients/RGBA, Photoshop/MainTop and physical print remain **NOT CERTIFIED**.
+
+### Acceptance boundary
+- PR #20 and PR #18 remain OPEN/DRAFT/UNMERGED. V2 remains the accepted master. No V1/V2 Stable edits, merge, release, customer artwork, native binaries or model weights committed; no claim that V2.1.1 quality exceeds V2.
