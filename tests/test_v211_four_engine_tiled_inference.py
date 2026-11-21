@@ -405,3 +405,51 @@ def test_tiled_runner_checks_nearest_existing_output_ancestor_for_disk_space(
     assert observed_paths == [output_volume]
     assert not output.exists()
 
+
+
+
+def test_streamed_seed_maps_four_x_print_target_to_native_two_x_seed(tmp_path):
+    """A 4x print target is prepared as a half-target seed for one native 2x pass."""
+    pytest.importorskip("pyvips")
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
+
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source = tmp_path / "source-1500x1000.png"
+    baseline = tmp_path / "accepted-v2-6000x4000.png"
+    Image.new("RGB", (1500, 1000), (38, 82, 126)).save(
+        source, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    # 24 MP target: four times the original dimensions in each axis.
+    Image.new("RGB", (6000, 4000), (38, 82, 126)).save(
+        baseline, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    accepted_v2_bytes = baseline.read_bytes()
+    seed_path = reference_path = None
+    try:
+        seed_path, reference_path, target_size, padded_size, source_size, metadata = (
+            prepare_native_2x_inputs_streamed(
+                source, baseline, tmp_path / "four-x-seed-work",
+                resize_mode="stretch",
+            )
+        )
+        assert source_size == (1500, 1000)
+        assert target_size == padded_size == (6000, 4000)
+        assert metadata["icc_profile"] == profile
+
+        # The bridge resamples the source to half the final target, then all
+        # four native engines perform one exact 2x pass over bounded tiles.
+        with Image.open(seed_path) as seed:
+            assert seed.size == (3000, 2000)
+            assert seed.mode == "RGB"
+            assert seed.info["icc_profile"] == profile
+            assert seed.info["dpi"][0] == pytest.approx(300, abs=0.1)
+        with Image.open(reference_path) as reference:
+            assert reference.size == (6000, 4000)
+            assert reference.mode == "RGB"
+            assert reference.info["icc_profile"] == profile
+        assert baseline.read_bytes() == accepted_v2_bytes
+    finally:
+        if seed_path is not None:
+            seed_path.unlink(missing_ok=True)
+        if reference_path is not None:
+            reference_path.unlink(missing_ok=True)
