@@ -66,7 +66,7 @@ This check is reported separately from NCNN/Vulkan eligibility. It must not be u
 - เมื่อครบ 4 engines และ fusion ผ่านการตรวจ จะสร้างไฟล์ QA แยกชื่อ `*.V211-4AI-QA-*.png` และแสดงใน Preview ด้านขวา ไฟล์ V2 ไม่ถูกแทนที่
 - คำสั่ง Cancel ถูกส่งไปยัง native subprocess; บน Windows ใช้การหยุด process tree และบน POSIX หยุด process group พร้อมตรวจ Cancel ระหว่าง fusion tiles
 - หากยกเลิก/ล้มเหลว ให้ลบ partial candidates และคงไฟล์ V2 เดิม; ถ้าใช้ Evidence Directory แบบส่วนตัว โฟลเดอร์งานที่ยกเลิกจะถูกล้าง
-- งาน Four-Engine ขนาดปกติรองรับ RGB/RGBA PNG/JPEG/TIFF เมื่อผ่านการตรวจ mode, ICC, alpha และ output contract. **Disk-backed Four-Engine สำหรับงานเกิน 18MP รองรับเฉพาะ PNG** ทั้ง source, accepted V2 reference และ native candidates; ใช้ libvips random-access regions, native tile runner, streamed fusion และ streamed QA crop. JPEG/TIFF เกิน 18MP, CMYK, PDF, PSD และไฟล์ที่ libvips อ่านไม่ได้ให้คง V2 เดิมโดยไม่เรียก auxiliary engines. ขีดจำกัด streamed path คือไม่เกิน 1,000 MP, row buffer ไม่เกิน 64 MiB และต้องผ่าน disk-space preflight.
+- [Historical note — superseded by the 20 Nov source correction below] งาน Four-Engine ขนาดปกติรองรับ RGB/RGBA PNG/JPEG/TIFF. Current disk-backed jobs above 18 MP accept RGB/RGBA 8-bit PNG/JPEG/WebP/single-page TIFF/BigTIFF source inputs and PNG/JPEG/single-page TIFF/BigTIFF accepted-V2 rasters; libvips converts them to private PNG seed/reference files, and native tiled inference/fusion consumes PNG intermediates. Native candidates are PNG. Multi-page TIFF, CMYK, unsupported bit depths, PDF/PSD and files libvips cannot read remain V2-only. Streamed limits remain 1,000 MP, 64 MiB per row and a disk-space preflight.
 - ทุก Native Engine ยังประมวลผลเพียง 2x หนึ่ง pass จาก seed ครึ่งขนาดของเป้าหมาย ดังนั้นเป้าหมายภาพ 4x/8x เป็นเพียงขนาดปลายทางของ candidate ไม่ใช่ Native 4x/8x หรือ multi-pass inference
 - CI ที่ใช้ fake executables หรือ hosted runner ไม่มี Vulkan ไม่ใช่หลักฐาน real inference หรือคุณภาพบน GTX 1660 Ti; ต้องทดสอบบนเครื่องร้านและตรวจภาพ A/B จริงก่อนรับรอง
 
@@ -121,7 +121,7 @@ if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "ไม่พบ�
 
 ข้อจำกัดที่ต้องไม่สับสน:
 - เป้าหมาย 4x/8x เป็นขนาดภาพปลายทางที่สร้างจาก seed ครึ่งขนาดและใช้ Native 2x เพียงหนึ่ง pass ไม่ใช่ Native 4x/8x หรือ multi-pass inference
-- งาน RGB/RGBA **PNG** เกิน 18MP มี disk-backed Four-Engine route ใน source branch; JPEG/TIFF ขนาดดังกล่าวยังคงใช้ V2 เท่านั้น. ผล CI เป็น synthetic/fake-processor evidence ไม่ใช่ real inference บน GTX 1660 Ti และยังไม่รับรอง VRAM 6GB หรือคุณภาพงานพิมพ์
+- [Historical pre-20 Nov format note; superseded by the final source correction] Current >18 MP source/V2 format allowlists are documented in the final section below. The CI described here remains synthetic/fake-processor evidence, not real inference on the GTX 1660 Ti and not 6 GB VRAM or print-quality certification.
 - รายงาน JSON นี้เป็นหลักฐานการรัน CLI เท่านั้น การยืนยันคุณภาพยังต้อง A/B ภาพ V2 เทียบ QA และให้เจ้าของร้านตรวจด้วยตา
 
 
@@ -556,7 +556,7 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 
 ### BigTIFF / large image scope
 - Candidate frozen smoke ตรวจ single-page BigTIFF, streamed libvips seed/QA, multipage TIFF rejection, ICC/DPI, odd crop และ accepted V2 hash preservation ด้วย synthetic files.
-- Large-job path ยอมรับ single-page 8-bit RGB/RGBA TIFF/BigTIFF ผ่าน bridge ที่สร้าง private PNG seed/reference; Native tiled runner/fusion ใช้ PNG intermediates. JPEG/WebP, multipage TIFF, CMYK, PDF/PSD และ bit depth ที่ไม่รองรับยัง V2-only.
+- [Historical pre-20 Nov format note; superseded by the final source correction] Current large source and accepted-V2 formats are listed in the final source-correction section. The native tiled runner/fusion still consumes private PNG intermediates. Multipage TIFF, CMYK, PDF/PSD and unsupported bit depths remain V2-only.
 - Disk-backed path ใช้ tile/streaming และมี pixel/disk guards; synthetic smoke ไม่ใช่ native >18MP GPU stress หรือ peak-VRAM 6GB proof.
 - Native engine ทำ 2x หนึ่ง pass บน half-target seed; target 4x/8x ไม่ใช่ native 4x/8x multi-pass.
 
@@ -671,7 +671,7 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 
 บันทึกส่วนก่อนหน้านี้บางย่อหน้าเป็นประวัติของ implementation รุ่นก่อนหน้า ให้ยึดพฤติกรรมจาก Source HEAD ปัจจุบันดังนี้:
 
-- **Large image >18 MP:** Four-Engine Bridge รองรับ source และ accepted V2 เป็น PNG หรือ single-page 8-bit RGB/RGBA TIFF/BigTIFF ตาม `_LARGE_STREAMED_FORMATS` และ `_assert_single_page_tiff`. Bridge ใช้ libvips อ่านแบบ random access แล้วสร้าง private PNG seed/reference; tiled native runner จึงรับ PNG intermediates. JPEG/WebP ขนาดใหญ่, multi-page TIFF, CMYK และ bit depth ที่ไม่รองรับยังคงใช้ V2-only. ข้อความเก่าที่ระบุว่า large Four-Engine รองรับเฉพาะ PNG และ TIFF ต้องใช้ V2-only ไม่ตรงกับ Source HEAD นี้แล้ว
+- **Large image >18 MP (historical summary superseded by the final source correction):** The current allowlists are `_LARGE_STREAMED_SOURCE_FORMATS` and `_LARGE_STREAMED_V2_FORMATS` in `signprint_ai/v211_four_engine_bridge.py`. Source inputs accept RGB/RGBA 8-bit PNG/JPEG/WebP/single-page TIFF/BigTIFF; accepted V2 rasters accept PNG/JPEG/single-page TIFF/BigTIFF. libvips creates private PNG seed/reference intermediates, and native tiled inference/fusion consumes PNG. Multi-page TIFF, CMYK and unsupported bit depths remain V2-only.
 - **Native scale:** เป้าหมาย 2x/3x/4x/8x หรือ anisotropic เป็นขนาดปลายทางของ V2 canvas; native executable แต่ละตัวทำเพียงหนึ่ง 2x pass บน seed ครึ่งขนาดของ V2 target. จึงไม่ใช่ native 4x/8x หรือ multi-pass inference. Disk-backed tiled runner จำกัด native pass ที่ 2x และตรวจ overlap/seam ก่อน fusion.
 - **GPU binding:** persistent installed manifest ไม่จำเป็นต้องมี device index คงที่. ก่อนเริ่มงาน Bridge สร้าง ephemeral bound manifest: Real-ESRGAN, Waifu2x และ Real-CUGAN ได้ Vulkan `-g` index ที่ตรวจพบแบบไม่กำกวม; Anime4KCPP ได้ processor `-p cuda` หรือ `-p opencl` และ device `-d` จาก inventory ของ Anime4KCPP. ไฟล์ manifest ที่ติดตั้งถาวรไม่ถูกแก้ไข. การเห็นชื่อ adapter ใน inventory หรือการตั้งค่า CLI ยังไม่ใช่หลักฐาน runtime; ต้องตรวจ PID/backend telemetry ระหว่าง process จริงของแต่ละ Engine.
 - **Backend distinction:** Anime4KCPP ไม่ใช่ NCNN/Vulkan. การตรวจ Vulkan readiness ใช้กับสาม NCNN engines เท่านั้น; Anime4KCPP ต้องพิสูจน์ CUDA/OpenCL device ที่เลือกและ telemetry ของ process แยกต่างหาก. ข้อความก่อนหน้าที่บอกว่า runtime manifest ไม่ส่ง `-p/-d` ให้ Anime4KCPP เป็นข้อมูลของ manifest ก่อน runtime binding.
@@ -719,12 +719,12 @@ The job still requires top-level and per-engine `runtime_device_use_verified=tru
 
 This section supersedes earlier historical statements in this document that limited the >18 MP auxiliary route to PNG or marked large JPEG/WebP inputs as V2-only.
 
-- At PR #20 code/test HEAD `a9f84b517f4b8cf133932b4d74102a916b299e97`, `signprint_ai/v211_four_engine_bridge.py` defines large source formats as RGB/RGBA 8-bit PNG, JPEG, WebP, and single-page TIFF/BigTIFF. Accepted V2 raster formats are PNG, JPEG, and single-page TIFF/BigTIFF. WebP is supported as a large **source** format, not as an accepted V2 output format.
+- At PR #20 current HEAD `60a7705f480670c93c6728b95734c097a003d67f` (the large-format source/test files are unchanged since `a9f84b517f4b8cf133932b4d74102a916b299e97`), `signprint_ai/v211_four_engine_bridge.py` defines large source formats as RGB/RGBA 8-bit PNG, JPEG, WebP, and single-page TIFF/BigTIFF. Accepted V2 raster formats are PNG, JPEG, and single-page TIFF/BigTIFF. WebP is supported as a large **source** format, not as an accepted V2 output format.
 - `signprint_ai/v211_large_image_bridge.py` reads the source and accepted V2 raster through libvips random-access graphs and creates private PNG seed/reference intermediates. `tools/v211_four_engine_tiled_inference.py` continues to consume PNG intermediates only; it does not decode the original large JPEG/WebP/TIFF in Pillow.
 - TIFF/BigTIFF must contain exactly one page. CMYK, multipage TIFF, unsupported bit depths/modes, PDF/PSD, and formats outside the allowlists remain V2-only. Source and accepted V2 mode/ICC presence and bytes must satisfy the existing fail-closed metadata contract.
 - Regression `test_large_bridge_streams_real_over_18mp_rasters_without_pillow_decode` uses synthetic 4,501 × 4,001 rasters (**18,008,501 pixels**) for JPEG/WebP/PNG source and PNG/JPEG accepted-V2 combinations. It asserts that Pillow does not decode the full large raster, checks half-target seed/reference geometry, ICC and 300-DPI metadata, and confirms the accepted V2 file remains byte-identical. The test deliberately stops at runtime GPU binding (`gpu_binding_unverified`); it does **not** launch the four native engines, prove GPU use, measure peak VRAM, or certify image quality.
 - JPEG/WebP EXIF orientation preflight also has a regression that reads orientation from container metadata without invoking a full pixel decode.
-- Candidate #990 separately passed the frozen single-page 24 MP BigTIFF seed/reference/streamed-QA smoke. That package smoke does not run native AI inference on the 24 MP image.
+- Candidate #990 previously passed the frozen single-page 24 MP BigTIFF seed/reference/streamed-QA smoke. On current HEAD, Windows Candidate #1014 also passed the frozen BigTIFF/libvips QA step ([Actions #1014](https://github.com/niyomse-collab/niyom/actions/runs/44905348360)). These package smokes do not run native AI inference on the 24 MP image.
 - Native execution remains one 2× pass per engine on a half-target seed. A final 3×/4×/8× target size is not native 3×/4×/8× inference or multi-pass super-resolution. Real >18 MP GPU stress, per-process GTX 1660 Ti adapter proof, 6 GB peak-VRAM measurement, cancellation during native load, visual A/B, Photoshop/MainTop and print acceptance remain open.
 
 
