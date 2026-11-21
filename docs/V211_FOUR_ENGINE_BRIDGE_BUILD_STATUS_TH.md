@@ -1252,3 +1252,39 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - No affirmative exact-head consent for the shop self-hosted GPU runner was supplied; no shop runner or local shop PC was accessed.
 - Native 4/4 inference on Windows 11 GTX 1660 Ti, per-process adapter binding, 6 GiB stress/cancellation under native load, >18 MP native processing, visual A/B across people/animals/objects/Thai-English-Chinese lettering/gradients/RGBA, Photoshop/MainTop and physical print acceptance remain **NOT CERTIFIED**.
 - PR #20 and PR #18 remain OPEN/DRAFT/UNMERGED. V2 remains the accepted master. No V1/V2 Stable changes, merge, release, customer artwork, native binaries or model weights committed; no quality-superiority claim.
+
+
+## 21 พฤศจิกายน 2569 12:25 ICT — Exact-head Candidate #1007 / CI refresh
+
+### PR identity and source delta
+- PR #20 remains **OPEN / DRAFT / UNMERGED** on `work/v211-four-engine-v2-bridge-20261103`; exact PR HEAD at this check: `692c787e9ea17719da4d27c3b422ae49fd2d6269`.
+- PR #18 remains **OPEN / DRAFT / UNMERGED** at base/head `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- Compare from the previous code/test HEAD `8ac897eff7d409bde3c910a173aa9fab0600f6be` to PR HEAD `692c787e9ea17719da4d27c3b422ae49fd2d6269` shows exactly **one documentation file** changed: this status document (+45 / -0). Production source, tests, PyInstaller spec, workflows and installer inputs are unchanged. Candidate #1007 therefore rebuilds the same production/test baseline with exact current PR provenance.
+
+### Windows Candidate #1007 — SUCCESS 2/2
+- [Actions #1007](https://github.com/niyomse-collab/niyom/actions/runs/44864298654): both `bridge-tests` and `windows-v2-candidate` completed SUCCESS on exact PR HEAD `692c787`.
+- Bridge/Fusion/coordination: **432 passed**; privacy/provisioning/hash: **69 passed**.
+- Frozen checks passed: V2 imports, synthetic Inno Setup no-consent/affirmative-consent/failure/uninstall lifecycle, single-page BigTIFF/libvips QA dispatch, packaged four-engine provisioning `--check-only` without downloads, isolated model-cache cleanup, diagnostic help dispatch, PowerShell syntax, exact BUILD_PROOF/source SHA, every installer-slice SHA256 and artifact upload.
+- Candidate version: `2.1.1-beta.1007`. Workspace guard: `v1_files_preserved=true`, `stable_v2_files_preserved=true`; provenance: `accepted_v2_sha256_unchanged=true`.
+- Installer SHA256: `7243134470eac4e79ed4f1e5f045d4bb377d33e2af2a2398f1beaa71a831a3e4`.
+- Artifact ID **14691916745**, size **2,584,752,504 bytes**, ZIP SHA256 `e73646ce66e777bd7073181c8aaf300f56ad6ba92cebc748cba37b5d0b0f7cb3`; expires **28 พ.ย. 2569 11:30 ICT**. [Download Candidate #1007](https://github.com/niyomse-collab/niyom/actions/runs/44864298654/artifacts/14691916745).
+- This remains an experimental frozen-package/provenance pass, not interactive shop installation, native GPU, visual-quality or print acceptance.
+
+### Exact-head regression and provenance
+- [Independent Core #1657](https://github.com/niyomse-collab/niyom/actions/runs/44864298691): SUCCESS. Windows **1,101 passed / 1 skipped**; Ubuntu **1,099 passed / 3 skipped**; pytest and compileall passed on both platforms.
+- [Official Archive Audit #333](https://github.com/niyomse-collab/niyom/actions/runs/44864298671): SUCCESS; **32 archive checks + 11 provisioning checks**. All four official archives were downloaded, hash-audited and transactionally provisioned into ephemeral QA storage; manifest validation reported exactly `real_esrgan`, `waifu2x`, `real_cugan`, `anime4k`.
+- Archive SHA256: Real-ESRGAN `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (observed CI pin; no publisher digest); Waifu2x `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (published digest); Real-CUGAN `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (observed CI pin; no publisher digest); Anime4KCPP `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (published digest).
+- All upstream license documents were retrieved and hashed. `all_upstream_digests_pinned=false`, `model_weights_and_license_certified=false`, and `license_redistribution_approved=false` remain false. Do not bundle or redistribute native binaries/weights on this evidence.
+
+### Native CLI Smoke #449 — diagnostic only
+- [Actions #449](https://github.com/niyomse-collab/niyom/actions/runs/44864298718) completed SUCCESS because known hosted-runner limitations were explicitly classified; this is **not** four-engine GPU acceptance.
+- On synthetic RGB and RGBA/ICC/300-DPI inputs, Real-CUGAN and Anime4KCPP each produced validated native 2x outputs. Real-ESRGAN failed Vulkan initialization (`vkCreateInstance failed -9`); Waifu2x encountered the same Vulkan failure plus access violation `0xC0000005`.
+- Each case reported `completed_engine_count=2`; Real-CUGAN/Anime4K outputs passed synthetic validation, while Real-ESRGAN/Waifu2x did not. NVIDIA adapter verification was **0/4**, NVML/VRAM telemetry was unavailable, runtime VRAM guard was not enabled, `real_inference_verified=false`, and `quality_improvement_verified=false`. The hosted-runner failure does not override the user's earlier Windows 11 GTX 1660 Ti experience, but it cannot certify the shop PC either.
+- JSON-only diagnostic artifact ID **14690922737**, size **3,472 bytes**; [download report](https://github.com/niyomse-collab/niyom/actions/runs/44864298718/artifacts/14690922737).
+
+### GFPGAN / fusion / large-image acceptance boundary
+- PR #20's compare against its PR #18 base contains no changes to the protected GFPGAN/face modules, large-face handler, face contract or their protected tests/workflow. The previously verified **9/9 byte-identical** face-protection set remains applicable because the only delta since the prior exact-head source audit is documentation.
+- The four-engine fusion implementation is wired after all four candidate outputs and is guarded by per-process runtime adapter evidence; fusion reports `quality_certified=false` and writes a separate experimental QA PNG, never over the accepted V2 raster. Missing/unmapped face or styled-effect protection stays V2-only.
+- The >18 MP route remains disk-backed (libvips, 512 px tiles, 32 px overlap, seam checks, disk reserve and cancellation). Source-to-print custom scales use one native 2x pass on a half-target seed; this is not native 4x/8x or multi-pass AI. The 6,144 MiB device-wide budget, 512 MiB reserve and 2,048 MiB prelaunch free-VRAM minimum are source-level guardrails, not measured shop-PC stress results.
+- No affirmative exact-head shop-GPU consent was supplied; no self-hosted runner or shop PC was accessed. Native 4/4 on GTX 1660 Ti, per-process adapter binding, 6 GiB stress/cancellation, >18 MP native inference, visual A/B across people/animals/objects/Thai-English-Chinese lettering/gradients/RGBA, Photoshop/MainTop and physical print remain **NOT CERTIFIED**.
+- PR #20 and PR #18 remain OPEN/DRAFT/UNMERGED. V2 remains accepted master. No V1/V2 Stable edits, merge, release, customer images or native binaries/weights committed; no quality-superiority claim.
