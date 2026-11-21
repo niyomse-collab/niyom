@@ -1288,3 +1288,52 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - The >18 MP route remains disk-backed (libvips, 512 px tiles, 32 px overlap, seam checks, disk reserve and cancellation). Source-to-print custom scales use one native 2x pass on a half-target seed; this is not native 4x/8x or multi-pass AI. The 6,144 MiB device-wide budget, 512 MiB reserve and 2,048 MiB prelaunch free-VRAM minimum are source-level guardrails, not measured shop-PC stress results.
 - No affirmative exact-head shop-GPU consent was supplied; no self-hosted runner or shop PC was accessed. Native 4/4 on GTX 1660 Ti, per-process adapter binding, 6 GiB stress/cancellation, >18 MP native inference, visual A/B across people/animals/objects/Thai-English-Chinese lettering/gradients/RGBA, Photoshop/MainTop and physical print remain **NOT CERTIFIED**.
 - PR #20 and PR #18 remain OPEN/DRAFT/UNMERGED. V2 remains accepted master. No V1/V2 Stable edits, merge, release, customer images or native binaries/weights committed; no quality-superiority claim.
+
+
+## 21 พฤศจิกายน 2569 13:13 ICT — Exact-head Candidate #1008 / Core #1659 / Archive #334
+
+### PR identity and exact source scope
+- PR #20 remains **OPEN / DRAFT / UNMERGED** on `work/v211-four-engine-v2-bridge-20261103`, exact head `26f0910c15fcba79a875aa13567c974ba91e0572`, base branch `feature/v2.1.1-super-ai` at `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- PR #18 remains **OPEN / DRAFT / UNMERGED**; its head is the exact base SHA of PR #20. PR #18's own base is `fix/v21-real-quality` at `104b380b7e7283471c41643216311ff2c4661c6c`.
+- Compare from code/test HEAD `8ac897eff7d409bde3c910a173aa9fab0600f6be` to current PR head `26f0910c15fcba79a875aa13567c974ba91e0572` reports two documentation commits and exactly one changed file: this status document (**+81 / -0**). No production source, tests, PyInstaller spec, workflow, or installer inputs changed after the code/test HEAD.
+- Candidate #1008 was triggered by exact PR head `26f0910`; GitHub Actions checked out merge ref `f63d36b16ea9918b0d7803c4618e5f32fb9dfc3f` (PR head merged into base for the test run).
+
+### Windows Candidate #1008 — SUCCESS 2/2
+- [Actions #1008](https://github.com/niyomse-collab/niyom/actions/runs/44871202982): both `bridge-tests` and `windows-v2-candidate` completed **SUCCESS**.
+- Bridge/Fusion/coordination: **432 passed**; privacy/provisioning/manifest/hash: **69 passed**.
+- Frozen candidate steps passed: V2 import smoke; synthetic Inno Setup no-consent/explicit-consent/failure/uninstall lifecycle; single-page BigTIFF and streamed libvips QA; packaged provisioning `--check-only` without downloads; isolated consented cache cleanup and cross-profile rejection; packaged diagnostic dispatch; read-only shop-runner/provenance parsing; BUILD_PROOF and installer-slice SHA256 verification; artifact upload.
+- Build version: **2.1.1-beta.1008**. Workspace guard: `v1_files_preserved=true`, `stable_v2_files_preserved=true`; provenance log: `accepted_v2_sha256_unchanged=true`.
+- Installer SHA256: `dad734919a74f98e95dabfaca2dc6f8df91759ea6a09f98a0b575d662c9ead62`.
+- Experimental artifact ID **14695146905**, size **2,584,749,141 bytes**; artifact ZIP SHA256 `797c4a108447b86abeccc0bb4e79deed525711a6bc9481369bfb836b0f24bde9`; expires **28 Nov 2026 13:03 ICT**. [Download Candidate #1008](https://github.com/niyomse-collab/niyom/actions/runs/44871202982/artifacts/14695146905).
+- PyInstaller emitted non-fatal warnings for missing `expecttest` (torch testing-only submodule), `pycparser.lextab/yacctab`, `scipy.special._cdflib`, driver-provided `nvcuda.dll`, and `tbb12.dll` referenced by Numba's optional TBB extension. Frozen import/provisioning/diagnostic and installer provenance checks passed. Do not bundle a guessed NVIDIA driver DLL or random TBB runtime; runtime relevance still needs shop-PC validation.
+
+### Independent Core #1659 — SUCCESS on both platforms
+- [Actions #1659](https://github.com/niyomse-collab/niyom/actions/runs/44871203042): Windows **1,101 passed / 1 skipped**; Ubuntu **1,099 passed / 3 skipped**; pytest and compileall passed on both.
+
+### Official Archive Audit #334 — SUCCESS
+- [Actions #334](https://github.com/niyomse-collab/niyom/actions/runs/44871202988): **32 archive checks + 11 provisioning checks** passed. All four official Windows archives were downloaded, audited, SHA256-checked, and transactionally provisioned into ephemeral QA storage; the verified manifest contains `real_esrgan`, `waifu2x`, `real_cugan`, and `anime4k`.
+- Real-ESRGAN and Real-CUGAN still use observed CI archive pins without publisher-provided archive digests; Waifu2x and Anime4KCPP match published digests. All retrieved upstream license documents were hashed, but `all_upstream_digests_pinned=false`, `model_weights_and_license_certified=false`, and `license_redistribution_approved=false` remain false. This is provenance evidence, not permission to redistribute weights.
+
+### Native CLI Smoke #450 — classified diagnostic only
+- [Actions #450](https://github.com/niyomse-collab/niyom/actions/runs/44871202999) completed **SUCCESS as a classified diagnostic**, not as 4/4 GPU or quality acceptance. The workflow downloaded and verified the official archives, then invoked the official binaries on synthetic RGB and RGBA/ICC/300-DPI PNGs.
+- Real-CUGAN and Anime4KCPP reported validated native 2x synthetic outputs; adapter use was not verified. Real-ESRGAN failed Vulkan initialization (`vkCreateInstance failed -9`); Waifu2x had the same Vulkan failure plus access violation `0xC0000005`.
+- Both cases report `completed_engine_count=2`, `candidate_output_validation_complete=false`, `real_inference_verified=false`, and `quality_improvement_verified=false`. NVIDIA adapter verification is **0/4**; runtime VRAM guard/telemetry was not enabled or measured. The two classified hosted-runner failures explain the diagnostic conclusion and do not establish shop-GPU failure or success.
+- JSON-only evidence artifact ID **14693584361**, size **3,430 bytes**, ZIP SHA256 `43f4db88ccd7de5d77b031f59a35660fadd65bee5f32b34ac53feca9a2ed4276`. [Download diagnostic report](https://github.com/niyomse-collab/niyom/actions/runs/44871202999/artifacts/14693584361).
+
+### PR #18 / GFPGAN preservation — direct current-head recheck
+- Compared Git Blob SHA for each protected file at PR #20 base `288dd8501c230a118d9a7e60d2522a2cc7411bcc` against current PR #20 head `26f0910c15fcba79a875aa13567c974ba91e0572`. Result: **9/9 byte-identical**:
+  - `.github/workflows/verify-v211-face.yml`
+  - `signprint_ai/face_module/face_protection.py`
+  - `signprint_ai/face_module/detection.py`
+  - `signprint_ai/face_module/selection.py`
+  - `signprint_ai/face_module/__init__.py`
+  - `signprint_ai/large_faces.py`
+  - `signprint_ai/v211_face_contract.py`
+  - `tests/test_v211_face_contract.py`
+  - `tests/test_v211_large_face_audit.py`
+- PR #18 itself contains its earlier HAT Assist / face-safety work; PR #20 intentionally disables the HAT execution route as a separate compatibility choice. This is not a GFPGAN file modification.
+
+### Acceptance boundary
+- The successful frozen candidate validates packaging, dispatch, consent/uninstall synthetic fixtures, source provenance and installer slices. It does **not** certify interactive install/uninstall on the shop PC, GPU adapter binding, 4/4 inference on the GTX 1660 Ti, 6 GiB VRAM stress, cancellation under native load, >18 MP native inference, visual A/B, Photoshop/MainTop or physical print quality.
+- The >18 MP path remains disk-backed with 512 px tiles, 32 px overlap, seam checks, disk reserve and cancellation; source-level GPU policy remains 6,144 MiB budget / 512 MiB reserve / 2,048 MiB minimum free prelaunch VRAM. These are guardrails, not measured stress results. Overall 4x print geometry still uses a half-target seed plus one native 2x pass; it is not native 4x or multipass AI.
+- No exact-head affirmative consent for a shop self-hosted GPU run was supplied; no shop PC/runner was accessed. PR #20 and PR #18 remain Draft/unmerged. V2 remains accepted master. No V1/V2 Stable edits, merge, release, customer images, native binaries or model weights committed; no quality-superiority claim.
