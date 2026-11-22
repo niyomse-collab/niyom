@@ -157,3 +157,19 @@ def test_styled_effect_guard_rejects_mismatched_edge_arrays():
             np.zeros((8, 8), dtype=np.float32),
             np.zeros((8, 7), dtype=np.float32),
         )
+
+def test_detached_halo_does_not_dilate_onto_adjacent_single_hard_edge():
+    """A detached soft halo must not freeze its neighbouring single hard edge."""
+    base = np.full((64, 64, 3), (90, 90, 90), dtype=np.uint8)
+    narrow = np.zeros((64, 64), dtype=np.float32)
+    wide = np.zeros((64, 64), dtype=np.float32)
+
+    # One sharp vertical edge at x=32, with a broad-only response 12 px away.
+    # The detached band is protected, but the adjacent hard edge stays eligible.
+    narrow[:, 32] = 4.0
+    wide[:, 20] = 3.0
+
+    guard = _styled_effect_guard_mask(base.astype(np.float32), narrow, wide)
+
+    assert guard[:, 20].all()
+    assert not guard[:, 32].any()
