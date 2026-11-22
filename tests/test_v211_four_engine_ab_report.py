@@ -3,8 +3,11 @@ import hashlib
 import json
 from pathlib import Path
 
+import numpy as np
+import tifffile
 from PIL import Image, ImageCms
 
+from tools import v211_four_engine_ab_report as ab_report
 from tools.v211_four_engine_ab_report import ENGINES, run
 
 
@@ -173,3 +176,108 @@ def test_ab_report_rejects_output_inside_repository(tmp_path):
         assert "outside the Git repository" in str(exc)
     else:
         raise AssertionError("A/B artifacts must never be written into the repository")
+
+
+def _write_tiff_reference(v2_png: Path, tiff_path: Path, *, bigtiff=False):
+    with Image.open(v2_png) as image:
+        pixels = np.asarray(image).copy()
+        profile = image.info.get("icc_profile")
+        dpi = image.info.get("dpi")
+    options = {
+        "photometric": "rgb",
+        "planarconfig": "contig",
+        "resolution": tuple(float(value) for value in dpi),
+        "resolutionunit": "INCH",
+        "iccprofile": profile,
+        "metadata": None,
+        "bigtiff": bigtiff,
+    }
+    if pixels.shape[-1] == 4:
+        options["extrasamples"] = "unassalpha"
+    tifffile.imwrite(tiff_path, pixels, **options)
+    return tiff_path
+
+
+def _rebind_v2_evidence(evidence: Path, v2_reference: Path):
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["v2_reference_sha256"] = _sha(v2_reference)
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_ab_report_accepts_single_page_tiff_v2_reference_against_png_candidate(
+    tmp_path, monkeypatch
+):
+    source, v2_png, candidate, evidence = _fixture(tmp_path)
+    v2_tiff = _write_tiff_reference(v2_png, tmp_path / "accepted-v2.tif")
+    _rebind_v2_evidence(evidence, v2_tiff)
+    hashes_before = (_sha(source), _sha(v2_tiff), _sha(candidate))
+    output = tmp_path / "ab-tiff-review"
+
+    report = run(source, v2_tiff, candidate, evidence, output)
+
+    assert report["status"] == "ready_for_human_review"
+    assert report["v2_reference_format"] == "TIFF"
+    assert report["v2_reference_is_bigtiff"] is False
+    assert report["candidate_format"] == "PNG"
+    assert report["tiff_region_access"] is True
+    assert report["metrics"]["alpha_exact_match"] is True
+    assert report["icc_profile_match"] is True
+    assert report["dpi_match"] is True
+    assert report["quality_certified"] is False
+    assert (output / "ab_contact_sheet.png").is_file()
+    assert hashes_before == (_sha(source), _sha(v2_tiff), _sha(candidate))
+
+
+def test_ab_report_accepts_bigtiff_v2_reference_with_forced_streaming(
+    tmp_path, monkeypatch
+):
+    source, v2_png, candidate, evidence = _fixture(tmp_path)
+    v2_bigtiff = _write_tiff_reference(
+        v2_png, tmp_path / "accepted-v2-bigtiff.tif", bigtiff=True
+    )
+    _rebind_v2_evidence(evidence, v2_bigtiff)
+    monkeypatch.setattr(ab_report, "MAX_RGBA_VALIDATION_PIXELS", 1)
+    output = tmp_path / "ab-bigtiff-review"
+
+    report = run(source, v2_bigtiff, candidate, evidence, output)
+
+    assert report["status"] == "ready_for_human_review"
+    assert report["v2_reference_format"] == "TIFF"
+    assert report["v2_reference_is_bigtiff"] is True
+    assert report["streamed_large_image"] is True
+    assert report["streamed_raster_access"] is True
+    assert report["metrics"]["alpha_exact_match"] is True
+    assert report["quality_certified"] is False
+    assert (output / "ab_contact_sheet.png").is_file()
+
+
+def test_ab_report_rejects_multipage_tiff_v2_reference(tmp_path):
+    source, v2_png, candidate, evidence = _fixture(tmp_path)
+    pixels = np.zeros((24, 32, 3), dtype=np.uint8)
+    v2_tiff = tmp_path / "accepted-v2-multipage.tif"
+    with tifffile.TiffWriter(v2_tiff) as writer:
+        writer.write(pixels, photometric="rgb", metadata=None)
+        writer.write(pixels, photometric="rgb", metadata=None)
+    _rebind_v2_evidence(evidence, v2_tiff)
+    output = tmp_path / "ab-multipage-blocked"
+
+    report = run(source, v2_tiff, candidate, evidence, output)
+
+    assert report["status"] == "blocked"
+    assert "image_preflight_abreporterror" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
+
+
+def test_ab_report_rejects_16bit_tiff_v2_reference(tmp_path):
+    source, v2_png, candidate, evidence = _fixture(tmp_path)
+    pixels = np.zeros((24, 32, 3), dtype=np.uint16)
+    v2_tiff = tmp_path / "accepted-v2-16bit.tif"
+    tifffile.imwrite(v2_tiff, pixels, photometric="rgb", metadata=None)
+    _rebind_v2_evidence(evidence, v2_tiff)
+    output = tmp_path / "ab-16bit-blocked"
+
+    report = run(source, v2_tiff, candidate, evidence, output)
+
+    assert report["status"] == "blocked"
+    assert "image_preflight_abreporterror" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
