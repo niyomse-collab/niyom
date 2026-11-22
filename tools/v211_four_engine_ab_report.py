@@ -16,8 +16,8 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 from tools.v211_four_engine_fusion import (
-    MAX_RGBA_VALIDATION_PIXELS, MAX_STREAMED_PIXELS,
-    _FusionRaster, _open_fusion_image,
+    MAX_PNG_ICC_BYTES, MAX_RGBA_VALIDATION_PIXELS, MAX_STREAMED_PIXELS,
+    MAX_STREAMED_ROW_BYTES, _FusionRaster, _open_fusion_image,
 )
 
 ENGINES = ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
@@ -60,10 +60,115 @@ def _dpi_equal(left, right) -> bool:
         return False
 
 
+TIFF_SUFFIXES = {".tif", ".tiff", ".btf"}
+
+
+def _tiff_tag_value(page, code: int):
+    tag = page.tags.get(code)
+    return None if tag is None else tag.value
+
+
+def _tiff_rational(value) -> float:
+    if isinstance(value, (tuple, list)) and len(value) == 2:
+        numerator, denominator = value
+        denominator = float(denominator)
+        if denominator == 0:
+            raise ABReportError("TIFF resolution rational has a zero denominator")
+        return float(numerator) / denominator
+    return float(value)
+
+
+def _is_tiff_alpha_extra(value) -> bool:
+    name = str(getattr(value, "name", "")).upper()
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError, OverflowError):
+        numeric = -1
+    return name in ("ASSOCALPHA", "UNASSALPHA") or numeric in (1, 2)
+
+
+def _tiff_metadata(path: Path) -> dict:
+    try:
+        import tifffile
+    except ImportError as exc:
+        raise ABReportError("tifffile is required for TIFF/BigTIFF A/B references") from exc
+
+    with tifffile.TiffFile(str(path)) as tif:
+        if len(tif.pages) != 1:
+            raise ABReportError("A/B TIFF reference must contain exactly one page")
+        page = tif.pages[0]
+        shape = tuple(int(value) for value in page.shape)
+        if page.dtype != np.dtype("uint8"):
+            raise ABReportError("A/B TIFF reference must be 8-bit")
+        if int(page.photometric) != 2:
+            raise ABReportError("A/B TIFF reference must use RGB photometric data")
+        samples = int(page.samplesperpixel or 1)
+        if len(shape) != 3 or shape[2] != samples:
+            raise ABReportError("planar or non-interleaved TIFF is not supported for A/B")
+        if samples == 3:
+            mode = "RGB"
+        elif samples == 4 and any(_is_tiff_alpha_extra(item) for item in (page.extrasamples or ())):
+            mode = "RGBA"
+        else:
+            raise ABReportError("A/B TIFF reference must be RGB or RGBA with an explicit alpha tag")
+
+        height, width = shape[:2]
+        if (width < 1 or height < 1 or width * height > MAX_STREAMED_PIXELS
+                or width * samples > MAX_STREAMED_ROW_BYTES):
+            raise ABReportError("A/B TIFF reference exceeds the safe streaming limits")
+
+        orientation = _tiff_tag_value(page, 274)
+        if orientation not in (None, 1):
+            raise ABReportError("rotated TIFF orientation must be normalized before A/B")
+
+        icc_value = _tiff_tag_value(page, 34675)
+        if icc_value is None:
+            icc_profile = None
+        elif isinstance(icc_value, (bytes, bytearray)):
+            icc_profile = bytes(icc_value)
+            if not icc_profile or len(icc_profile) > MAX_PNG_ICC_BYTES:
+                raise ABReportError("TIFF ICC profile is empty or exceeds the safe metadata limit")
+        else:
+            raise ABReportError("TIFF ICC profile tag is not a byte stream")
+
+        x_tag = _tiff_tag_value(page, 282)
+        y_tag = _tiff_tag_value(page, 283)
+        unit_tag = _tiff_tag_value(page, 296)
+        if (x_tag is None) != (y_tag is None):
+            raise ABReportError("TIFF X/Y resolution tags must either both exist or both be absent")
+        dpi = None
+        if x_tag is not None:
+            x_resolution = _tiff_rational(x_tag)
+            y_resolution = _tiff_rational(y_tag)
+            unit = 1 if unit_tag is None else int(unit_tag)
+            if unit == 2:
+                dpi = (x_resolution, y_resolution)
+            elif unit == 3:
+                dpi = (x_resolution * 2.54, y_resolution * 2.54)
+            elif unit != 1:
+                raise ABReportError("TIFF resolution unit is unsupported")
+            if dpi is not None and (
+                not all(math.isfinite(value) and value > 0 for value in dpi)
+            ):
+                raise ABReportError("TIFF print resolution is invalid")
+
+        return {
+            "size": (width, height),
+            "mode": mode,
+            "icc_profile": icc_profile,
+            "dpi": dpi,
+            "format": "TIFF",
+            "is_bigtiff": bool(tif.is_bigtiff),
+        }
+
+
 def _metadata(path: Path) -> dict:
+    path = Path(path)
+    if path.suffix.lower() in TIFF_SUFFIXES:
+        return _tiff_metadata(path)
     with _open_fusion_image(path) as image:
         if image.format != "PNG" or image.mode not in ("RGB", "RGBA"):
-            raise ABReportError("A/B rasters must be 8-bit RGB/RGBA PNG")
+            raise ABReportError("A/B candidate must be 8-bit RGB/RGBA PNG; V2 reference may also be TIFF/BigTIFF")
         width, height = image.size
         if width < 1 or height < 1 or width * height > MAX_STREAMED_PIXELS:
             raise ABReportError("A/B raster exceeds the safe streaming pixel limit")
@@ -72,6 +177,8 @@ def _metadata(path: Path) -> dict:
             "mode": image.mode,
             "icc_profile": image.info.get("icc_profile"),
             "dpi": image.info.get("dpi"),
+            "format": "PNG",
+            "is_bigtiff": False,
         }
 
 
@@ -225,8 +332,73 @@ def _comparison_sheet(left: Image.Image, right: Image.Image) -> Image.Image:
     return sheet
 
 
+def _open_vips_tiff(path: Path, mode: str, size: tuple[int, int]):
+    try:
+        import pyvips
+    except ImportError as exc:
+        raise ABReportError("pyvips is required for TIFF/BigTIFF region access") from exc
+    image = pyvips.Image.new_from_file(
+        str(path), access="random", fail_on="error", unlimited=True, page=0,
+    )
+    expected_bands = 4 if mode == "RGBA" else 3
+    if ((image.width, image.height) != size or image.format != "uchar"
+            or image.bands != expected_bands):
+        raise ABReportError("libvips TIFF pixels differ from the validated 8-bit RGB/RGBA metadata")
+    return image
+
+
+class _ABRaster:
+    """Bounded crop reader for PNG and single-page TIFF/BigTIFF references."""
+
+    def __init__(self, path: Path, mode: str, size: tuple[int, int], *, use_vips: bool):
+        self.path = Path(path)
+        self.mode = mode
+        self._reader = None
+        self._image = None
+        self._region = None
+        if self.path.suffix.lower() in TIFF_SUFFIXES:
+            import pyvips
+            self._image = _open_vips_tiff(self.path, mode, size)
+            self._region = pyvips.Region.new(self._image)
+        else:
+            self._reader = _FusionRaster(self.path, use_vips=use_vips)
+
+    def crop(self, box: tuple[int, int, int, int]) -> Image.Image:
+        if self._region is None:
+            return self._reader.crop(box)
+        left, top, right, bottom = box
+        width, height = right - left, bottom - top
+        pixels = self._region.fetch(left, top, width, height)
+        expected = width * height * (4 if self.mode == "RGBA" else 3)
+        if len(pixels) != expected:
+            raise ABReportError("libvips returned an incomplete TIFF A/B tile")
+        return Image.frombytes(self.mode, (width, height), pixels)
+
+    def close(self) -> None:
+        self._region = None
+        self._image = None
+        if self._reader is not None:
+            self._reader.close()
+            self._reader = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+        return False
+
+
 def _thumbnail(path: Path, mode: str, size: tuple[int, int], max_edge: int) -> Image.Image:
     width, height = size
+    if Path(path).suffix.lower() in TIFF_SUFFIXES:
+        image = _open_vips_tiff(Path(path), mode, size)
+        scale = min(1.0, float(max_edge) / max(width, height))
+        if scale < 1.0:
+            image = image.resize(scale, kernel="lanczos3")
+        return Image.frombytes(
+            mode, (int(image.width), int(image.height)), image.write_to_memory()
+        )
     if width * height <= MAX_RGBA_VALIDATION_PIXELS:
         with Image.open(path) as image:
             preview = image.copy()
@@ -245,7 +417,7 @@ def _thumbnail(path: Path, mode: str, size: tuple[int, int], max_edge: int) -> I
     scale = min(1.0, float(max_edge) / max(width, height))
     if scale < 1.0:
         image = image.resize(scale, kernel="lanczos3")
-    return Image.frombytes(mode, (image.width, image.height), image.write_to_memory())
+    return Image.frombytes(mode, (int(image.width), int(image.height)), image.write_to_memory())
 
 
 def _compute_metrics(v2_raster, candidate_raster, size, mode) -> dict:
@@ -313,8 +485,11 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
         report["block_reasons"].append("v2_and_candidate_must_be_different_files")
         _write_report(output_dir, report)
         return report
-    if v2_reference.suffix.lower() != ".png" or candidate.suffix.lower() != ".png":
-        report["block_reasons"].append("v2_and_candidate_must_be_png")
+    if (v2_reference.suffix.lower() not in TIFF_SUFFIXES | {".png"}
+            or candidate.suffix.lower() != ".png"):
+        report["block_reasons"].append(
+            "v2_reference_must_be_png_or_tiff_and_candidate_must_be_png"
+        )
         _write_report(output_dir, report)
         return report
     if not 256 <= max_preview_edge <= 4096:
@@ -358,8 +533,8 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
     large = width * height > MAX_RGBA_VALIDATION_PIXELS
     try:
         with (
-            _FusionRaster(v2_reference, use_vips=large) as v2_raster,
-            _FusionRaster(candidate, use_vips=large) as candidate_raster,
+            _ABRaster(v2_reference, v2_info["mode"], v2_info["size"], use_vips=large) as v2_raster,
+            _ABRaster(candidate, candidate_info["mode"], candidate_info["size"], use_vips=large) as candidate_raster,
         ):
             metrics = _compute_metrics(v2_raster, candidate_raster, (width, height), mode)
             report["metrics"] = metrics
@@ -438,6 +613,11 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
         "icc_profile_match": True,
         "dpi_match": True,
         "streamed_large_image": large,
+        "streamed_raster_access": large or v2_info["format"] == "TIFF",
+        "v2_reference_format": v2_info["format"],
+        "v2_reference_is_bigtiff": v2_info["is_bigtiff"],
+        "candidate_format": candidate_info["format"],
+        "tiff_region_access": v2_info["format"] == "TIFF",
         "same_source_generation_proven": False,
         "provenance_scope": (
             "the bridge binds this source and accepted V2 file to the same four-engine "
