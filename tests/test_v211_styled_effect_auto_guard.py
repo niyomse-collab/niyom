@@ -151,7 +151,7 @@ def test_fusion_automatically_preserves_styled_effects_but_keeps_plain_edge_acti
 
 
 def test_styled_effect_guard_rejects_mismatched_edge_arrays():
-    with pytest.raises(ValueError, match="matching 2D edge responses"):
+    with pytest.raises(ValueError, match="matching RGB and 2D edge responses"):
         _styled_effect_guard_mask(
             np.zeros((8, 8, 3), dtype=np.float32),
             np.zeros((8, 8), dtype=np.float32),
