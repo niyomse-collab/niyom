@@ -309,3 +309,115 @@ def test_ab_report_rejects_16bit_tiff_v2_reference(tmp_path):
     assert report["status"] == "blocked"
     assert "image_preflight_abreporterror" in report["block_reasons"]
     assert not (output / "ab_contact_sheet.png").exists()
+
+
+
+def _write_jpeg_rgb_reference(v2_png: Path, jpeg_path: Path, *, exif_orientation=None):
+    with Image.open(v2_png) as image:
+        profile = image.info.get("icc_profile")
+        dpi = image.info.get("dpi")
+        rgb = image.convert("RGB")
+    options = {
+        "format": "JPEG", "quality": 100, "subsampling": 0,
+        "icc_profile": profile, "dpi": dpi,
+    }
+    if exif_orientation is not None:
+        exif = Image.Exif()
+        exif[274] = exif_orientation
+        options["exif"] = exif
+    rgb.save(jpeg_path, **options)
+    rgb.close()
+    return jpeg_path
+
+
+def _write_rgb_png_candidate(candidate_png: Path, rgb_path: Path):
+    with Image.open(candidate_png) as image:
+        profile = image.info.get("icc_profile")
+        dpi = image.info.get("dpi")
+        rgb = image.convert("RGB")
+    rgb.save(rgb_path, format="PNG", icc_profile=profile, dpi=dpi)
+    rgb.close()
+    return rgb_path
+
+
+def _rebind_jpeg_evidence(evidence: Path, v2_reference: Path, candidate: Path):
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["v2_reference_sha256"] = _sha(v2_reference)
+    payload["qa_image_sha256"] = _sha(candidate)
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_ab_report_accepts_rgb_jpeg_v2_reference_against_png_candidate(tmp_path):
+    source, v2_png, candidate_rgba, evidence = _fixture(tmp_path)
+    v2_jpeg = _write_jpeg_rgb_reference(v2_png, tmp_path / "accepted-v2.jpg")
+    candidate = _write_rgb_png_candidate(candidate_rgba, tmp_path / "qa-candidate-rgb.png")
+    _rebind_jpeg_evidence(evidence, v2_jpeg, candidate)
+    hashes_before = (_sha(source), _sha(v2_jpeg), _sha(candidate))
+    output = tmp_path / "ab-jpeg-review"
+
+    report = run(source, v2_jpeg, candidate, evidence, output)
+
+    assert report["status"] == "ready_for_human_review"
+    assert report["v2_reference_format"] == "JPEG"
+    assert report["v2_reference_is_bigtiff"] is False
+    assert report["v2_reference_exif_orientation"] == 1
+    assert report["candidate_format"] == "PNG"
+    assert report["jpeg_region_access"] is False
+    assert report["tiff_region_access"] is False
+    assert report["metrics"]["alpha_exact_match"] is None
+    assert report["icc_profile_match"] is True
+    assert report["dpi_match"] is True
+    assert report["quality_certified"] is False
+    assert (output / "ab_contact_sheet.png").is_file()
+    assert hashes_before == (_sha(source), _sha(v2_jpeg), _sha(candidate))
+
+
+def test_ab_report_uses_tiled_libvips_for_large_jpeg_reference(tmp_path, monkeypatch):
+    source, v2_png, candidate_rgba, evidence = _fixture(tmp_path)
+    v2_jpeg = _write_jpeg_rgb_reference(v2_png, tmp_path / "accepted-v2-large.jpg")
+    candidate = _write_rgb_png_candidate(candidate_rgba, tmp_path / "qa-candidate-large-rgb.png")
+    _rebind_jpeg_evidence(evidence, v2_jpeg, candidate)
+    monkeypatch.setattr(ab_report, "MAX_RGBA_VALIDATION_PIXELS", 1)
+    output = tmp_path / "ab-jpeg-tiled-review"
+
+    report = run(source, v2_jpeg, candidate, evidence, output)
+
+    assert report["status"] == "ready_for_human_review"
+    assert report["v2_reference_format"] == "JPEG"
+    assert report["streamed_large_image"] is True
+    assert report["streamed_raster_access"] is True
+    assert report["jpeg_region_access"] is True
+    assert report["tiff_region_access"] is False
+    assert report["quality_certified"] is False
+    assert (output / "ab_contact_sheet.png").is_file()
+
+
+def test_ab_report_rejects_cmyk_jpeg_v2_reference(tmp_path):
+    source, v2_png, candidate_rgba, evidence = _fixture(tmp_path)
+    cmyk = Image.new("CMYK", (32, 24), (0, 0, 0, 0))
+    v2_jpeg = tmp_path / "accepted-v2-cmyk.jpg"
+    cmyk.save(v2_jpeg, format="JPEG", quality=95)
+    cmyk.close()
+    _rebind_jpeg_evidence(evidence, v2_jpeg, candidate_rgba)
+    output = tmp_path / "ab-jpeg-cmyk-blocked"
+
+    report = run(source, v2_jpeg, candidate_rgba, evidence, output)
+
+    assert report["status"] == "blocked"
+    assert "image_preflight_abreporterror" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
+
+
+def test_ab_report_rejects_jpeg_with_non_normalized_exif_orientation(tmp_path):
+    source, v2_png, candidate_rgba, evidence = _fixture(tmp_path)
+    v2_jpeg = _write_jpeg_rgb_reference(
+        v2_png, tmp_path / "accepted-v2-rotated.jpg", exif_orientation=6
+    )
+    _rebind_jpeg_evidence(evidence, v2_jpeg, candidate_rgba)
+    output = tmp_path / "ab-jpeg-orientation-blocked"
+
+    report = run(source, v2_jpeg, candidate_rgba, evidence, output)
+
+    assert report["status"] == "blocked"
+    assert "image_preflight_abreporterror" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
