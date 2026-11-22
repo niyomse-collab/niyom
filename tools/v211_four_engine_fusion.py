@@ -48,7 +48,7 @@ STYLED_EFFECT_HALO_RATIO = 0.55
 STYLED_EFFECT_HALO_FLOOR = 1.4
 STYLED_EFFECT_HALO_INNER_RADIUS = 8
 STYLED_EFFECT_HALO_OUTER_RADIUS = 14
-STYLED_EFFECT_CONTOUR_DENSITY = 0.30
+STYLED_EFFECT_CONTOUR_DENSITY = 0.62
 STYLED_EFFECT_CONTOUR_RADIUS = 8
 STYLED_EFFECT_CONTOUR_DILATION = 3
 
@@ -517,8 +517,9 @@ def _styled_effect_guard_mask(
     glow, shadow or emboss classes. It protects only two high-confidence
     structural cues: (1) a broad-only response 8..14 px outside a strong edge,
     consistent with a detached soft halo/shadow; and (2) at least three
-    strong contour samples inside a 17x17 neighbourhood, consistent with
-    layered outlines/bevel bands. Uncertain regions remain under the existing
+    strong contour samples inside a 17x17 neighbourhood adjacent to chromatic
+    fill, consistent with dense layered outlines/bevel bands. Uncertain regions
+    remain under the existing
     gradient/edge gate and manual ROI remains available for wider protection.
     """
     rgb = np.asarray(base_rgb, dtype=np.float32)
