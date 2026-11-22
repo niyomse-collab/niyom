@@ -39,8 +39,8 @@ def _styled_fixture(tmp_path):
 
     # A single hard contour is the positive control: it should remain eligible.
     base = np.empty((128, 128, 3), dtype=np.uint8)
-    base[:, :16] = (70, 70, 70)
-    base[:, 16:] = (170, 170, 170)
+    base[:, :6] = (70, 70, 70)
+    base[:, 6:] = (170, 170, 170)
 
     # A detached soft shadow behind a flattened headline.
     shadow_mask = Image.new("L", (128, 128), 0)
@@ -117,7 +117,7 @@ def test_soft_halo_and_dense_multi_contours_are_detected_locally(tmp_path):
 
     assert guard.any()
     assert guard[24:108, 40:104].any()
-    assert not guard[:, 8:22].any()
+    assert not guard[:, :10].any()
 
 
 def test_fusion_automatically_preserves_styled_effects_but_keeps_plain_edge_active(tmp_path):
@@ -138,7 +138,7 @@ def test_fusion_automatically_preserves_styled_effects_but_keeps_plain_edge_acti
         base[24:108, 40:104],
     )
     # A separate single hard contour remains eligible for bounded fusion.
-    assert np.any(actual[:, 14:19] != base[:, 14:19])
+    assert np.any(actual[:, 4:9] != base[:, 4:9])
     assert report["styled_effect_guard_pixels"] > 0
     assert report["automatic_styled_effect_guard"]["enabled"] is True
     assert report["automatic_styled_effect_guard"][
