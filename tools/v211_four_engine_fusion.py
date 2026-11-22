@@ -4,8 +4,10 @@ Uses validated, independently executed Real-ESRGAN, Waifu2x, Real-CUGAN and
 Anime4K candidate pixels. Only candidate high-frequency luminance details are
 blended into approved V2 colour, not averaged RGB or retyped text. Flat colour,
 smooth gradients, original ICC/DPI and the exact V2 RGBA alpha are retained.
-Optional protected face regions are copied bit-for-bit from V2. This is NOT
-quality approval: human A/B assessment against V2 remains required.
+Optional face/effect regions are copied bit-for-bit from V2. A conservative
+multi-scale guard also blocks local soft-halo and dense multi-contour profiles;
+it is a raster-risk heuristic, not OCR or semantic text/effect recognition.
+This is NOT quality approval: human A/B assessment against V2 remains required.
 """
 from __future__ import annotations
 
@@ -40,6 +42,15 @@ MAX_DETAIL_CHANGE = 6.0
 EDGE_HIGH_PASS_RADIUS = 1.0
 GRADIENT_GUARD_RADIUS = 4.0
 MIN_EDGE_TO_GRADIENT_RESPONSE = 0.15
+STYLED_EFFECT_EDGE_THRESHOLD = 3.0
+STYLED_EFFECT_WIDE_THRESHOLD = 1.0
+STYLED_EFFECT_HALO_RATIO = 0.55
+STYLED_EFFECT_HALO_FLOOR = 1.4
+STYLED_EFFECT_HALO_INNER_RADIUS = 8
+STYLED_EFFECT_HALO_OUTER_RADIUS = 14
+STYLED_EFFECT_CONTOUR_DENSITY = 0.30
+STYLED_EFFECT_CONTOUR_RADIUS = 8
+STYLED_EFFECT_CONTOUR_DILATION = 3
 
 
 def _png_pixel_count_from_header(path: Path) -> int:
@@ -482,6 +493,72 @@ def _gray_highpass(
     return lum - np.asarray(blurred, dtype=np.float32)
 
 
+def _dilate_bool_mask(mask: np.ndarray, radius: int) -> np.ndarray:
+    """Bounded Pillow dilation for a boolean edge mask."""
+    radius = int(radius)
+    values = np.asarray(mask, dtype=np.bool_)
+    if radius <= 0 or not values.any():
+        return values.copy()
+    image = Image.fromarray(values.astype(np.uint8) * 255, mode="L")
+    return np.asarray(
+        image.filter(ImageFilter.MaxFilter(radius * 2 + 1)),
+        dtype=np.uint8,
+    ) > 0
+
+
+def _styled_effect_guard_mask(
+    narrow_highpass: np.ndarray,
+    wide_highpass: np.ndarray,
+) -> np.ndarray:
+    """Conservatively protect local soft-halo and multi-contour raster profiles.
+
+    This is deliberately not OCR and does not claim to identify text, stroke,
+    glow, shadow or emboss classes. It protects only two high-confidence
+    structural cues: (1) a broad-only response 8..14 px outside a strong edge,
+    consistent with a detached soft halo/shadow; and (2) at least three
+    strong contour samples inside a 17x17 neighbourhood, consistent with
+    layered outlines/bevel bands. Uncertain regions remain under the existing
+    gradient/edge gate and manual ROI remains available for wider protection.
+    """
+    narrow = np.abs(np.asarray(narrow_highpass, dtype=np.float32))
+    wide = np.abs(np.asarray(wide_highpass, dtype=np.float32))
+    if narrow.shape != wide.shape or narrow.ndim != 2:
+        raise ValueError("styled-effect guard requires matching 2D edge responses")
+
+    strong = narrow >= STYLED_EFFECT_EDGE_THRESHOLD
+    if not strong.any():
+        return np.zeros(strong.shape, dtype=np.bool_)
+
+    near_inner = _dilate_bool_mask(strong, STYLED_EFFECT_HALO_INNER_RADIUS)
+    near_outer = _dilate_bool_mask(strong, STYLED_EFFECT_HALO_OUTER_RADIUS)
+    outer_band = near_outer & ~near_inner
+    broad_only = (
+        (wide >= STYLED_EFFECT_WIDE_THRESHOLD)
+        & (narrow <= np.maximum(
+            STYLED_EFFECT_HALO_FLOOR,
+            wide * STYLED_EFFECT_HALO_RATIO,
+        ))
+    )
+    halo_band = broad_only & outer_band
+    # If a detached halo exists, also protect the associated sharp contour.
+    halo_guard = halo_band | (
+        strong & _dilate_bool_mask(
+            halo_band, STYLED_EFFECT_HALO_OUTER_RADIUS
+        )
+    )
+
+    edge_image = Image.fromarray(strong.astype(np.uint8) * 255, mode="L")
+    density_image = edge_image.filter(
+        ImageFilter.BoxBlur(STYLED_EFFECT_CONTOUR_RADIUS)
+    )
+    density = np.asarray(density_image, dtype=np.float32) / 255.0
+    multi_contour = strong & (density >= STYLED_EFFECT_CONTOUR_DENSITY)
+    contour_guard = _dilate_bool_mask(
+        multi_contour, STYLED_EFFECT_CONTOUR_DILATION
+    )
+    return halo_guard | contour_guard
+
+
 def _protected_mask(x0: int, y0: int, w: int, h: int,
                     size: tuple[int, int],
                     normalized_regions: tuple[tuple[float, float, float, float], ...]) -> np.ndarray:
@@ -606,6 +683,7 @@ def fuse_four_engine_details(
         edge_pixels = 0
         effective_contributions = {name: 0.0 for name in ENGINES}
         effective_pixel_counts = {name: 0 for name in ENGINES}
+        styled_effect_guard_pixels = 0
         total_pixels = W * H
         # Two-dimensional libvips Region.fetch keeps both axes bounded; Pillow
         # is used only for small images where a full decode stays under 18 MP.
@@ -662,6 +740,14 @@ def fuse_four_engine_details(
                             >= MIN_EDGE_TO_GRADIENT_RESPONSE * np.abs(base_hp_wide)
                         )
                     )
+                    # Automatically protect only high-confidence local effect
+                    # profiles. The manual ROI remains the authoritative way
+                    # to protect a complete known styled headline/logo.
+                    styled_effect_guard = _styled_effect_guard_mask(
+                        base_hp, base_hp_wide
+                    )[center]
+                    styled_effect_guard_pixels += int(styled_effect_guard.sum())
+                    edge_gate &= ~styled_effect_guard
                     # Keep each model's exact weighted term so we can measure
                     # whether removing that model changes final RGB pixels.
                     terms = {
@@ -746,6 +832,16 @@ def fuse_four_engine_details(
         "protected_effect_regions_preserved": bool(protected_effect_regions) or preserve_all_v2_effects,
         "protected_effect_region_count": len(protected_effect_regions),
         "preserve_all_v2_effects": preserve_all_v2_effects,
+        "styled_effect_guard_pixels": styled_effect_guard_pixels,
+        "automatic_styled_effect_guard": {
+            "enabled": True,
+            "method": "multi_scale_soft_halo_and_dense_multi_contour_risk_guard",
+            "guarded_pixels": styled_effect_guard_pixels,
+            "semantic_text_or_effect_classification": False,
+            "confidence": "heuristic_not_calibrated_classifier",
+            "manual_roi_still_recommended_for_complete_styled_regions": True,
+            "human_review_required": True,
+        },
         "edge_pixels_modified_or_considered": edge_pixels,
         "mean_abs_detail_delta": round(mean_delta_sum / max(1, total_pixels), 5),
         "engine_detail_contribution_mean_abs": {
