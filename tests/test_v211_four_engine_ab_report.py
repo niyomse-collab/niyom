@@ -146,6 +146,34 @@ def test_ab_report_fails_closed_when_engine_pixel_effect_count_is_zero(tmp_path)
     assert not (output / "ab_contact_sheet.png").exists()
 
 
+def test_ab_report_fails_closed_when_engine_name_manifest_contains_unhashable_values(tmp_path):
+    source, v2, candidate, evidence = _fixture(tmp_path)
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["completed_engine_names"][-1] = {"unexpected": "mapping"}
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "ab-unhashable-engine-name"
+
+    report = run(source, v2, candidate, evidence, output)
+
+    assert report["status"] == "blocked"
+    assert "four_native_engines_not_complete" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
+
+
+def test_ab_report_requires_an_integer_engine_count(tmp_path):
+    source, v2, candidate, evidence = _fixture(tmp_path)
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["completed_engine_count"] = 4.0
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "ab-non-integer-engine-count"
+
+    report = run(source, v2, candidate, evidence, output)
+
+    assert report["status"] == "blocked"
+    assert "four_native_engines_not_complete" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
+
+
 def test_ab_report_blocks_alpha_mismatch(tmp_path):
     source, v2, candidate, evidence = _fixture(tmp_path, alpha_match=False)
     output = tmp_path / "ab-alpha-mismatch"

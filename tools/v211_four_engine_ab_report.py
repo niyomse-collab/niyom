@@ -206,9 +206,11 @@ def _verify_evidence(
     if evidence.get("qa_image_sha256") != candidate_sha256:
         reasons.append("qa_image_sha256_mismatch")
     names = evidence.get("completed_engine_names")
+    engine_count = evidence.get("completed_engine_count")
     if (
-        evidence.get("completed_engine_count") != 4
+        type(engine_count) is not int or engine_count != 4
         or not isinstance(names, list) or len(names) != 4
+        or any(not isinstance(name, str) for name in names)
         or set(names) != set(ENGINES)
     ):
         reasons.append("four_native_engines_not_complete")
