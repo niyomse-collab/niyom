@@ -1422,3 +1422,49 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 
 ### Acceptance boundary
 - PR #20 and PR #18 remain OPEN/DRAFT/UNMERGED. V2 remains the accepted master. No V1/V2 Stable edits, merge, release, customer artwork, native binaries or model weights committed; no claim that V2.1.1 quality exceeds V2.
+
+
+## 22 พฤศจิกายน 2569 17:53 ICT — exact HEAD f364623 / Candidate #1034
+
+### PR identity and latest commit
+- PR #20 remains **OPEN / DRAFT / UNMERGED** on `work/v211-four-engine-v2-bridge-20261103`.
+- Exact checked branch HEAD: `f3646232349a9212b0970c60c114bcc1310c9dd7`. A direct compare of that SHA against the branch returned **identical / 0 ahead / 0 behind**.
+- Commit `f364623` is test-only: it adds `test_detached_halo_does_not_dilate_onto_adjacent_single_hard_edge` in `tests/test_v211_styled_effect_auto_guard.py`. It proves a detached broad halo protection band does not freeze a neighbouring single hard edge. No production source changed in this commit.
+- The localized halo production change is earlier commit `18b4c5cd348aec474b081b0e9da11a5c6c6fc63a`; the new exact-head regression locks its intended boundary behavior.
+- PR #18 remains OPEN / DRAFT / UNMERGED and is still the base of PR #20 at `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+
+### Independent Core #1711 — SUCCESS on exact HEAD
+- [GitHub Actions #1711](https://github.com/niyomse-collab/niyom/actions/runs/45005400932): both Windows and Ubuntu jobs completed successfully.
+- Windows: **1,128 passed / 1 skipped**. Ubuntu: **1,126 passed / 3 skipped**. `compileall` passed on both platforms.
+
+### Windows Candidate #1034 — SUCCESS 2/2 on exact HEAD
+- [GitHub Actions #1034](https://github.com/niyomse-collab/niyom/actions/runs/45005401343): `bridge-tests` and `windows-v2-candidate` both completed **SUCCESS** for source SHA `f3646232349a9212b0970c60c114bcc1310c9dd7`.
+- Bridge/Fusion/coordination tests: **454 passed**. Privacy/provisioning/official-assets/manifest-hash tests: **69 passed**. Total in the candidate bridge-test job: **523 passed**.
+- Frozen package checks passed: V2 import smoke; synthetic Inno Setup no-consent / affirmative-consent / setup-failure / uninstall lifecycle; BigTIFF + streamed libvips QA; packaged four-engine `--check-only` dispatch without downloads; isolated consented cache cleanup; diagnostic `--help`; read-only shop-runner diagnostic parsing; candidate provenance; exact BUILD_PROOF source SHA; every installer slice SHA256; experimental artifact upload.
+- Workspace guard: `v1_files_preserved=true`, `stable_v2_files_preserved=true`. Packaged TIFF QA: `icc_preserved=true`, `dpi_preserved=true`, `accepted_v2_sha256_unchanged=true`, exact odd-target crop; multipage TIFF is explicitly rejected from this single-page path.
+- Installer SHA256: `aa9dc66c519f9d6f3a16160301b769fc0d9d1abfa273340c941cc04ea6221401`.
+- Experimental artifact ID **14748577237**; size **2,584,755,671 bytes**; artifact ZIP SHA256 `fb08ecd1c824e54ef0c0c8e4af4f163186899766fdec250b40ca77eb5d53b9ad`; expires **29 Nov 2026 16:33 ICT**. [Download Candidate #1034](https://github.com/niyomse-collab/niyom/actions/runs/45005401343/artifacts/14748577237).
+- PyInstaller emitted warnings for optional/missing `expecttest`, `pycparser.lextab/yacctab`, `scipy.special._cdflib`, driver-provided `nvcuda.dll`, and optional Numba `tbb12.dll`. The candidate still passed its frozen import and dispatch checks. Do not copy/bundle an NVIDIA driver DLL from another PC; determine whether the optional TBB path is used on the shop PC before changing dependencies.
+
+### Official Archive Audit #360 — SUCCESS, redistribution still NOT approved
+- [GitHub Actions #360](https://github.com/niyomse-collab/niyom/actions/runs/45005401057): all four official Windows archives were downloaded, matched their release digest or recorded CI pin, safely audited and transactionally provisioned into ephemeral QA storage. A four-engine manifest loaded successfully.
+- Archive SHA256:
+  - Real-ESRGAN v0.2.5.0: `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` — no publisher digest; recorded CI pin.
+  - Waifu2x 20250915: `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` — published digest.
+  - Real-CUGAN 20220728: `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` — no publisher digest; recorded CI pin.
+  - Anime4KCPP v3.2.0: `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` — published digest.
+- Upstream license documents were retrieved and hashed, including Anime4KCPP's separate GPLv3 CLI/video notice and MIT core notice. The audit explicitly reports `license_redistribution_approved=false` and `model_weights_and_license_certified=false`. Do not bundle or redistribute third-party binaries/weights based only on archive/source-license verification.
+
+### Native CLI Smoke #484 — diagnostic only, NOT four-engine GPU acceptance
+- [GitHub Actions #484](https://github.com/niyomse-collab/niyom/actions/runs/45005401106) invoked official binaries on synthetic RGB and RGBA/ICC/300-DPI PNG inputs and retained JSON evidence only.
+- Real-CUGAN and Anime4KCPP returned native process exit code 0 in the hosted-runner synthetic cases. Real-ESRGAN failed Vulkan initialization (`vkCreateInstance failed -9`); Waifu2x failed the same initialization and also reported `0xC0000005`.
+- The runner reported `completed_engine_count=2`, `candidate_output_validation_complete=false`, `real_inference_verified=false`, `quality_improvement_verified=false`, `runtime_vram_budget_passed=false`; physical NVIDIA/DXGI adapter status was `nvidia_dxgi_adapter_not_present`, so per-engine adapter verification was **0/4**. The workflow SUCCESS means the known hosted-runner limitation was classified, not that all four models or visual quality passed.
+
+### PR #18 protected face/GFPGAN files — direct Blob SHA comparison
+- Compared PR #18 base SHA `288dd8501c230a118d9a7e60d2522a2cc7411bcc` against exact PR #20 HEAD `f3646232349a9212b0970c60c114bcc1310c9dd7`.
+- All **9/9** protected files are byte-identical: `.github/workflows/build-windows.yml`; `signprint_ai/face_module/face_protection.py`; `signprint_ai/face_module/detection.py`; `signprint_ai/face_module/selection.py`; `signprint_ai/face_module/__init__.py`; `signprint_ai/large_faces.py`; `signprint_ai/v211_face_contract.py`; `tests/test_v211_face_contract.py`; `tests/test_v211_large_face_audit.py`.
+- The optional HAT Assist execution route remains a separate compatibility difference in PR #20; it was not restored or treated as a GFPGAN file change.
+
+### Acceptance boundary and next action
+- No affirmative exact-head shop-GPU consent marker was present; no self-hosted shop runner or local PC was accessed. Therefore the four native processes have **not** been accepted as running together on the GTX 1660 Ti, and 6 GiB stress, native cancellation under load, real >18 MP inference, visual A/B, Photoshop/MainTop and physical print remain **NOT CERTIFIED**.
+- V2 remains the accepted master. PR #20 and PR #18 remain Draft/unmerged. No V1/V2 Stable changes, merge/release, customer images or native binaries/weights committed, and no claim that V2.1.1 is visually superior to V2.
