@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import tifffile
-from PIL import Image, ImageCms
+from PIL import Image, ImageCms, ImageDraw
 
 from tools import v211_four_engine_ab_report as ab_report
 from tools.v211_four_engine_ab_report import ENGINES, run
@@ -421,3 +421,76 @@ def test_ab_report_rejects_jpeg_with_non_normalized_exif_orientation(tmp_path):
     assert report["status"] == "blocked"
     assert "image_preflight_abreporterror" in report["block_reasons"]
     assert not (output / "ab_contact_sheet.png").exists()
+
+
+
+def test_ab_report_streams_real_over_18mp_jpeg_reference_and_png_candidate(tmp_path):
+    """Exercise the actual >18 MP libvips path, not only a forced small-image path."""
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source = tmp_path / "large-source.png"
+    v2_reference = tmp_path / "accepted-v2-over-18mp.jpg"
+    candidate = tmp_path / "qa-candidate-over-18mp.png"
+    evidence = tmp_path / "large-candidate.qa.json"
+    output = tmp_path / "ab-over-18mp-jpeg-review"
+    size = (4501, 4000)  # 18,004,000 pixels: strictly above the 18 MP threshold.
+
+    Image.new("RGB", (16, 12), (20, 40, 60)).save(source, format="PNG")
+    accepted = Image.new("RGB", size, (120, 60, 30))
+    ImageDraw.Draw(accepted).rectangle((500, 500, 1500, 1500), fill=(40, 80, 120))
+    ImageDraw.Draw(accepted).line((0, 0, size[0] - 1, size[1] - 1), fill=(200, 180, 100), width=7)
+    accepted.save(
+        v2_reference, format="JPEG", quality=95, subsampling=0,
+        dpi=(300, 300), icc_profile=profile,
+    )
+    qa = accepted.copy()
+    ImageDraw.Draw(qa).rectangle((2000, 1000, 2200, 1200), fill=(130, 70, 40))
+    qa.save(candidate, format="PNG", dpi=(300, 300), icc_profile=profile)
+    accepted.close()
+    qa.close()
+
+    evidence.write_text(json.dumps({
+        "schema_version": 1,
+        "evidence_type": "niyomsil_v211_four_engine_qa",
+        "source_v2_pair_bound_by_bridge": True,
+        "source_sha256": _sha(source),
+        "v2_reference_sha256": _sha(v2_reference),
+        "qa_image_sha256": _sha(candidate),
+        "native_seed_sha256": "1" * 64,
+        "native_v2_reference_sha256": "2" * 64,
+        "fusion_output_sha256": "3" * 64,
+        "engine_candidate_sha256": {
+            name: str(index + 4) * 64 for index, name in enumerate(ENGINES)
+        },
+        "completed_engine_count": 4,
+        "completed_engine_names": list(ENGINES),
+        "per_engine_runtime_device_use_verified": {name: True for name in ENGINES},
+        "runtime_device_use_verified": True,
+        "fusion_implemented": True,
+        "all_four_engine_candidates_consumed": True,
+        "all_four_engine_pixels_contributed": True,
+        "engine_pixel_effect_verified": {name: True for name in ENGINES},
+        "engine_pixel_effect_pixels": {name: 7 for name in ENGINES},
+        "v2_output_preserved": True,
+        "quality_certified": False,
+        "privacy": {
+            "paths_included": False, "commands_included": False,
+            "logs_included": False, "image_pixels_included": False,
+        },
+    }), encoding="utf-8")
+
+    hashes_before = (_sha(source), _sha(v2_reference), _sha(candidate))
+    report = run(source, v2_reference, candidate, evidence, output)
+
+    assert report["status"] == "ready_for_human_review"
+    assert report["v2_reference_format"] == "JPEG"
+    assert report["streamed_large_image"] is True
+    assert report["streamed_raster_access"] is True
+    assert report["jpeg_region_access"] is True
+    assert report["tiff_region_access"] is False
+    assert report["metrics"]["changed_visible_pixels"] > 0
+    assert report["input_files_unchanged"] is True
+    assert report["quality_certified"] is False
+    assert report["visual_quality_certified"] is False
+    assert report["print_quality_certified"] is False
+    assert (output / "ab_contact_sheet.png").is_file()
+    assert hashes_before == (_sha(source), _sha(v2_reference), _sha(candidate))
