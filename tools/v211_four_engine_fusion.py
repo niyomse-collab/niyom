@@ -507,6 +507,7 @@ def _dilate_bool_mask(mask: np.ndarray, radius: int) -> np.ndarray:
 
 
 def _styled_effect_guard_mask(
+    base_rgb: np.ndarray,
     narrow_highpass: np.ndarray,
     wide_highpass: np.ndarray,
 ) -> np.ndarray:
@@ -520,10 +521,12 @@ def _styled_effect_guard_mask(
     layered outlines/bevel bands. Uncertain regions remain under the existing
     gradient/edge gate and manual ROI remains available for wider protection.
     """
+    rgb = np.asarray(base_rgb, dtype=np.float32)
     narrow = np.abs(np.asarray(narrow_highpass, dtype=np.float32))
     wide = np.abs(np.asarray(wide_highpass, dtype=np.float32))
-    if narrow.shape != wide.shape or narrow.ndim != 2:
-        raise ValueError("styled-effect guard requires matching 2D edge responses")
+    if (narrow.shape != wide.shape or narrow.ndim != 2
+            or rgb.shape != (*narrow.shape, 3)):
+        raise ValueError("styled-effect guard requires matching RGB and 2D edge responses")
 
     strong = narrow >= STYLED_EFFECT_EDGE_THRESHOLD
     if not strong.any():
@@ -552,7 +555,16 @@ def _styled_effect_guard_mask(
         ImageFilter.BoxBlur(STYLED_EFFECT_CONTOUR_RADIUS)
     )
     density = np.asarray(density_image, dtype=np.float32) / 255.0
-    multi_contour = strong & (density >= STYLED_EFFECT_CONTOUR_DENSITY)
+    chroma = rgb.max(axis=2) - rgb.min(axis=2)
+    near_chromatic_fill = _dilate_bool_mask(chroma >= 28.0, 5)
+    # Dense contours are only treated as styled when adjacent to a clearly
+    # chromatic fill. This avoids freezing ordinary monochrome text and thin
+    # antialiased marks merely because they contain several nearby edges.
+    multi_contour = (
+        strong
+        & (density >= STYLED_EFFECT_CONTOUR_DENSITY)
+        & near_chromatic_fill
+    )
     contour_guard = _dilate_bool_mask(
         multi_contour, STYLED_EFFECT_CONTOUR_DILATION
     )
@@ -699,14 +711,18 @@ def fuse_four_engine_details(
                 base_rgb = np.asarray(base_region.convert("RGB"), dtype=np.float32)
                 center = (slice(y - yy, y - yy + h), slice(x - xx, x - xx + w))
                 base_c = base_rgb[center]
-                base_hp = _gray_highpass(base_region, EDGE_HIGH_PASS_RADIUS)[center]
+                base_hp_full = _gray_highpass(
+                    base_region, EDGE_HIGH_PASS_RADIUS
+                )
+                base_hp = base_hp_full[center]
                 # A second, wider response identifies broad smooth curvature.
                 # Only scale-selective structure is treated as an existing edge;
                 # smooth ramps/S-curves remain V2-owned even if candidate models
                 # agree on added texture. HALO covers this wider filter at seams.
-                base_hp_wide = _gray_highpass(
+                base_hp_wide_full = _gray_highpass(
                     base_region, GRADIENT_GUARD_RADIUS
-                )[center]
+                )
+                base_hp_wide = base_hp_wide_full[center]
                 # Preserve V2 RGB beneath transparent and antialiased cutout
                 # boundaries. Exact alpha alone is not enough: changing hidden
                 # RGB at partially transparent pixels can create fringes when
@@ -744,7 +760,7 @@ def fuse_four_engine_details(
                     # profiles. The manual ROI remains the authoritative way
                     # to protect a complete known styled headline/logo.
                     styled_effect_guard = _styled_effect_guard_mask(
-                        base_hp, base_hp_wide
+                        base_rgb, base_hp_full, base_hp_wide_full
                     )[center]
                     styled_effect_guard_pixels += int(styled_effect_guard.sum())
                     edge_gate &= ~styled_effect_guard
