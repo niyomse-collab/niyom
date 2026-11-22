@@ -50,7 +50,7 @@ STYLED_EFFECT_HALO_INNER_RADIUS = 8
 STYLED_EFFECT_HALO_OUTER_RADIUS = 14
 STYLED_EFFECT_CONTOUR_DENSITY = 0.62
 STYLED_EFFECT_CONTOUR_RADIUS = 8
-STYLED_EFFECT_CONTOUR_DILATION = 10
+STYLED_EFFECT_CONTOUR_DILATION = 6
 
 
 def _png_pixel_count_from_header(path: Path) -> int:
@@ -544,12 +544,8 @@ def _styled_effect_guard_mask(
         ))
     )
     halo_band = broad_only & outer_band
-    # If a detached halo exists, also protect the associated sharp contour.
-    halo_guard = halo_band | (
-        strong & _dilate_bool_mask(
-            halo_band, STYLED_EFFECT_HALO_OUTER_RADIUS
-        )
-    )
+    # Protect the detached soft-effect band itself. Keep the neighbouring
+    # hard edge eligible unless the independent dense multi-contour cue fires.
 
     edge_image = Image.fromarray(strong.astype(np.uint8) * 255, mode="L")
     density_image = edge_image.filter(
@@ -569,7 +565,7 @@ def _styled_effect_guard_mask(
     contour_guard = _dilate_bool_mask(
         multi_contour, STYLED_EFFECT_CONTOUR_DILATION
     )
-    return halo_guard | contour_guard
+    return halo_band | contour_guard
 
 
 def _protected_mask(x0: int, y0: int, w: int, h: int,
