@@ -100,7 +100,7 @@ def test_single_hard_edge_is_not_classified_as_styled_effect():
     narrow = _highpass(image, 1.0)
     wide = _highpass(image, 4.0)
 
-    guard = _styled_effect_guard_mask(narrow, wide)
+    guard = _styled_effect_guard_mask(base.astype(np.float32), narrow, wide)
 
     assert guard.shape == (128, 128)
     assert not guard.any()
@@ -109,10 +109,11 @@ def test_single_hard_edge_is_not_classified_as_styled_effect():
 def test_soft_halo_and_dense_multi_contours_are_detected_locally(tmp_path):
     _source, baseline, _base, _candidates = _styled_fixture(tmp_path)
     with Image.open(baseline) as image:
+        rgb = np.asarray(image.convert("RGB"), dtype=np.float32)
         narrow = _highpass(image, 1.0)
         wide = _highpass(image, 4.0)
 
-    guard = _styled_effect_guard_mask(narrow, wide)
+    guard = _styled_effect_guard_mask(rgb, narrow, wide)
 
     assert guard.any()
     assert guard[24:108, 40:104].any()
@@ -152,6 +153,7 @@ def test_fusion_automatically_preserves_styled_effects_but_keeps_plain_edge_acti
 def test_styled_effect_guard_rejects_mismatched_edge_arrays():
     with pytest.raises(ValueError, match="matching 2D edge responses"):
         _styled_effect_guard_mask(
+            np.zeros((8, 8, 3), dtype=np.float32),
             np.zeros((8, 8), dtype=np.float32),
             np.zeros((8, 7), dtype=np.float32),
         )
