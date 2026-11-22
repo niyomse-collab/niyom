@@ -11,6 +11,7 @@ import json
 import math
 from pathlib import Path
 import re
+import warnings
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -61,6 +62,7 @@ def _dpi_equal(left, right) -> bool:
 
 
 TIFF_SUFFIXES = {".tif", ".tiff", ".btf"}
+JPEG_SUFFIXES = {".jpg", ".jpeg"}
 
 
 def _tiff_tag_value(page, code: int):
@@ -162,13 +164,58 @@ def _tiff_metadata(path: Path) -> dict:
         }
 
 
+def _jpeg_metadata(path: Path) -> dict:
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", Image.DecompressionBombWarning)
+            with _open_fusion_image(path) as image:
+                if image.format != "JPEG" or image.mode != "RGB":
+                    raise ABReportError("A/B JPEG reference must be 8-bit RGB; grayscale and CMYK JPEG are not supported")
+                try:
+                    orientation = image.getexif().get(274)
+                except Exception as exc:
+                    raise ABReportError("JPEG EXIF orientation could not be validated") from exc
+                if orientation not in (None, 1):
+                    raise ABReportError("JPEG EXIF orientation must be normalized to 1 before A/B")
+                width, height = (int(value) for value in image.size)
+                if (width < 1 or height < 1 or width * height > MAX_STREAMED_PIXELS
+                        or width * 3 > MAX_STREAMED_ROW_BYTES):
+                    raise ABReportError("A/B JPEG reference exceeds the safe streaming limits")
+                icc_profile = image.info.get("icc_profile")
+                if icc_profile is not None:
+                    if (not isinstance(icc_profile, (bytes, bytearray)) or not icc_profile
+                            or len(icc_profile) > MAX_PNG_ICC_BYTES):
+                        raise ABReportError("JPEG ICC profile is invalid or exceeds the safe metadata limit")
+                    icc_profile = bytes(icc_profile)
+                dpi = image.info.get("dpi")
+                if dpi is not None:
+                    if (not _dpi_equal(dpi, dpi)
+                            or any(float(value) <= 0 for value in dpi)):
+                        raise ABReportError("JPEG print resolution metadata is invalid")
+                    dpi = tuple(float(value) for value in dpi)
+                return {
+                    "size": (width, height),
+                    "mode": "RGB",
+                    "icc_profile": icc_profile,
+                    "dpi": dpi,
+                    "format": "JPEG",
+                    "is_bigtiff": False,
+                    "exif_orientation": 1 if orientation is None else orientation,
+                }
+    except Image.DecompressionBombError as exc:
+        raise ABReportError("JPEG reference exceeds the safe metadata inspection limit") from exc
+
+
 def _metadata(path: Path) -> dict:
     path = Path(path)
-    if path.suffix.lower() in TIFF_SUFFIXES:
+    suffix = path.suffix.lower()
+    if suffix in TIFF_SUFFIXES:
         return _tiff_metadata(path)
+    if suffix in JPEG_SUFFIXES:
+        return _jpeg_metadata(path)
     with _open_fusion_image(path) as image:
         if image.format != "PNG" or image.mode not in ("RGB", "RGBA"):
-            raise ABReportError("A/B candidate must be 8-bit RGB/RGBA PNG; V2 reference may also be TIFF/BigTIFF")
+            raise ABReportError("A/B candidate must be 8-bit RGB/RGBA PNG; V2 reference may also be JPEG or TIFF/BigTIFF")
         width, height = image.size
         if width < 1 or height < 1 or width * height > MAX_STREAMED_PIXELS:
             raise ABReportError("A/B raster exceeds the safe streaming pixel limit")
@@ -349,8 +396,25 @@ def _open_vips_tiff(path: Path, mode: str, size: tuple[int, int]):
     return image
 
 
+def _open_vips_jpeg(path: Path, mode: str, size: tuple[int, int]):
+    if mode != "RGB":
+        raise ABReportError("libvips JPEG A/B region access requires RGB")
+    try:
+        import pyvips
+    except ImportError as exc:
+        raise ABReportError("pyvips is required for large JPEG A/B region access") from exc
+    image = pyvips.Image.new_from_file(
+        str(path), access="random", fail_on="error", unlimited=True,
+        autorotate=False,
+    )
+    if ((image.width, image.height) != size or image.format != "uchar"
+            or image.bands != 3):
+        raise ABReportError("libvips JPEG pixels differ from the validated 8-bit RGB metadata")
+    return image
+
+
 class _ABRaster:
-    """Bounded crop reader for PNG and single-page TIFF/BigTIFF references."""
+    """Bounded crop reader for PNG, JPEG and single-page TIFF/BigTIFF references."""
 
     def __init__(self, path: Path, mode: str, size: tuple[int, int], *, use_vips: bool):
         self.path = Path(path)
@@ -358,9 +422,14 @@ class _ABRaster:
         self._reader = None
         self._image = None
         self._region = None
-        if self.path.suffix.lower() in TIFF_SUFFIXES:
+        suffix = self.path.suffix.lower()
+        if suffix in TIFF_SUFFIXES:
             import pyvips
             self._image = _open_vips_tiff(self.path, mode, size)
+            self._region = pyvips.Region.new(self._image)
+        elif suffix in JPEG_SUFFIXES and use_vips:
+            import pyvips
+            self._image = _open_vips_jpeg(self.path, mode, size)
             self._region = pyvips.Region.new(self._image)
         else:
             self._reader = _FusionRaster(self.path, use_vips=use_vips)
@@ -373,7 +442,7 @@ class _ABRaster:
         pixels = self._region.fetch(left, top, width, height)
         expected = width * height * (4 if self.mode == "RGBA" else 3)
         if len(pixels) != expected:
-            raise ABReportError("libvips returned an incomplete TIFF A/B tile")
+            raise ABReportError("libvips returned an incomplete streamed A/B tile")
         return Image.frombytes(self.mode, (width, height), pixels)
 
     def close(self) -> None:
@@ -393,29 +462,27 @@ class _ABRaster:
 
 def _thumbnail(path: Path, mode: str, size: tuple[int, int], max_edge: int) -> Image.Image:
     width, height = size
-    if Path(path).suffix.lower() in TIFF_SUFFIXES:
-        image = _open_vips_tiff(Path(path), mode, size)
-        scale = min(1.0, float(max_edge) / max(width, height))
-        if scale < 1.0:
-            image = image.resize(scale, kernel="lanczos3")
-        return Image.frombytes(
-            mode, (int(image.width), int(image.height)), image.write_to_memory()
-        )
-    if width * height <= MAX_RGBA_VALIDATION_PIXELS:
+    suffix = Path(path).suffix.lower()
+    if suffix not in TIFF_SUFFIXES and width * height <= MAX_RGBA_VALIDATION_PIXELS:
         with Image.open(path) as image:
             preview = image.copy()
         preview.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
         return preview
-    try:
-        import pyvips
-    except ImportError as exc:
-        raise ABReportError("pyvips is required for A/B previews above 18 MP") from exc
-    image = pyvips.Image.new_from_file(
-        str(path), access="random", fail_on="error", unlimited=True,
-    )
-    expected_bands = 4 if mode == "RGBA" else 3
-    if image.format != "uchar" or image.bands != expected_bands:
-        raise ABReportError("large A/B preview must decode as 8-bit RGB/RGBA")
+    if suffix in TIFF_SUFFIXES:
+        image = _open_vips_tiff(Path(path), mode, size)
+    elif suffix in JPEG_SUFFIXES:
+        image = _open_vips_jpeg(Path(path), mode, size)
+    else:
+        try:
+            import pyvips
+        except ImportError as exc:
+            raise ABReportError("pyvips is required for A/B previews above 18 MP") from exc
+        image = pyvips.Image.new_from_file(
+            str(path), access="random", fail_on="error", unlimited=True,
+        )
+        expected_bands = 4 if mode == "RGBA" else 3
+        if image.format != "uchar" or image.bands != expected_bands:
+            raise ABReportError("large A/B preview must decode as 8-bit RGB/RGBA")
     scale = min(1.0, float(max_edge) / max(width, height))
     if scale < 1.0:
         image = image.resize(scale, kernel="lanczos3")
@@ -487,10 +554,10 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
         report["block_reasons"].append("v2_and_candidate_must_be_different_files")
         _write_report(output_dir, report)
         return report
-    if (v2_reference.suffix.lower() not in TIFF_SUFFIXES | {".png"}
+    if (v2_reference.suffix.lower() not in TIFF_SUFFIXES | JPEG_SUFFIXES | {".png"}
             or candidate.suffix.lower() != ".png"):
         report["block_reasons"].append(
-            "v2_reference_must_be_png_or_tiff_and_candidate_must_be_png"
+            "v2_reference_must_be_png_jpeg_or_tiff_and_candidate_must_be_png"
         )
         _write_report(output_dir, report)
         return report
@@ -618,8 +685,10 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
         "streamed_raster_access": large or v2_info["format"] == "TIFF",
         "v2_reference_format": v2_info["format"],
         "v2_reference_is_bigtiff": v2_info["is_bigtiff"],
+        "v2_reference_exif_orientation": v2_info.get("exif_orientation"),
         "candidate_format": candidate_info["format"],
         "tiff_region_access": v2_info["format"] == "TIFF",
+        "jpeg_region_access": v2_info["format"] == "JPEG" and large,
         "same_source_generation_proven": False,
         "provenance_scope": (
             "the bridge binds this source and accepted V2 file to the same four-engine "
