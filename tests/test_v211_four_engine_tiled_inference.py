@@ -512,3 +512,112 @@ def test_four_x_print_target_runs_disk_tiled_native_two_x_from_half_target_seed(
             seed_path.unlink(missing_ok=True)
         if reference_path is not None:
             reference_path.unlink(missing_ok=True)
+
+
+def test_large_four_x_target_runs_all_four_tiled_passes_and_disk_backed_fusion(
+    tmp_path, monkeypatch
+):
+    """Exercise the complete synthetic 4x (>18 MP) path without full Pillow decode."""
+    pytest.importorskip("pyvips")
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
+    from tools.v211_four_engine_fusion import fuse_four_engine_details
+
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source = tmp_path / "source-1500x1000.png"
+    baseline = tmp_path / "accepted-v2-6000x4000.png"
+    Image.new("RGB", (1500, 1000), (38, 82, 126)).save(
+        source, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    # The print target is 4x the source in each axis and exceeds 18 MP.
+    Image.new("RGB", (6000, 4000), (38, 82, 126)).save(
+        baseline, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    source_before = source.read_bytes()
+    baseline_before = baseline.read_bytes()
+
+    original_load = PngImagePlugin.PngImageFile.load
+
+    def reject_large_pillow_decode(image, *args, **kwargs):
+        if image.width * image.height > 18_000_000:
+            raise AssertionError("large four-engine path must remain disk-backed")
+        return original_load(image, *args, **kwargs)
+
+    monkeypatch.setattr(
+        PngImagePlugin.PngImageFile, "load", reject_large_pillow_decode
+    )
+
+    work_dir = tmp_path / "large-four-x-work"
+    candidates_dir = tmp_path / "large-four-x-candidates"
+    seed_path = reference_path = None
+    try:
+        seed_path, reference_path, target_size, padded_size, source_size, metadata = (
+            prepare_native_2x_inputs_streamed(
+                source, baseline, work_dir, resize_mode="stretch"
+            )
+        )
+        assert source_size == (1500, 1000)
+        assert target_size == padded_size == (6000, 4000)
+        assert metadata["icc_profile"] == profile
+        with Image.open(seed_path) as seed:
+            assert seed.size == (3000, 2000)
+            assert seed.mode == "RGB"
+            assert seed.info["icc_profile"] == profile
+            assert seed.info["dpi"][0] == pytest.approx(300, abs=0.1)
+
+        # Four synthetic processors each perform one native-equivalent 2x tile
+        # pass over the half-target seed. This validates geometry/streaming only.
+        tiled = run_tiled_candidates(
+            seed_path, reference_path, candidates_dir, target_size, _processors(),
+            tile_size=1024, overlap=32,
+        )
+        assert tiled["ready_for_fusion_research"] is True
+        assert tiled["native_tiled_inference"]["all_four_engines_completed"] is True
+        assert tiled["native_tiled_inference"]["native_scale"] == 2
+        for name in ENGINES:
+            candidate = candidates_dir / (name + ".png")
+            with Image.open(candidate) as image:
+                assert image.size == (6000, 4000)
+                assert image.mode == "RGB"
+                assert image.info["icc_profile"] == profile
+                assert image.info["dpi"][0] == pytest.approx(300, abs=0.1)
+            engine = tiled["native_tiled_inference"]["engine_results"][name]
+            assert engine["tile_count"] == 6
+            assert engine["seam_validation"] == "passed"
+
+        qa_output = tmp_path / "private-qa" / "large-four-x.V211-4AI-QA.png"
+        fused = fuse_four_engine_details(
+            source, reference_path,
+            {name: candidates_dir / (name + ".png") for name in ENGINES},
+            qa_output,
+        )
+        assert fused["all_four_engine_candidates_consumed"] is True
+        assert fused["v2_file_not_modified"] is True
+        assert fused["quality_certified"] is False
+        assert fused["experimental_preview_only"] is True
+        # A perfectly flat field has no eligible V2 edge; fusion must not add
+        # texture/noise just because four candidate files exist.
+        assert fused["all_four_engine_pixels_contributed"] is False
+        assert all(
+            fused["engine_pixel_effect_verified"][name] is False
+            for name in ENGINES
+        )
+        with Image.open(qa_output) as image:
+            assert image.size == (6000, 4000)
+            assert image.mode == "RGB"
+            assert image.info["icc_profile"] == profile
+            assert image.info["dpi"][0] == pytest.approx(300, abs=0.1)
+
+        # Read one pixel through libvips; never materialize the 24 MP raster.
+        import pyvips
+        qa_vips = pyvips.Image.new_from_file(str(qa_output), access="random")
+        v2_vips = pyvips.Image.new_from_file(str(reference_path), access="random")
+        assert qa_vips.crop(0, 0, 1, 1).write_to_memory() == (
+            v2_vips.crop(0, 0, 1, 1).write_to_memory()
+        )
+        assert source.read_bytes() == source_before
+        assert baseline.read_bytes() == baseline_before
+    finally:
+        if seed_path is not None:
+            seed_path.unlink(missing_ok=True)
+        if reference_path is not None:
+            reference_path.unlink(missing_ok=True)
