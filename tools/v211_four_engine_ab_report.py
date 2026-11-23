@@ -561,7 +561,7 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), crop
         "quality_certified": False, "visual_quality_certified": False,
         "print_quality_certified": False, "human_review_required": True,
         "delta_metrics_are_quality_scores": False, "artifacts": [],
-        "review_regions": [], "review_region_labels_are_user_supplied": True,
+        "review_regions": [], "review_region_labels_are_user_supplied": bool(requested_labels),
     }
     if not all(path.is_file() for path in (source, v2_reference, candidate, evidence)):
         report["block_reasons"].append("required_input_missing")
