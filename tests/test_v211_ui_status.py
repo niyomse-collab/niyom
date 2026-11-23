@@ -85,7 +85,7 @@ def test_ready_preview_rows_distinguish_three_and_four_engines():
     assert "AI 4 QA พร้อม" in four["row"]
     assert four["allow_preview"] is True
     assert three is not None
-    assert "AI 3 Priority QA" in three["row"]
+    assert "AI 3 เลือก 1 QA" in three["row"]
     assert three["allow_preview"] is True
     assert four_engine_ui_status(None) is None
 
@@ -126,6 +126,8 @@ def test_three_engine_priority_preview_is_not_mislabeled_as_four_engine():
     assert "Real-ESRGAN" in caption
     assert "Waifu2x" in caption
     assert "Real-CUGAN" in caption
+    assert "เลือกภาพจาก Engine เพียง 1 ตัว" in caption
+    assert "ไม่ได้นำภาพทั้ง 3 Engine มาผสาน" in caption
     assert "Anime4K ไม่ได้ร่วม" in caption
     assert "ไม่ใช่ผลรับรองคุณภาพ" in caption
 
@@ -145,7 +147,7 @@ def test_missing_three_engine_sidecar_is_not_mislabeled_as_four_engine():
     )
 
     assert status is not None
-    assert "AI 3 Priority ไม่พบไฟล์ QA" in status["row"]
+    assert "AI 3 เลือก 1 ไม่พบไฟล์ QA" in status["row"]
     assert "Anime4K ไม่ได้ร่วมในภาพนี้" in status["caption"]
     assert "AI 4 ไม่พบไฟล์ QA" not in status["row"]
     assert status["allow_preview"] is False
