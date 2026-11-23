@@ -25,6 +25,10 @@ ENGINES = ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
 TILE_SIZE = 512
 MAX_CROPS = 32
 MAX_CROP_EDGE = 2048
+REVIEW_REGION_LABELS = (
+    "face", "animal", "object", "frame", "thai_text", "english_text",
+    "chinese_text", "flat_color", "gradient", "rgba_edge",
+)
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -344,6 +348,16 @@ def parse_crop(value: str) -> tuple[int, int, int, int]:
     return parts
 
 
+def parse_crop_label(value: str) -> str:
+    """Parse a user-selected semantic label for a human-review crop."""
+    label = str(value).strip().lower()
+    if label not in REVIEW_REGION_LABELS:
+        raise argparse.ArgumentTypeError(
+            "crop label must be one of: " + ", ".join(REVIEW_REGION_LABELS)
+        )
+    return label
+
+
 def _display_rgb(image: Image.Image) -> Image.Image:
     if image.mode != "RGBA":
         return image.convert("RGB")
@@ -531,10 +545,12 @@ def _write_report(output_dir: Path, report: dict) -> None:
     )
 
 
-def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_preview_edge=1600):
+def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), crop_labels=(), max_preview_edge=1600):
     source, v2_reference, candidate, evidence = map(
         Path, (source, v2_reference, candidate, evidence)
     )
+    requested_crops = tuple(crops)
+    requested_labels = tuple(crop_labels)
     output_dir = _ensure_private_output_dir(Path(output_dir))
     report = {
         "schema_version": 1, "status": "blocked", "block_reasons": [],
@@ -545,6 +561,7 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
         "quality_certified": False, "visual_quality_certified": False,
         "print_quality_certified": False, "human_review_required": True,
         "delta_metrics_are_quality_scores": False, "artifacts": [],
+        "review_regions": [], "review_region_labels_are_user_supplied": True,
     }
     if not all(path.is_file() for path in (source, v2_reference, candidate, evidence)):
         report["block_reasons"].append("required_input_missing")
@@ -599,6 +616,26 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
 
     width, height = v2_info["size"]
     mode = v2_info["mode"]
+    crop_boxes = list(requested_crops) if requested_crops else _default_crops(width, height)
+    if requested_labels and not requested_crops:
+        report["block_reasons"].append("crop_labels_require_explicit_crops")
+        _write_report(output_dir, report)
+        return report
+    if requested_labels and len(requested_labels) != len(crop_boxes):
+        report["block_reasons"].append("crop_label_count_mismatch")
+        _write_report(output_dir, report)
+        return report
+    if any(not isinstance(label, str) or label not in REVIEW_REGION_LABELS for label in requested_labels):
+        report["block_reasons"].append("crop_label_invalid")
+        _write_report(output_dir, report)
+        return report
+    if len(crop_boxes) > MAX_CROPS:
+        report["block_reasons"].append("too_many_review_crops")
+        _write_report(output_dir, report)
+        return report
+    review_labels = list(requested_labels) if requested_labels else [
+        f"region_{index:02d}" for index in range(1, len(crop_boxes) + 1)
+    ]
     large = width * height > MAX_RGBA_VALIDATION_PIXELS
     try:
         with (
@@ -624,9 +661,7 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
             sheet.close()
             report["artifacts"].append("ab_contact_sheet.png")
 
-            crop_boxes = list(crops) if crops else _default_crops(width, height)
-            if len(crop_boxes) > MAX_CROPS:
-                raise ABReportError("at most 32 review crops are allowed")
+            review_regions = []
             for index, (x, y, crop_width, crop_height) in enumerate(crop_boxes, start=1):
                 if (
                     x < 0 or y < 0 or crop_width < 1 or crop_height < 1
@@ -637,12 +672,19 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), max_
                 box = (x, y, x + crop_width, y + crop_height)
                 left_crop, right_crop = v2_raster.crop(box), candidate_raster.crop(box)
                 crop_sheet = _comparison_sheet(left_crop, right_crop)
-                filename = f"ab_crop_{index:02d}.png"
+                label = review_labels[index - 1]
+                filename = f"ab_crop_{index:02d}_{label}.png"
                 crop_sheet.save(output_dir / filename, format="PNG")
                 left_crop.close()
                 right_crop.close()
                 crop_sheet.close()
                 report["artifacts"].append(filename)
+                review_regions.append({
+                    "label": label,
+                    "box_xywh": [x, y, crop_width, crop_height],
+                    "artifact": filename,
+                })
+            report["review_regions"] = review_regions
     except Exception as exc:
         for name in report["artifacts"]:
             (output_dir / name).unlink(missing_ok=True)
@@ -712,12 +754,17 @@ def main() -> None:
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--crop", type=parse_crop, action="append", default=[])
+    parser.add_argument(
+        "--crop-label", type=parse_crop_label, action="append", default=[],
+        help="User-selected label for each --crop, in the same order; may be repeated",
+    )
     parser.add_argument("--max-preview-edge", type=int, default=1600)
     args = parser.parse_args()
     try:
         report = run(
             args.source, args.v2_reference, args.candidate, args.evidence,
-            args.output_dir, crops=tuple(args.crop), max_preview_edge=args.max_preview_edge,
+            args.output_dir, crops=tuple(args.crop), crop_labels=tuple(args.crop_label),
+            max_preview_edge=args.max_preview_edge,
         )
     except ABReportError as exc:
         print(json.dumps({"status": "blocked", "error_type": type(exc).__name__}))
