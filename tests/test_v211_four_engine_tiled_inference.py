@@ -453,3 +453,62 @@ def test_streamed_seed_maps_four_x_print_target_to_native_two_x_seed(tmp_path):
             seed_path.unlink(missing_ok=True)
         if reference_path is not None:
             reference_path.unlink(missing_ok=True)
+
+
+
+def test_four_x_print_target_runs_disk_tiled_native_two_x_from_half_target_seed(tmp_path):
+    """A 4x print canvas must flow through the same bounded 2x tile runner."""
+    pytest.importorskip("pyvips")
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
+
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source = tmp_path / "four-x-original.png"
+    baseline = tmp_path / "four-x-accepted-v2.png"
+    Image.new("RGB", (64, 64), (38, 82, 126)).save(
+        source, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    Image.new("RGB", (256, 256), (38, 82, 126)).save(
+        baseline, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    accepted_v2_bytes = baseline.read_bytes()
+    seed_path = reference_path = None
+    try:
+        seed_path, reference_path, target_size, padded_size, source_size, metadata = (
+            prepare_native_2x_inputs_streamed(
+                source, baseline, tmp_path / "four-x-tiled-work",
+                resize_mode="stretch",
+            )
+        )
+        assert source_size == (64, 64)
+        assert target_size == padded_size == (256, 256)
+        assert metadata["icc_profile"] == profile
+        with Image.open(seed_path) as seed:
+            assert seed.size == (128, 128)
+            assert seed.info["icc_profile"] == profile
+            assert seed.info["dpi"][0] == pytest.approx(300, abs=0.1)
+
+        result = run_tiled_candidates(
+            seed_path,
+            reference_path,
+            tmp_path / "four-x-tiled-candidates",
+            target_size,
+            _processors(),
+            tile_size=64,
+            overlap=8,
+        )
+        assert result["ready_for_fusion_research"] is True
+        assert result["native_tiled_inference"]["native_scale"] == 2
+        assert result["native_tiled_inference"]["all_four_engines_completed"] is True
+        for name in ENGINES:
+            candidate = tmp_path / "four-x-tiled-candidates" / (name + ".png")
+            with Image.open(candidate) as output:
+                assert output.size == (256, 256)
+                assert output.mode == "RGB"
+                assert output.info["icc_profile"] == profile
+                assert output.info["dpi"][0] == pytest.approx(300, abs=0.1)
+        assert baseline.read_bytes() == accepted_v2_bytes
+    finally:
+        if seed_path is not None:
+            seed_path.unlink(missing_ok=True)
+        if reference_path is not None:
+            reference_path.unlink(missing_ok=True)
