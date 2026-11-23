@@ -748,3 +748,39 @@ This section supersedes earlier historical statements in this document that limi
   ~~~
 - Output includes a full-image side-by-side contact sheet, default 3×3 review crops (or explicit --crop x,y,width,height selections), and ab_report.json. Images above 18 MP are read with bounded libvips regions; no customer pixels are uploaded or written into Git.
 - The report measures pixel differences only. It never labels a candidate better, never certifies visual/print quality, and requires human review. It records that the bridge binds the source and accepted V2 files to one invocation but does not independently prove the historical generation of the accepted V2 raster.
+
+
+## 23 พฤศจิกายน 2569 — ระบุหมวดภาพในชุด A/B Review
+
+เครื่องมือ `tools/v211_four_engine_ab_report.py` รองรับการติดป้ายกำกับ crop ที่ผู้ใช้เลือกเอง เพื่อให้ตรวจภาพ V2 เทียบ V2.1.1 แยกตามหมวดงานได้ โดยไม่ให้โปรแกรมเดาความหมายของภาพหรือสร้างคะแนนคุณภาพจากชื่อหมวด
+
+ตัวอย่าง (ทุก path เป็นไฟล์ Local ที่ผู้ใช้เตรียมไว้):
+
+```powershell
+python -m tools.v211_four_engine_ab_report `
+  --source "D:\\private-qa\\source.png" `
+  --v2-reference "D:\\private-qa\\accepted-v2.png" `
+  --candidate "D:\\private-qa\\four-engine-qa.png" `
+  --evidence "D:\\private-qa\\four-engine-qa.qa.json" `
+  --output-dir "D:\\private-qa\\ab-review" `
+  --crop 120,80,512,512 --crop-label face `
+  --crop 720,120,512,512 --crop-label thai_text `
+  --crop 80,700,512,512 --crop-label flat_color `
+  --crop 900,700,512,512 --crop-label rgba_edge
+```
+
+หมวดที่ใช้ได้:
+- `face`, `animal`, `object`, `frame`
+- `thai_text`, `english_text`, `chinese_text`
+- `flat_color`, `gradient`, `rgba_edge`
+
+ข้อกำหนด:
+- แต่ละ `--crop` ต้องมี `--crop-label` หนึ่งรายการตามลำดับเดียวกัน
+- ถ้าจำนวน label ไม่ตรงกับ crop หรือใช้ label นอก allowlist ระบบจะหยุดก่อนสร้าง contact sheet
+- รายงานเก็บเฉพาะชื่อหมวด พิกัด crop และชื่อไฟล์ review; ไม่เก็บ local path, command line หรือพิกเซลภาพใน JSON
+- ไฟล์ contact sheet/crop และภาพทั้งหมดอยู่ในโฟลเดอร์ Local ที่ระบุ โดย output directory ต้องอยู่นอก Git repository
+- Label เป็นข้อมูลที่ผู้ใช้กำหนดเพื่อจัดระเบียบการตรวจด้วยสายตา ไม่ใช่ OCR, object/face recognition หรือคะแนนคุณภาพ
+- ระบบยังบังคับตรวจ SHA256 ของ source/V2/candidate/evidence, ขนาดพิกเซล, RGB/RGBA, ICC, DPI และ Alpha ก่อนสร้างชุด review
+- รายงานยังคง `quality_certified=false`, `visual_quality_certified=false`, `print_quality_certified=false`; ต้องให้มนุษย์ตรวจภาพและทดสอบงานพิมพ์จริงก่อนตัดสิน
+
+ตัวอย่างนี้เป็นการสร้างชุด A/B แบบ Offline เท่านั้น ไม่มีการอัปโหลดภาพลูกค้าหรือส่งภาพไป GitHub Actions
