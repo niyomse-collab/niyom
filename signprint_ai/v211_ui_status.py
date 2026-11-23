@@ -27,7 +27,7 @@ def four_engine_ui_status(
         if qa_file_exists is False:
             if value == "three_engine_priority_preview_ready":
                 return _blocked_status(
-                    "V2 สำเร็จ • AI 3 Priority ไม่พบไฟล์ QA",
+                    "V2 สำเร็จ • AI 3 เลือก 1 ไม่พบไฟล์ QA",
                     (
                         "AI 3 Priority: สถานะพร้อมแต่ไม่พบไฟล์ QA "
                         "• ไม่แสดงภาพตัวอย่าง • Anime4K ไม่ได้ร่วมในภาพนี้ "
@@ -40,7 +40,7 @@ def four_engine_ui_status(
             )
         if value == "three_engine_priority_preview_ready":
             return {
-                "row": "V2 สำเร็จ • AI 3 Priority QA",
+                "row": "V2 สำเร็จ • AI 3 เลือก 1 QA",
                 "caption": four_engine_preview_caption(value),
                 "allow_preview": True,
             }
@@ -177,7 +177,8 @@ def four_engine_preview_caption(status: object) -> str:
     value = str(status or "").strip()
     if value == "three_engine_priority_preview_ready":
         return (
-            "QA สำรองจาก Real-ESRGAN, Waifu2x และ Real-CUGAN เท่านั้น "
+            "QA สำรอง: เลือกภาพจาก Engine เพียง 1 ตัวในกลุ่ม Real-ESRGAN, "
+            "Waifu2x หรือ Real-CUGAN (ไม่ได้นำภาพทั้ง 3 Engine มาผสาน) "
             "• Anime4K ไม่ได้ร่วมในภาพนี้ • ไฟล์ V2 เดิมยังอยู่ "
             "• ไม่ใช่ผลรับรองคุณภาพ"
         )
