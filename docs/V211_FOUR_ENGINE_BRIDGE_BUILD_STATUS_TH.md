@@ -1566,12 +1566,12 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - This correction is documentation-only. It does not certify native GPU 4/4, real >18 MP inference, VRAM/cancel stress, visual A/B or print quality.
 
 
-## 23 November 2026 — exact PR HEAD Candidate #1040
+## 23 November 2026 — Candidate #1040 and current acceptance gates
 
 ### Exact source and branch state
-- PR #20 remains OPEN / DRAFT / UNMERGED on `work/v211-four-engine-v2-bridge-20261103`; exact HEAD: `bf31703c98b21706ec2db70f2a34ce2e2ce0c91d`.
+- Candidate #1040 was built from exact PR HEAD `bf31703c98b21706ec2db70f2a34ce2e2ce0c91d`. A later documentation-only status commit `36ae830b874845b327081448801c106ffacea3a1` updated this record; current PR #20 HEAD is that docs-only commit. PR #20 remains OPEN / DRAFT / UNMERGED on `work/v211-four-engine-v2-bridge-20261103`.
 - PR #18 remains OPEN / DRAFT / UNMERGED and is the base at `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
-- Compare from the preceding Candidate #1038 source `4cf82be720868bd560a24a830251979bc9242126` to this HEAD shows **2 commits / 1 changed file only**: `docs/V211_FOUR_ENGINE_BRIDGE_BUILD_STATUS_TH.md` (**63 additions / 3 deletions**). No production source, tests, installer, spec, model manifest or workflow changed after Candidate #1038.
+- Compare from the preceding Candidate #1038 source `4cf82be720868bd560a24a830251979bc9242126` to Candidate #1040 source `bf31703c98b21706ec2db70f2a34ce2e2ce0c91d` shows **2 commits / 1 changed file only**: `docs/V211_FOUR_ENGINE_BRIDGE_BUILD_STATUS_TH.md` (**63 additions / 3 deletions**). The follow-up commit `36ae830` also changes only this status document. No production source, tests, installer, spec, model manifest or workflow changed after Candidate #1038.
 - Direct Git Blob SHA checks against PR #18 base confirm **9/9 protected files byte-identical**: `.github/workflows/verify-v211-face.yml`; `signprint_ai/face_module/face_protection.py`, `detection.py`, `selection.py`, `__init__.py`; `signprint_ai/large_faces.py`; `signprint_ai/v211_face_contract.py`; `tests/test_v211_face_contract.py`; and `tests/test_v211_large_face_audit.py`.
 - PR #20 has 82 changed paths; no executable, DLL, archive, checkpoint/weight or customer-image paths are present. No V1-named paths are present. Optional HAT Assist execution remains disabled in PR #20 as a separate compatibility difference; GFPGAN/face-protection files are unchanged.
 
@@ -1586,7 +1586,7 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 
 ### Independent Core #1723 — SUCCESS on the PR merge snapshot
 - Actions: https://github.com/niyomse-collab/niyom/actions/runs/45068009075
-- Both jobs checked out merge snapshot `9cde9f5` (merge of exact PR HEAD `bf31703` into base `288dd850`).
+- Both jobs checked out merge snapshot `9cde9f5` (merge of Candidate #1040 source `bf31703` into base `288dd850`). Independent Core #1725 was subsequently queued for the docs-only follow-up `36ae830`; no production/test files changed in that follow-up.
 - Windows: **1,129 passed / 1 skipped**. Ubuntu: **1,127 passed / 3 skipped**. `compileall` passed on both platforms.
 
 ### Official Archive Audit #366 — SUCCESS on exact PR HEAD
