@@ -88,6 +88,7 @@ def test_ab_report_creates_private_human_review_pack_without_quality_claims(tmp_
     report = run(source, v2, candidate, evidence, output)
 
     assert report["status"] == "ready_for_human_review"
+    assert report["review_region_labels_are_user_supplied"] is False
     assert report["source_v2_pair_bound_by_bridge"] is True
     assert report["evidence_metadata_consistent"] is True
     assert report["evidence_verified"] is False
