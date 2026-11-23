@@ -1608,3 +1608,44 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - Synthetic bridge tests cover scale geometry; the 8x fixture intentionally fails the Anime4K pixel-contribution gate and publishes no fused QA sidecar.
 - Still NOT CERTIFIED: all-four native inference on the shop GTX 1660 Ti; per-process adapter binding; 6 GB peak-VRAM stress; Windows cancel-under-load; real >18 MP native streaming; customer-image A/B for faces, animals, objects, Thai/English/Chinese lettering, flat fills, gradients and RGBA edges; Photoshop/MainTop/RIP and physical print quality.
 - V2 remains the accepted master. PR #20 and PR #18 remain Draft/unmerged. No V1/V2 Stable changes, no merge/release, no binaries/weights/customer images committed, and no claim that V2.1.1 quality exceeds V2.
+
+
+## 23 November 2026 — exact PR HEAD c68e62f / Candidate #1044
+
+### Source and UI clarification
+- Exact current PR branch source/test HEAD: `c68e62ff9450f189705bc2edefa30eb941118dbf` on `work/v211-four-engine-v2-bridge-20261103`.
+- The latest UI wording now makes the three-engine priority fallback explicit: it selects **one** QA candidate from Real-ESRGAN, Waifu2x or Real-CUGAN; it does not fuse those three images, and Anime4K is not part of that fallback. The separate four-engine fusion status remains distinct. Matching assertions were updated; no image-processing algorithm, accepted V2 output path, installer or model manifest changed in these two wording/test commits.
+- This distinction is descriptive only. A three-engine priority preview is not four-engine fusion and is not quality certification.
+
+### Windows Candidate #1044 — SUCCESS on exact current HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45150270208
+- Both `bridge-tests` and `windows-v2-candidate` completed SUCCESS on exact `head_sha=c68e62ff9450f189705bc2edefa30eb941118dbf`.
+- Bridge/fusion/coordination: **460 passed**; privacy/provisioning/hash: **69 passed**; total **529 passed**.
+- Frozen checks passed: V2 import smoke; synthetic installer no-consent / affirmative-consent / fail-closed setup-failure / uninstall-cache lifecycle; BigTIFF + streamed libvips QA path; packaged provisioning `--check-only` without download; isolated consented cache cleanup; diagnostic `--help`; read-only shop-runner diagnostic parsing; BUILD_PROOF exact source SHA; every installer-slice SHA256; experimental artifact upload.
+- Installer SHA256: `445d4ae0c769d4546b4d8b785b7a9d0897ccf3017d8b6c8cdf34f7011dd04bdc`.
+- Artifact ID **14808022938**; size **2,585,014,824 bytes**; ZIP SHA256 `51019a40c31b9aa4e9ab6c077134ad964d0e0ebb1e09d9222ee05c932f0a0baf`; expires **30 Nov 2026 17:20 ICT**. [Download Candidate #1044](https://github.com/niyomse-collab/niyom/actions/runs/45150270208/artifacts/14808022938).
+- Non-fatal PyInstaller warnings remain for optional `expecttest`, `pycparser.lextab/yacctab`, `scipy.special._cdflib`, driver-provided `nvcuda.dll`, and optional Numba `tbb12.dll`. Do not bundle NVIDIA driver DLLs or guess optional dependencies; verify only on the shop PC if a runtime failure demonstrates they are needed.
+
+### Independent Core #1732 — SUCCESS
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45150270203
+- Windows: **1,129 passed / 1 skipped**; Ubuntu: **1,127 passed / 3 skipped**; `compileall` passed on both.
+
+### Official Archive Audit #370 — SUCCESS, provenance only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45150272144
+- All four official Windows archives were downloaded, hash-audited, member/path-audited and transactionally provisioned into ephemeral QA storage; a four-engine manifest was generated.
+- Archive SHA256: Real-ESRGAN v0.2.5.0 `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (observed CI pin; no publisher digest); Waifu2x 20250915 `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (published digest); Real-CUGAN 20220728 `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (observed CI pin; no publisher digest); Anime4KCPP v3.2.0 `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (published digest).
+- Upstream source-license documents were retrieved and hashed, including Real-ESRGAN CLI MIT / parent-project BSD-3-Clause notices and Anime4KCPP GPL-3.0 CLI/video plus MIT core notices. This is not legal review or model-weight rights certification: `all_upstream_digests_pinned=false`, `model_weights_and_license_certified=false`, and `license_redistribution_approved=false`. Native binaries/weights remain excluded from the installer and repository. Audit artifact ID **14805378447**; [download provenance report](https://github.com/niyomse-collab/niyom/actions/runs/45150272144/artifacts/14805378447).
+
+### Native CLI Smoke #494 — classified diagnostic only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45150270273
+- On synthetic RGB and RGBA/ICC/300-DPI inputs, official Real-CUGAN and Anime4KCPP processes exited 0 and their native 2x outputs passed the candidate image/metadata checks. Their physical GPU adapter use was **not** verified.
+- Real-ESRGAN was blocked by `vkCreateInstance failed -9`; Waifu2x was blocked by the same Vulkan initialization failure plus Windows access violation `0xC0000005`.
+- Hosted-runner NVIDIA DXGI/NVML adapter verification: **0/4**; runtime VRAM guard not enabled in this CLI smoke; `real_inference_verified=false`; `quality_improvement_verified=false`. The workflow SUCCESS means the known hosted-runner limitations were correctly classified, not that four-engine GPU inference passed.
+- Native report artifact ID **14804549993**; [download synthetic-only report](https://github.com/niyomse-collab/niyom/actions/runs/45150270273/artifacts/14804549993).
+
+### V2 / GFPGAN and acceptance boundary
+- Direct Git Blob SHA comparison against PR #18 base `288dd8501c230a118d9a7e60d2522a2cc7411bcc` confirms **9/9 protected files byte-identical**: face workflow, GFPGAN face protection/detection/selection/package files, large-face handling, V2.1.1 face contract and its two test/audit files.
+- PR #20 changed-path audit still contains no V1-named paths, native executables/DLLs/archives, model weights/checkpoints or customer images. PR #20 remains OPEN / DRAFT / UNMERGED; PR #18 remains the base and remains Draft.
+- No affirmative exact-candidate shop-GPU consent marker was present, so no self-hosted shop runner was dispatched or accessed. The user's prior Windows 11 GTX 1660 Ti results for Real-ESRGAN/Waifu2x/Real-CUGAN remain valid owner-reported evidence, but the integrated four-engine bridge/fusion has not been accepted on that machine.
+- Still NOT CERTIFIED: all-four native inference on shop GTX 1660 Ti; runtime adapter binding and 6 GB peak-VRAM guard under load; cancel-under-load; real >18 MP native four-engine processing; visual A/B for faces, animals, objects, Thai/English/Chinese lettering, flat fills, gradients and RGBA edges; Photoshop/MainTop/RIP and physical print quality.
+- V2 remains the accepted master. No V1/V2 Stable changes, merge, release, binaries/weights/customer images committed, or claim that V2.1.1 quality exceeds V2.
