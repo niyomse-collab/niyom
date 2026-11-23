@@ -1,11 +1,66 @@
 import json
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageCms
 
 from tools import v211_four_engine_ab_batch as batch
-from tools.v211_four_engine_ab_report import REVIEW_REGION_LABELS
-from tests.test_v211_four_engine_ab_report import _fixture
+from tools.v211_four_engine_ab_report import ENGINES, REVIEW_REGION_LABELS, sha256_file
+
+
+def _fixture(tmp_path):
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source = tmp_path / "source.png"
+    v2 = tmp_path / "accepted-v2.png"
+    candidate = tmp_path / "qa-candidate.png"
+    evidence = tmp_path / "candidate.qa.json"
+    Image.new("RGB", (16, 12), (20, 40, 60)).save(source, format="PNG")
+    alpha = Image.new("L", (32, 24), 255)
+    for y in range(5, 19):
+        for x in range(7, 25):
+            alpha.putpixel((x, y), 0 if (x + y) % 4 == 0 else 180)
+    base = Image.new("RGBA", (32, 24), (120, 60, 30, 255))
+    base.putalpha(alpha)
+    base.save(v2, format="PNG", dpi=(300, 300), icc_profile=profile)
+    changed = base.copy()
+    pixels = changed.load()
+    for y in range(8, 15):
+        for x in range(10, 21):
+            red, green, blue, opacity = pixels[x, y]
+            pixels[x, y] = (min(255, red + 5), green, blue, opacity)
+    changed.save(candidate, format="PNG", dpi=(300, 300), icc_profile=profile)
+    alpha.close()
+    base.close()
+    changed.close()
+    evidence.write_text(json.dumps({
+        "schema_version": 1,
+        "evidence_type": "niyomsil_v211_four_engine_qa",
+        "source_v2_pair_bound_by_bridge": True,
+        "source_sha256": sha256_file(source),
+        "v2_reference_sha256": sha256_file(v2),
+        "qa_image_sha256": sha256_file(candidate),
+        "native_seed_sha256": "1" * 64,
+        "native_v2_reference_sha256": "2" * 64,
+        "fusion_output_sha256": "3" * 64,
+        "engine_candidate_sha256": {
+            name: str(index + 4) * 64 for index, name in enumerate(ENGINES)
+        },
+        "completed_engine_count": 4,
+        "completed_engine_names": list(ENGINES),
+        "per_engine_runtime_device_use_verified": {name: True for name in ENGINES},
+        "runtime_device_use_verified": True,
+        "fusion_implemented": True,
+        "all_four_engine_candidates_consumed": True,
+        "all_four_engine_pixels_contributed": True,
+        "engine_pixel_effect_verified": {name: True for name in ENGINES},
+        "engine_pixel_effect_pixels": {name: 7 for name in ENGINES},
+        "v2_output_preserved": True,
+        "quality_certified": False,
+        "privacy": {
+            "paths_included": False, "commands_included": False,
+            "logs_included": False, "image_pixels_included": False,
+        },
+    }), encoding="utf-8")
+    return source, v2, candidate, evidence
 
 
 def _batch_manifest(tmp_path, *, omit=None):
@@ -35,11 +90,12 @@ def _batch_manifest(tmp_path, *, omit=None):
 
 def test_batch_ab_requires_all_12_categories_and_creates_private_review_pack(tmp_path):
     manifest, cases = _batch_manifest(tmp_path)
-    hashes_before = {
-        path: batch.ab_report.sha256_file(tmp_path / path)
+    input_paths = [
+        (tmp_path / case[key]).resolve()
         for case in cases
-        for path in (case["source"], case["v2_reference"], case["candidate"], case["evidence"])
-    }
+        for key in ("source", "v2_reference", "candidate", "evidence")
+    ]
+    hashes_before = {path: sha256_file(path) for path in input_paths}
     output = tmp_path / "ab-12-output"
 
     report = batch.run(manifest, output)
@@ -60,7 +116,7 @@ def test_batch_ab_requires_all_12_categories_and_creates_private_review_pack(tmp
         assert (output / label / f"ab_crop_01_{label}.png").is_file()
     persisted = (output / "ab_12_category_report.json").read_text(encoding="utf-8")
     assert str(tmp_path) not in persisted
-    assert all(batch.ab_report.sha256_file(path) == digest for path, digest in hashes_before.items())
+    assert all(sha256_file(path) == digest for path, digest in hashes_before.items())
 
 
 def test_batch_ab_blocks_missing_category_before_processing_images(tmp_path):
