@@ -520,6 +520,16 @@ def test_ab_report_records_user_labeled_artwork_review_regions(tmp_path):
         "ab_crop_03_gradient.png",
     ]
     assert all((output / item["artifact"]).is_file() for item in report["review_regions"])
+    assert report["region_metrics_are_quality_scores"] is False
+    assert all("metrics" in item for item in report["review_regions"])
+    assert all(
+        item["metrics"]["delta_metrics_are_quality_scores"] is False
+        for item in report["review_regions"]
+    )
+    assert all(
+        item["metrics"]["changed_visible_pixels"] > 0
+        for item in report["review_regions"]
+    )
     assert report["quality_certified"] is False
     assert report["visual_quality_certified"] is False
 
