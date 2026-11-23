@@ -1513,7 +1513,7 @@ def test_large_bigtiff_end_to_end_tiled_fusion_fails_closed_without_real_adapter
             Path(v2_reference),
             candidate_dir,
             tuple(size),
-            {name: synthetic_detail_processor(name) for name in ENGINES},
+            {name: synthetic_contrast_processor for name in ENGINES},
             tile_size=1024,
             overlap=32,
         )
@@ -1943,7 +1943,7 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
         reference_path,
         candidate_dir,
         target_size,
-        {name: synthetic_contrast_processor for name in ENGINES},
+        {name: synthetic_detail_processor(name) for name in ENGINES},
         tile_size=1024,
         overlap=32,
     )
