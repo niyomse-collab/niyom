@@ -1808,19 +1808,25 @@ def test_real_four_engine_preview_writes_path_free_evidence_sidecar(tmp_path, mo
 def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails_closed_without_gpu_evidence(
     tmp_path, monkeypatch
 ):
-    """Exercise 1.5 MP source -> 24 MP (4x) V2 through the real disk-backed
-    seed/tile/fusion code with synthetic CPU processors. This proves geometry,
-    metadata, seam and output-preservation contracts only; it is not GPU QA.
+    """Exercise the real disk-backed 24 MP seed/tile/fusion path with CPU fixtures.
+
+    This validates geometry, ICC/DPI, tile seams, pixel contribution and V2
+    preservation only. A separate bridge invocation verifies that the same
+    large-job path with unverified physical GPU evidence publishes no QA file.
     """
     pytest.importorskip("pyvips")
     tifffile = pytest.importorskip("tifffile")
 
+    from signprint_ai.v211_large_image_bridge import (
+        inspect_image, prepare_native_2x_inputs_streamed,
+    )
     from tools.v211_four_engine_coordinator import ENGINES
     from tools.v211_four_engine_fusion import fuse_four_engine_details
     from tools.v211_four_engine_tiled_inference import run_tiled_candidates
     from tools import v211_four_engine_run
 
     source_width, source_height = 1500, 1000
+    source_size = (source_width, source_height)
     target_size = (source_width * 4, source_height * 4)
     assert target_size[0] * target_size[1] == 24_000_000
 
@@ -1831,8 +1837,8 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
     source_pixels = np.broadcast_to(
         row[None, :, :], (source_height, source_width, 3)
     ).copy()
-    # A 4x accepted V2 raster is the reference; the streamed bridge must
-    # downsample the source to a 2x half-target seed, then run native 2x once.
+    # The accepted V2 raster is 4x. Native engines still receive one 2x pass
+    # from a seed that is exactly half the accepted V2 target dimensions.
     v2_pixels = np.repeat(np.repeat(source_pixels, 4, axis=0), 4, axis=1)
 
     source = tmp_path / "synthetic-4x-source.tiff"
@@ -1863,20 +1869,27 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
         return value.hexdigest()
 
     accepted_v2_sha = digest(baseline)
-    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
-    manifest = tmp_path / "synthetic-manifest.json"
-    manifest.write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(manifest))
-    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
+    work_dir = tmp_path / "large-4x-work"
+    (
+        seed_path, reference_path, prepared_target_size, padded_size,
+        prepared_source_size, metadata,
+    ) = prepare_native_2x_inputs_streamed(
+        source, baseline, work_dir, resize_mode="stretch"
+    )
 
-    observed = {}
-
-    def bind_manifest(_manifest, work_dir):
-        bound = Path(work_dir) / "manifest.runtime-bound.json"
-        bound.write_text("{}", encoding="utf-8")
-        return bound, {"binding_configured": True, "runtime_device_use_verified": False}
-
-    monkeypatch.setattr(bridge, "_prepare_runtime_bound_manifest", bind_manifest)
+    assert prepared_source_size == source_size
+    assert prepared_target_size == target_size
+    assert padded_size == target_size
+    with Image.open(seed_path) as seed:
+        assert seed.size == (source_width * 2, source_height * 2)
+        assert seed.mode == "RGB"
+        assert seed.info.get("icc_profile") == profile
+        assert seed.info.get("dpi", (0, 0))[0] == pytest.approx(300, abs=0.1)
+    with Image.open(reference_path) as reference:
+        assert reference.size == target_size
+        assert reference.mode == "RGB"
+        assert reference.info.get("icc_profile") == profile
+        assert reference.info.get("dpi", (0, 0))[1] == pytest.approx(300, abs=0.1)
 
     def synthetic_contrast_processor(source_tile, destination):
         with Image.open(source_tile) as image:
@@ -1894,76 +1907,83 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
             output.save(destination, format="PNG", **options)
             output.close()
 
-    def synthetic_run(
-        seed_path, output_dir, _manifest, size, *, real_engines,
-        v2_reference, **kwargs
+    candidate_dir = work_dir / "synthetic-4x-tiled-candidates"
+    tiled = run_tiled_candidates(
+        seed_path,
+        reference_path,
+        candidate_dir,
+        target_size,
+        {name: synthetic_contrast_processor for name in ENGINES},
+        tile_size=1024,
+        overlap=32,
+    )
+    assert tiled["ready_for_fusion_research"] is True, tiled["failures"]
+    assert tiled["native_tiled_inference"]["all_four_engines_completed"] is True
+    for name in ENGINES:
+        engine = tiled["native_tiled_inference"]["engine_results"][name]
+        assert engine["status"] == "stitched", engine
+        assert engine["tile_count"] == 6, engine
+        assert engine["seam_count"] == 7, engine
+        assert engine["seam_validation"] == "passed", engine
+
+    candidates = {item.engine: item.path for item in tiled["candidates"]}
+    fused_path = work_dir / "four_engine_fused_preview.png"
+    fusion = fuse_four_engine_details(
+        seed_path, reference_path, candidates, fused_path
+    )
+    assert fusion["fusion_implemented"] is True
+    assert fusion["all_four_engine_candidates_consumed"] is True
+    assert fusion["all_four_engine_pixels_contributed"] is True, fusion
+    assert all(fusion["engine_pixel_effect_verified"].values())
+    with Image.open(fused_path) as preview:
+        assert preview.size == target_size
+        assert preview.mode == "RGB"
+        assert preview.info.get("icc_profile") == profile
+        assert preview.info.get("dpi", (0, 0))[0] == pytest.approx(300, abs=0.1)
+
+    # Exercise the bridge's fail-closed publication gate independently of the
+    # CPU fixture. The actual disk-backed seed/tile/fusion above has completed,
+    # but a missing physical-adapter proof must suppress the QA sidecar.
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    manifest = tmp_path / "synthetic-manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(manifest))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
+    monkeypatch.setattr(
+        bridge,
+        "prepare_native_2x_inputs_streamed",
+        lambda *_args, **_kwargs: (
+            seed_path, reference_path, target_size, padded_size, source_size, metadata
+        ),
+    )
+
+    def unverified_run(
+        _seed, _output_dir, _manifest, size, *, real_engines,
+        v2_reference, **_kwargs
     ):
         assert real_engines is True
         assert tuple(size) == target_size
-        with Image.open(seed_path) as seed:
-            assert seed.size == (source_width * 2, source_height * 2)
-            assert seed.mode == "RGB"
-            assert seed.info.get("icc_profile") == profile
-            assert seed.info.get("dpi", (0, 0))[0] == pytest.approx(300, abs=0.1)
-        with Image.open(v2_reference) as reference:
-            assert reference.size == target_size
-            assert reference.mode == "RGB"
-            assert reference.info.get("icc_profile") == profile
-            assert reference.info.get("dpi", (0, 0))[1] == pytest.approx(300, abs=0.1)
-
-        candidate_dir = Path(output_dir) / "synthetic-4x-tiled-candidates"
-        tiled = run_tiled_candidates(
-            Path(seed_path),
-            Path(v2_reference),
-            candidate_dir,
-            tuple(size),
-            {name: synthetic_contrast_processor for name in ENGINES},
-            tile_size=1024,
-            overlap=32,
-        )
-        assert tiled["ready_for_fusion_research"] is True
-        assert tiled["native_tiled_inference"]["all_four_engines_completed"] is True
-        for name in ENGINES:
-            engine = tiled["native_tiled_inference"]["engine_results"][name]
-            assert engine["status"] == "stitched"
-            assert engine["tile_count"] == 6
-            assert engine["seam_count"] == 7
-            assert engine["seam_validation"] == "passed"
-
-        candidates = {item.engine: item.path for item in tiled["candidates"]}
-        fused_path = Path(output_dir) / "four_engine_fused_preview.png"
-        fusion = fuse_four_engine_details(
-            Path(seed_path), Path(v2_reference), candidates, fused_path
-        )
-        assert fusion["fusion_implemented"] is True
-        assert fusion["all_four_engine_candidates_consumed"] is True
-        assert fusion["all_four_engine_pixels_contributed"] is True, fusion
-        assert all(fusion["engine_pixel_effect_verified"].values())
-        with Image.open(fused_path) as preview:
-            assert preview.size == target_size
-            assert preview.mode == "RGB"
-            assert preview.info.get("icc_profile") == profile
-            assert preview.info.get("dpi", (0, 0))[0] == pytest.approx(300, abs=0.1)
-
-        observed["tile_reports"] = tiled["native_tiled_inference"]["engine_results"]
-        observed["fusion"] = fusion
+        assert Path(v2_reference) == reference_path
         return {
             "ready_for_fusion_research": True,
             "completed_engine_count": 4,
-            "failures": {},
             "runtime_device_use_verified": False,
             "per_engine_runtime_device_use_verified": {
                 name: False for name in ENGINES
             },
-            "four_engine_fusion": fusion,
+            "fusion_block_reason": "gpu_runtime_unverified",
+            "four_engine_fusion": {
+                "fusion_implemented": True,
+                "all_four_engine_candidates_consumed": True,
+                "all_four_engine_pixels_contributed": True,
+                "output": str(fused_path),
+            },
         }
 
-    monkeypatch.setattr(v211_four_engine_run, "run", synthetic_run)
+    monkeypatch.setattr(v211_four_engine_run, "run", unverified_run)
     result = bridge.maybe_run_four_engine_assist(source, baseline)
 
-    assert len(observed["tile_reports"]) == 4
-    assert observed["fusion"]["all_four_engine_pixels_contributed"] is True
-    assert result["status"] == "gpu_runtime_unverified"
+    assert result["status"] == "gpu_runtime_unverified", result
     assert result["completed_engine_count"] == 4
     assert result["four_engine_fusion_output"] is None
     assert result["v2_output_preserved"] is True
