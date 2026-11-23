@@ -538,6 +538,45 @@ def _compute_metrics(v2_raster, candidate_raster, size, mode) -> dict:
         "delta_metrics_are_quality_scores": False,
     }
 
+def _compute_crop_metrics(left_image: Image.Image, right_image: Image.Image, mode: str) -> dict:
+    """Summarize one bounded review crop; deltas are not quality scores."""
+    left = np.asarray(left_image, dtype=np.uint8)
+    right = np.asarray(right_image, dtype=np.uint8)
+    expected_channels = 4 if mode == "RGBA" else 3
+    if (
+        left.shape != right.shape or left.ndim != 3
+        or left.shape[2] != expected_channels
+    ):
+        raise ABReportError("review crop pixels do not match the validated RGB/RGBA contract")
+    if mode == "RGBA":
+        alpha_mismatch = int(np.count_nonzero(left[..., 3] != right[..., 3]))
+        visible = (left[..., 3] > 0) & (right[..., 3] > 0)
+    else:
+        alpha_mismatch = 0
+        visible = np.ones(left.shape[:2], dtype=bool)
+    delta = np.abs(left[..., :3].astype(np.int16) - right[..., :3].astype(np.int16))
+    visible_pixels = int(np.count_nonzero(visible))
+    if visible_pixels:
+        selected = delta[visible]
+        changed_pixels = int(np.count_nonzero(np.any(selected != 0, axis=1)))
+        sum_abs = int(selected.sum(dtype=np.uint64))
+        sum_squared = int(np.square(selected.astype(np.int64)).sum())
+        max_delta = int(selected.max())
+    else:
+        changed_pixels = sum_abs = sum_squared = max_delta = 0
+    channel_count = visible_pixels * 3
+    return {
+        "visible_pixels": visible_pixels,
+        "changed_visible_pixels": changed_pixels,
+        "changed_visible_pixel_fraction": changed_pixels / visible_pixels if visible_pixels else None,
+        "mean_abs_rgb_delta": sum_abs / channel_count if channel_count else None,
+        "rmse_rgb_delta": math.sqrt(sum_squared / channel_count) if channel_count else None,
+        "max_channel_delta": max_delta,
+        "alpha_mismatch_pixels": alpha_mismatch,
+        "alpha_exact_match": alpha_mismatch == 0 if mode == "RGBA" else None,
+        "delta_metrics_are_quality_scores": False,
+    }
+
 
 def _write_report(output_dir: Path, report: dict) -> None:
     (output_dir / "ab_report.json").write_text(
@@ -560,8 +599,10 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), crop
         "evidence_authenticity_verified": False,
         "quality_certified": False, "visual_quality_certified": False,
         "print_quality_certified": False, "human_review_required": True,
-        "delta_metrics_are_quality_scores": False, "artifacts": [],
-        "review_regions": [], "review_region_labels_are_user_supplied": bool(requested_labels),
+        "delta_metrics_are_quality_scores": False,
+        "region_metrics_are_quality_scores": False,
+        "artifacts": [], "review_regions": [],
+        "review_region_labels_are_user_supplied": bool(requested_labels),
     }
     if not all(path.is_file() for path in (source, v2_reference, candidate, evidence)):
         report["block_reasons"].append("required_input_missing")
@@ -671,6 +712,7 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), crop
                     raise ABReportError("review crop is outside the image or exceeds 2048 pixels")
                 box = (x, y, x + crop_width, y + crop_height)
                 left_crop, right_crop = v2_raster.crop(box), candidate_raster.crop(box)
+                region_metrics = _compute_crop_metrics(left_crop, right_crop, mode)
                 crop_sheet = _comparison_sheet(left_crop, right_crop)
                 label = review_labels[index - 1]
                 filename = f"ab_crop_{index:02d}_{label}.png"
@@ -683,6 +725,7 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), crop
                     "label": label,
                     "box_xywh": [x, y, crop_width, crop_height],
                     "artifact": filename,
+                    "metrics": region_metrics,
                 })
             report["review_regions"] = review_regions
     except Exception as exc:
