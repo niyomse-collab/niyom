@@ -1513,7 +1513,7 @@ def test_large_bigtiff_end_to_end_tiled_fusion_fails_closed_without_real_adapter
             Path(v2_reference),
             candidate_dir,
             tuple(size),
-            {name: synthetic_contrast_processor for name in ENGINES},
+            {name: synthetic_detail_processor(name) for name in ENGINES},
             tile_size=1024,
             overlap=32,
         )
@@ -1817,9 +1817,7 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
     pytest.importorskip("pyvips")
     tifffile = pytest.importorskip("tifffile")
 
-    from signprint_ai.v211_large_image_bridge import (
-        inspect_image, prepare_native_2x_inputs_streamed,
-    )
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
     from tools.v211_four_engine_coordinator import ENGINES
     from tools.v211_four_engine_fusion import fuse_four_engine_details
     from tools.v211_four_engine_tiled_inference import run_tiled_candidates
@@ -1831,12 +1829,12 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
     assert target_size[0] * target_size[1] == 24_000_000
 
     profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
-    columns = np.arange(source_width, dtype=np.uint32)
-    stripe = np.where((columns // 32) % 2 == 0, 119, 137).astype(np.uint8)
-    row = np.repeat(stripe[:, None], 3, axis=1)
-    source_pixels = np.broadcast_to(
-        row[None, :, :], (source_height, source_width, 3)
-    ).copy()
+    # Use a single high-contrast contour like the existing 4x scale contract.
+    # This gives the deliberately low-weight Anime4K term a measurable
+    # counterfactual effect after final 8-bit rounding, without changing fusion.
+    source_pixels = np.empty((source_height, source_width, 3), dtype=np.uint8)
+    source_pixels[:, :source_width // 2] = (40, 80, 120)
+    source_pixels[:, source_width // 2:] = (140, 160, 180)
     # The accepted V2 raster is 4x. Native engines still receive one 2x pass
     # from a seed that is exactly half the accepted V2 target dimensions.
     v2_pixels = np.repeat(np.repeat(source_pixels, 4, axis=0), 4, axis=1)
@@ -1891,21 +1889,53 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
         assert reference.info.get("icc_profile") == profile
         assert reference.info.get("dpi", (0, 0))[1] == pytest.approx(300, abs=0.1)
 
-    def synthetic_contrast_processor(source_tile, destination):
-        with Image.open(source_tile) as image:
-            pixels = np.asarray(image.convert("RGB"), dtype=np.int16)
-            enhanced = np.clip(128 + (pixels - 128) * 2, 0, 255).astype(np.uint8)
-            output = Image.fromarray(enhanced, "RGB").resize(
-                (image.width * 2, image.height * 2),
-                resample=Image.Resampling.NEAREST,
-            )
-            options = {
-                key: image.info[key]
-                for key in ("icc_profile", "dpi")
-                if key in image.info
-            }
-            output.save(destination, format="PNG", **options)
-            output.close()
+    def synthetic_detail_processor(engine_name):
+        # Keep the same per-engine edge deltas used by the passing 4x scale
+        # contract. The weaker Anime4K weight needs this controlled positive
+        # edge fixture; identical contrast outputs for all engines can be
+        # consumed yet quantize to zero Anime4K pixel contribution at 4x.
+        amount = {
+            "real_esrgan": 8,
+            "waifu2x": 7,
+            "real_cugan": 8,
+            "anime4k": 5,
+        }[engine_name]
+
+        def process(source_tile, destination):
+            with Image.open(source_tile) as image:
+                source_rgb = image.convert("RGB")
+                gradients = np.abs(
+                    np.diff(np.asarray(source_rgb, dtype=np.int16), axis=1)
+                ).mean(axis=(0, 2))
+                enlarged = source_rgb.resize(
+                    (image.width * 2, image.height * 2),
+                    resample=Image.Resampling.NEAREST,
+                )
+                pixels = np.asarray(enlarged, dtype=np.int16).copy()
+                if gradients.size and float(gradients.max()) > 0:
+                    # Find the actual contour in this tile rather than assuming
+                    # it is at the tile centre; overlap tiles may start at
+                    # different global coordinates.
+                    boundary = (int(np.argmax(gradients)) + 1) * 2
+                    if 0 < boundary < pixels.shape[1]:
+                        pixels[:, boundary - 1, :] = np.clip(
+                            pixels[:, boundary - 1, :] - amount, 0, 255
+                        )
+                        pixels[:, boundary, :] = np.clip(
+                            pixels[:, boundary, :] + amount, 0, 255
+                        )
+                options = {
+                    key: image.info[key]
+                    for key in ("icc_profile", "dpi")
+                    if key in image.info
+                }
+                Image.fromarray(pixels.astype(np.uint8), "RGB").save(
+                    destination, format="PNG", **options
+                )
+                enlarged.close()
+                source_rgb.close()
+
+        return process
 
     candidate_dir = work_dir / "synthetic-4x-tiled-candidates"
     tiled = run_tiled_candidates(
