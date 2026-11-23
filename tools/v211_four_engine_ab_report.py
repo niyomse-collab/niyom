@@ -26,8 +26,8 @@ TILE_SIZE = 512
 MAX_CROPS = 32
 MAX_CROP_EDGE = 2048
 REVIEW_REGION_LABELS = (
-    "face", "animal", "object", "frame", "thai_text", "english_text",
-    "chinese_text", "flat_color", "gradient", "rgba_edge",
+    "person", "animal", "object", "frame", "thai_pattern", "thai_text",
+    "english_text", "chinese_text", "flat_color", "gradient", "rgba_edge", "face",
 )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 

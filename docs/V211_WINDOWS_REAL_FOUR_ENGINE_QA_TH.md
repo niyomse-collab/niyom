@@ -784,3 +784,36 @@ python -m tools.v211_four_engine_ab_report `
 - รายงานยังคง `quality_certified=false`, `visual_quality_certified=false`, `print_quality_certified=false`; ต้องให้มนุษย์ตรวจภาพและทดสอบงานพิมพ์จริงก่อนตัดสิน
 
 ตัวอย่างนี้เป็นการสร้างชุด A/B แบบ Offline เท่านั้น ไม่มีการอัปโหลดภาพลูกค้าหรือส่งภาพไป GitHub Actions
+
+
+## 24 พฤศจิกายน 2569 — A/B แบบครบ 12 หมวด
+
+เพิ่มตัวช่วย `tools.v211_four_engine_ab_batch` สำหรับจัดชุดเปรียบเทียบ V2 กับ V2.1.1 จากไฟล์ท้องถิ่น 12 กรณี โดยแต่ละกรณีต้องมี Source, accepted V2, QA candidate, sidecar หลักฐาน และ crop ที่ผู้ใช้เลือกเอง
+
+หมวดที่ต้องมีอย่างละหนึ่งกรณี:
+1. `person` — ภาพบุคคล/ลำตัว
+2. `animal` — สัตว์
+3. `object` — วัตถุ
+4. `frame` — กรอบ/เส้นขอบ
+5. `thai_pattern` — ลายไทย
+6. `thai_text` — อักษรไทย
+7. `english_text` — อักษรอังกฤษ
+8. `chinese_text` — อักษรจีน
+9. `flat_color` — พื้นสีเรียบ
+10. `gradient` — สีไล่เฉด
+11. `rgba_edge` — ขอบโปร่งใส
+12. `face` — รายละเอียดใบหน้าและการรักษาอัตลักษณ์
+
+ไฟล์ Manifest เป็น JSON schema 1 มี `cases` จำนวน 12 รายการพอดี แต่ละรายการใช้ key `label`, `source`, `v2_reference`, `candidate`, `evidence`, `crop` โดย path ที่ไม่ใช่ absolute จะอ้างอิงจากโฟลเดอร์ของ Manifest และ `crop` เป็น `[x, y, width, height]` ที่ผู้ใช้เลือกในภาพจริง
+
+ตัวอย่างการรัน:
+
+~~~powershell
+py -3 -m tools.v211_four_engine_ab_batch --manifest "$qa\\ab-12-categories.json" --output-dir "$qa\\ab-12-review"
+~~~
+
+ผลลัพธ์อยู่ในโฟลเดอร์ QA ส่วนตัว ได้แก่ `ab_12_category_report.json`, รายงาน/ภาพ crop แยกตามหมวด และ `ab_12_category_contact_sheet.png` เมื่อครบทั้ง 12 หมวดและทุกกรณีผ่าน preflight เท่านั้น
+
+สถานะ `ready_for_human_review` หมายถึงไฟล์และ metadata พร้อมให้คนตรวจ ไม่ใช่การรับรองคุณภาพภาพหรือความพร้อมพิมพ์ Sidecar ยังไม่ใช่ลายเซ็นเข้ารหัส จึงไม่ยืนยันความแท้ของหลักฐานด้วยตัวเอง รายงานจะไม่บันทึก path ต้นฉบับ คำสั่ง หรือ pixel data ลงใน JSON และไม่ส่งภาพไป GitHub
+
+ห้ามใช้ภาพลูกค้าที่ไม่มีสิทธิ์ทดสอบ ห้าม commit ภาพ/weights/binaries และห้ามแทนที่ accepted V2 จากผล A/B โดยอัตโนมัติ

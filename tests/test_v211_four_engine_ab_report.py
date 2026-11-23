@@ -589,3 +589,9 @@ def test_crop_label_parser_accepts_only_review_categories():
     else:
         raise AssertionError("crop labels must be restricted to safe categories")
 
+
+
+
+def test_crop_label_parser_accepts_person_and_thai_pattern_categories():
+    assert ab_report.parse_crop_label("person") == "person"
+    assert ab_report.parse_crop_label("Thai_Pattern") == "thai_pattern"
