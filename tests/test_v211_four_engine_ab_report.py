@@ -494,3 +494,87 @@ def test_ab_report_streams_real_over_18mp_jpeg_reference_and_png_candidate(tmp_p
     assert report["print_quality_certified"] is False
     assert (output / "ab_contact_sheet.png").is_file()
     assert hashes_before == (_sha(source), _sha(v2_reference), _sha(candidate))
+
+
+def test_ab_report_records_user_labeled_artwork_review_regions(tmp_path):
+    source, v2, candidate, evidence = _fixture(tmp_path)
+    output = tmp_path / "ab-labeled-regions"
+    crops = ((0, 0, 16, 12), (8, 6, 16, 12), (4, 4, 12, 12))
+    labels = ("face", "thai_text", "gradient")
+
+    report = run(
+        source, v2, candidate, evidence, output,
+        crops=crops, crop_labels=labels,
+    )
+
+    assert report["status"] == "ready_for_human_review"
+    assert report["review_region_labels_are_user_supplied"] is True
+    assert [item["label"] for item in report["review_regions"]] == list(labels)
+    assert [item["box_xywh"] for item in report["review_regions"]] == [
+        list(box) for box in crops
+    ]
+    assert [item["artifact"] for item in report["review_regions"]] == [
+        "ab_crop_01_face.png",
+        "ab_crop_02_thai_text.png",
+        "ab_crop_03_gradient.png",
+    ]
+    assert all((output / item["artifact"]).is_file() for item in report["review_regions"])
+    assert report["quality_certified"] is False
+    assert report["visual_quality_certified"] is False
+
+
+def test_ab_report_rejects_crop_label_count_mismatch_before_creating_previews(tmp_path):
+    source, v2, candidate, evidence = _fixture(tmp_path)
+    output = tmp_path / "ab-labeled-count-mismatch"
+
+    report = run(
+        source, v2, candidate, evidence, output,
+        crops=((0, 0, 16, 12), (8, 6, 16, 12)),
+        crop_labels=("face",),
+    )
+
+    assert report["status"] == "blocked"
+    assert "crop_label_count_mismatch" in report["block_reasons"]
+    assert report["artifacts"] == []
+    assert not (output / "ab_contact_sheet.png").exists()
+
+
+def test_ab_report_rejects_crop_labels_without_explicit_crop_coordinates(tmp_path):
+    source, v2, candidate, evidence = _fixture(tmp_path)
+    output = tmp_path / "ab-labels-without-crops"
+
+    report = run(
+        source, v2, candidate, evidence, output,
+        crop_labels=("face",),
+    )
+
+    assert report["status"] == "blocked"
+    assert "crop_labels_require_explicit_crops" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
+
+
+def test_ab_report_rejects_unknown_crop_category_label(tmp_path):
+    source, v2, candidate, evidence = _fixture(tmp_path)
+    output = tmp_path / "ab-invalid-crop-label"
+
+    report = run(
+        source, v2, candidate, evidence, output,
+        crops=((0, 0, 16, 12),),
+        crop_labels=("customer_name",),
+    )
+
+    assert report["status"] == "blocked"
+    assert "crop_label_invalid" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
+
+
+def test_crop_label_parser_accepts_only_review_categories():
+    assert ab_report.parse_crop_label("face") == "face"
+    assert ab_report.parse_crop_label("Thai_Text") == "thai_text"
+    try:
+        ab_report.parse_crop_label("../private")
+    except Exception as exc:
+        assert isinstance(exc, ab_report.argparse.ArgumentTypeError)
+    else:
+        raise AssertionError("crop labels must be restricted to safe categories")
+
