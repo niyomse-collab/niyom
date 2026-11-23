@@ -1564,3 +1564,47 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - The overall source-to-target geometry can therefore be 2x/3x/4x/8x/custom/anisotropic within the current format, pixel, row, disk and minimum-seed guards. This must not be described as native 3x/4x/8x inference or multi-pass AI.
 - The large path uses libvips to create private PNG intermediates from supported 8-bit RGB/RGBA source/V2 rasters, then runs sequential 512-pixel-core / 32-pixel-overlap native tiles and streamed fusion/QA. Synthetic bridge tests cover 2x/3x/4x/8x geometry with fake processors; the 8x fixture intentionally fails the Anime4K contribution gate and publishes no fused QA sidecar.
 - This correction is documentation-only. It does not certify native GPU 4/4, real >18 MP inference, VRAM/cancel stress, visual A/B or print quality.
+
+
+## 23 November 2026 — exact PR HEAD Candidate #1040
+
+### Exact source and branch state
+- PR #20 remains OPEN / DRAFT / UNMERGED on `work/v211-four-engine-v2-bridge-20261103`; exact HEAD: `bf31703c98b21706ec2db70f2a34ce2e2ce0c91d`.
+- PR #18 remains OPEN / DRAFT / UNMERGED and is the base at `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- Compare from the preceding Candidate #1038 source `4cf82be720868bd560a24a830251979bc9242126` to this HEAD shows **2 commits / 1 changed file only**: `docs/V211_FOUR_ENGINE_BRIDGE_BUILD_STATUS_TH.md` (**63 additions / 3 deletions**). No production source, tests, installer, spec, model manifest or workflow changed after Candidate #1038.
+- Direct Git Blob SHA checks against PR #18 base confirm **9/9 protected files byte-identical**: `.github/workflows/verify-v211-face.yml`; `signprint_ai/face_module/face_protection.py`, `detection.py`, `selection.py`, `__init__.py`; `signprint_ai/large_faces.py`; `signprint_ai/v211_face_contract.py`; `tests/test_v211_face_contract.py`; and `tests/test_v211_large_face_audit.py`.
+- PR #20 has 82 changed paths; no executable, DLL, archive, checkpoint/weight or customer-image paths are present. No V1-named paths are present. Optional HAT Assist execution remains disabled in PR #20 as a separate compatibility difference; GFPGAN/face-protection files are unchanged.
+
+### Windows Candidate #1040 — SUCCESS on exact PR HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45068009107
+- Both jobs passed: `bridge-tests` and `windows-v2-candidate`.
+- Bridge/Fusion/coordination tests: **460 passed**; privacy/provisioning/hash tests: **69 passed**; total **529 passed**.
+- Frozen checks passed: V2 packaged imports; synthetic Inno Setup consent/failure/uninstall lifecycle; single-page BigTIFF and streamed libvips QA; packaged provisioning `--check-only` without downloads; consented cache-cleanup fixture; diagnostic `--help`; read-only shop-runner and provenance PowerShell syntax; exact BUILD_PROOF/source SHA; every installer-slice SHA256; experimental artifact upload.
+- Installer SHA256: `389ba63266c47651d42ee4bbb7e2dea8ffa6ffc74eab148242f58492255ab85a`.
+- Artifact ID **14773875767**; size **2,584,695,354 bytes**; ZIP SHA256 `61d4a62dec0fa624b76f4607209fe3fa6df11f38acafcffd012fb20987f81cca`; expires **29 Nov 2026 21:16 UTC / 30 Nov 2026 04:16 ICT**. [Download Candidate #1040](https://github.com/niyomse-collab/niyom/actions/runs/45068009107/artifacts/14773875767).
+- Non-fatal PyInstaller warnings remain for `pycparser.lextab/yacctab`, `scipy.special._cdflib`, driver-provided `nvcuda.dll`, and optional `tbb12.dll`. Do not bundle NVIDIA driver DLLs or unpinned TBB binaries; runtime relevance remains a shop-PC check.
+
+### Independent Core #1723 — SUCCESS on the PR merge snapshot
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45068009075
+- Both jobs checked out merge snapshot `9cde9f5` (merge of exact PR HEAD `bf31703` into base `288dd850`).
+- Windows: **1,129 passed / 1 skipped**. Ubuntu: **1,127 passed / 3 skipped**. `compileall` passed on both platforms.
+
+### Official Archive Audit #366 — SUCCESS on exact PR HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45068009124
+- All four official Windows archives were downloaded, hash-audited, path/member-audited and transactionally provisioned into an ephemeral QA directory; a four-engine manifest was generated.
+- Archive SHA256: Real-ESRGAN v0.2.5.0 `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (observed CI pin; no publisher digest); Waifu2x 20250915 `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (published digest); Real-CUGAN 20220728 `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (observed CI pin; no publisher digest); Anime4KCPP v3.2.0 `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (published digest).
+- Upstream source-license documents were retrieved and hashed. This is not legal review or model-weight rights certification: `model_weights_and_license_certified=false`, `license_redistribution_approved=false`; native binaries/weights remain excluded from the installer and repository.
+
+### Native CLI Smoke #490 — classified diagnostic only, exact PR HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45068009071
+- Real-CUGAN and Anime4KCPP produced validated synthetic 2x outputs on the hosted Windows runner.
+- Real-ESRGAN was blocked by `vkCreateInstance failed -9`; Waifu2x was blocked by the same Vulkan initialization failure plus `0xC0000005`.
+- NVIDIA DXGI/NVML physical adapter verification: **0/4**; runtime VRAM budget: **not passed**; `real_inference_verified=false`; `quality_improvement_verified=false`. The workflow SUCCESS means the hosted-runner limitation was correctly classified, not that all four engines passed GPU inference.
+- No self-hosted shop-GPU workflow was dispatched: no affirmative exact-candidate consent was present. The dedicated workflow still requires explicit `confirm_shop_gpu=yes` plus the installed candidate source SHA.
+
+### Current acceptance boundary
+- Candidate #1040 supersedes Candidate #1038 for the current PR HEAD package.
+- The 23 Nov scale correction describes **overall source-to-target geometry** (2x/3x/4x/8x/custom/anisotropic) created by mapping the source to the accepted V2 canvas and then using a half-target seed. Each external native engine still performs exactly **one native 2x pass**; this is not native 3x/4x/8x inference or multi-pass AI.
+- Synthetic bridge tests cover scale geometry; the 8x fixture intentionally fails the Anime4K pixel-contribution gate and publishes no fused QA sidecar.
+- Still NOT CERTIFIED: all-four native inference on the shop GTX 1660 Ti; per-process adapter binding; 6 GB peak-VRAM stress; Windows cancel-under-load; real >18 MP native streaming; customer-image A/B for faces, animals, objects, Thai/English/Chinese lettering, flat fills, gradients and RGBA edges; Photoshop/MainTop/RIP and physical print quality.
+- V2 remains the accepted master. PR #20 and PR #18 remain Draft/unmerged. No V1/V2 Stable changes, no merge/release, no binaries/weights/customer images committed, and no claim that V2.1.1 quality exceeds V2.
