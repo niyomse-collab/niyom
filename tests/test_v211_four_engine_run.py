@@ -86,6 +86,48 @@ def test_four_engine_runner_produces_four_valid_candidates(tmp_path):
 
 
 
+def test_runtime_probe_is_closed_when_processor_factory_fails(tmp_path, monkeypatch):
+    source = tmp_path / "source.png"
+    reference = tmp_path / "accepted-v2.png"
+    Image.new("RGB", (8, 8), (20, 80, 120)).save(source)
+    Image.new("RGB", (16, 16), (20, 80, 120)).save(reference)
+    reference_before = reference.read_bytes()
+
+    commands = {
+        name: EngineCommand(("fake-" + name,)) for name in ENGINES
+    }
+    monkeypatch.setattr(runner, "load_real_engine_manifest", lambda _path: commands)
+
+    class FakeProbe:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    probe = FakeProbe()
+    monkeypatch.setattr(runner, "NvmlProcessProbe", lambda target_name: probe)
+
+    def fail_processor_factory(*_args, **_kwargs):
+        raise RuntimeError("processor setup failed")
+
+    monkeypatch.setattr(runner, "make_processors", fail_processor_factory)
+
+    with pytest.raises(RuntimeError, match="processor setup failed"):
+        runner.run(
+            source,
+            tmp_path / "output",
+            tmp_path / "verified-manifest.json",
+            (16, 16),
+            real_engines=True,
+            v2_reference=reference,
+        )
+
+    assert probe.closed is True
+    assert reference.read_bytes() == reference_before
+    assert not (tmp_path / "output").exists()
+
+
 def test_safe_execution_record_keeps_canonical_vram_ceiling_field():
     record = {
         "runtime_vram_guard_enabled": True,
