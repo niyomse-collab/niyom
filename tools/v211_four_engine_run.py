@@ -435,8 +435,11 @@ def run(source: Path, output_dir: Path, config: Path, size: tuple[int, int], *, 
         processor_kwargs["runtime_vram_guard"] = True
     elif supports_runtime_vram_guard:
         processor_kwargs["runtime_vram_guard"] = False
-    processors = make_processors(commands, **processor_kwargs)
     try:
+        # The probe may already own NVML/PDH resources before processor
+        # construction. Keep construction inside the cleanup scope so a
+        # malformed command/configuration cannot leak those OS resources.
+        processors = make_processors(commands, **processor_kwargs)
         if large_job:
             result = run_tiled_candidates(
                 source, Path(v2_reference), output_dir, size, processors,
