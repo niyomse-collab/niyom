@@ -45,7 +45,7 @@ def _rgb_png_compatible_icc(profile: object, source_mode: str) -> bytes | None:
 
 
 def _four_engine_face_guard(
-    source_path: str | Path,
+    v2_output_path: str | Path,
     face_info: dict,
     selected_regions,
     source_size: tuple[int, int],
@@ -56,8 +56,9 @@ def _four_engine_face_guard(
 
     Explicitly selected ROIs use the same transform as V2. When GFPGAN auto-
     detects faces (selected_regions is None), repeat the bundled RetinaFace
-    detection on the source thumbnail and require an exact face-count match.
-    Expand each matched box before mapping it to the final V2 canvas. If the
+    detection on the exact saved V2 canvas and require an exact face-count match.
+    Expand each matched box there, so EXIF rotation and fit/stretch padding are
+    already reflected. If the
     detector, geometry, or count is uncertain, preserve the entire V2 raster
     instead of guessing where a restored face was pasted.
     """
@@ -85,7 +86,7 @@ def _four_engine_face_guard(
     try:
         from .face_module.detection import FaceDetector
 
-        detected = tuple(FaceDetector().detect(source_path))
+        detected = tuple(FaceDetector().detect(v2_output_path))
         if len(detected) != expected_count:
             return (), True
 
@@ -112,9 +113,9 @@ def _four_engine_face_guard(
                 min(1.0, y2 + margin_y),
             ))
 
-        mapped = tuple(
-            map_regions(tuple(expanded), source_size, target_size, resize_mode)
-        )
+        # FaceDetector returns normalized coordinates on the exact saved V2
+        # canvas; no second source-to-print transform is needed here.
+        mapped = tuple(expanded)
         if len(mapped) != expected_count:
             return (), True
         return mapped, False
@@ -368,7 +369,7 @@ class NiyomSilpCoreAdapter:
                 )
                 face_info = large_result.get("face_protection") or {}
                 mapped_faces, preserve_all_v2_faces = _four_engine_face_guard(
-                    src, face_info, getattr(settings, "face_regions", None),
+                    dst, face_info, getattr(settings, "face_regions", None),
                     source_size, target_size, settings.resize_mode,
                 )
                 try:
@@ -647,7 +648,7 @@ class NiyomSilpCoreAdapter:
             # exact final V2 canvas. If the automatic detector cannot reproduce
             # the same face count, keep the entire V2 raster as the safe result.
             mapped_faces, preserve_all_v2_faces = _four_engine_face_guard(
-                src, face_info, getattr(settings, "face_regions", None),
+                dst, face_info, getattr(settings, "face_regions", None),
                 source_size, target_size, settings.resize_mode,
             )
             try:
