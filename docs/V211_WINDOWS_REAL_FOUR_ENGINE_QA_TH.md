@@ -836,3 +836,33 @@ py -3 -m tools.v211_four_engine_ab_batch --manifest "$qa\\ab-12-categories.json"
 - ผล synthetic GPU evidence ไม่ใช่ A/B visual quality หรือ print-quality certification
 
 Commit marker นี้อนุญาตเฉพาะการทำงานของ `v211-four-engine-manual-evidence.yml` บน runner label `niyom-shop-gpu`; ไม่อนุญาต Merge, Release, เปลี่ยน V1/V2 Stable หรือเขียนทับ accepted V2
+
+
+## 25 พฤศจิกายน 2569 04:18 ICT — Synthetic Shop GPU Evidence สำหรับ Candidate #1072
+
+ส่วนนี้ supersede การอนุญาตเดิมสำหรับ Candidate #1066 และใช้เฉพาะ Draft PR #20 / branch `work/v211-four-engine-v2-bridge-20261103`.
+
+### Candidate ที่อนุญาตให้ตรวจ
+- Exact candidate source SHA: `3b82d3264dc7f234c9c06eae8302132a1026386f`
+- Windows Candidate #1072: https://github.com/niyomse-collab/niyom/actions/runs/45435482933
+- Installer SHA256: `a41407f883c317af0dab88d4eca17eda8e461eadd448d7beabea4b48484f0cf1`
+- Artifact ID: `14943582877`; installer package ZIP SHA256: `d02764ef2370a1a8385824834f948def6f46440efce7d6e231bf4d4fef44cf48`
+
+### เหตุผลที่ต้องใช้ Candidate #1072 แทน Run #62
+- Shop GPU Evidence #62 ยังมี evidence job สถานะ queued และ commit marker เดิมระบุ Candidate #1066 source `43cd37023817a4ea7f899da337e0257927ccc220`.
+- Compare จาก Candidate #1066 ถึง Candidate #1072 พบ 6 commits และ 3 changed files โดยมี production change ใน `signprint_ai/niyomsil_core_adapter.py` และ regression tests เพิ่มเติม
+- Manual evidence workflow อนุญาตเฉพาะ documentation/workflow/test-contract changes หลัง Candidate source ดังนั้น Run #62 ไม่สามารถใช้เป็นหลักฐานของ Candidate #1072 และจะถูก preflight ปฏิเสธเมื่อเริ่มทำงาน
+- การ trigger ใหม่นี้เปลี่ยนเฉพาะเอกสาร QA นี้ ไม่มี production source, V1/V2 Stable, GFPGAN, installer/spec หรือ model file เปลี่ยน
+
+### ขอบเขตและ fail-closed
+- Workflow ต้องตรวจ installed `BUILD_PROOF.txt` ให้ตรง Candidate SHA #1072 และตรวจว่ามี verified four-engine manifest ใน LOCALAPPDATA ของ runner account เดียวกันก่อนเริ่ม Native process
+- ถ้า Candidate ไม่ตรง, Manifest หาย/อ่านไม่ได้, runner/driver/Vulkan/physical adapter telemetry ไม่พร้อม หรือ VRAM guard ไม่ผ่าน ต้องหยุดโดยไม่พยายามติดตั้ง/ดาวน์โหลดโมเดลแทนผู้ใช้
+- ใช้ synthetic RGB และ RGBA/ICC/300-DPI inputs เท่านั้น; ไม่เปิดหรืออัปโหลดภาพลูกค้า
+- Workflow ไม่ดาวน์โหลดโมเดลและไม่เปลี่ยน Windows Services; อัปโหลดเฉพาะ JSON evidence และลบ workspace หลังจบ
+- ต้องยืนยัน PID-to-physical-adapter ของ Native process ทั้งสี่และ VRAM budget แยกแต่ละ engine ก่อนผ่าน GPU evidence gate
+- แม้ synthetic GPU evidence ผ่าน ก็ยังไม่ใช่การรับรอง visual quality, A/B หรือ print quality; V2 ยังคงเป็น accepted master
+
+Commit marker สำหรับ workflow เฉพาะเครื่องร้าน:
+`[shop-gpu-evidence yes candidate=3b82d3264dc7f234c9c06eae8302132a1026386f]`
+
+อนุญาตเฉพาะ synthetic diagnostic ของ Candidate #1072 บน runner label `niyom-shop-gpu` ภายใต้ preflight ข้างต้น ไม่อนุญาต Merge, Release, เปลี่ยน V1/V2 Stable, ดาวน์โหลด/ติดตั้งโมเดลโดยไม่มี consent แยกต่างหาก หรือเขียนทับ accepted V2
