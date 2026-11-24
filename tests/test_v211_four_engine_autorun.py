@@ -175,7 +175,7 @@ def test_custom_four_x_target_runs_native_two_x_on_half_target_seed(tmp_path, mo
         (
             None,
             ((0.25, 0.25, 0.75, 0.75),),
-            ((0.2875, 0.075, 0.7125, 0.925),),
+            ((0.075, 0.075, 0.925, 0.925),),
             False,
         ),
         (None, (), (), True),
@@ -195,7 +195,7 @@ def test_core_adapter_maps_face_regions_to_final_fit_canvas(
 
         class FakeDetector:
             def detect(self, path):
-                assert Path(path) == source
+                assert Path(path) == destination
                 return detected
 
         monkeypatch.setattr(detection_module, "FaceDetector", FakeDetector)
