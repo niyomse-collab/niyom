@@ -58,8 +58,8 @@ def _four_engine_face_guard(
     detects faces (selected_regions is None), repeat the bundled RetinaFace
     detection on the exact saved V2 canvas and require an exact face-count match.
     Expand each matched box there, so EXIF rotation and fit/stretch padding are
-    already reflected. If the
-    detector, geometry, or count is uncertain, preserve the entire V2 raster
+    already reflected. If the detector, geometry, or count is uncertain,
+    preserve the entire V2 raster
     instead of guessing where a restored face was pasted.
     """
     if not isinstance(face_info, dict) or not face_info.get("applied"):
@@ -107,10 +107,10 @@ def _four_engine_face_guard(
             margin_x = max((x2 - x1) * 0.35, 0.015)
             margin_y = max((y2 - y1) * 0.35, 0.02)
             expanded.append((
-                max(0.0, x1 - margin_x),
-                max(0.0, y1 - margin_y),
-                min(1.0, x2 + margin_x),
-                min(1.0, y2 + margin_y),
+                round(max(0.0, x1 - margin_x), 6),
+                round(max(0.0, y1 - margin_y), 6),
+                round(min(1.0, x2 + margin_x), 6),
+                round(min(1.0, y2 + margin_y), 6),
             ))
 
         # FaceDetector returns normalized coordinates on the exact saved V2
