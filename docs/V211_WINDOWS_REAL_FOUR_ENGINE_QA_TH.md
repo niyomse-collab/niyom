@@ -817,3 +817,22 @@ py -3 -m tools.v211_four_engine_ab_batch --manifest "$qa\\ab-12-categories.json"
 สถานะ `ready_for_human_review` หมายถึงไฟล์และ metadata พร้อมให้คนตรวจ ไม่ใช่การรับรองคุณภาพภาพหรือความพร้อมพิมพ์ Sidecar ยังไม่ใช่ลายเซ็นเข้ารหัส จึงไม่ยืนยันความแท้ของหลักฐานด้วยตัวเอง รายงานจะไม่บันทึก path ต้นฉบับ คำสั่ง หรือ pixel data ลงใน JSON และไม่ส่งภาพไป GitHub
 
 ห้ามใช้ภาพลูกค้าที่ไม่มีสิทธิ์ทดสอบ ห้าม commit ภาพ/weights/binaries และห้ามแทนที่ accepted V2 จากผล A/B โดยอัตโนมัติ
+
+## 24 พฤศจิกายน 2569 21:16 ICT — อนุญาต Shop GPU Synthetic Evidence สำหรับ Candidate #1066
+
+ผู้ใช้สั่งให้ดำเนินการตรวจ Native Engine ทั้งสี่บน Windows 11 GTX 1660 Ti จึงใช้ commit marker สำหรับ workflow เฉพาะเครื่องร้าน โดยอ้าง Candidate source commit ที่ตรวจสอบตรงกับ HEAD ก่อนเริ่มงาน:
+
+- Candidate source: `43cd37023817a4ea7f899da337e0257927ccc220`
+- Windows Candidate #1066: https://github.com/niyomse-collab/niyom/actions/runs/45328851064
+- Experimental artifact ID: `14892112052`; installer SHA256: `a908d24ac8f8b3f7e65285ee76d0be9ef2408b17f1a5a6f21f7199612ebfeafd`; artifact ZIP SHA256: `07f87b76deb2fa3412fb65f2e21399984b3d2d7dbc75c9e3b992a9f115b9996b`.
+
+การ trigger นี้เปลี่ยนเฉพาะเอกสาร และขอให้ workflow ตรวจ BUILD_PROOF/Manifest ที่ติดตั้งไว้แล้วก่อนทำงานเท่านั้น ไม่สั่งติดตั้งหรือดาวน์โหลดโมเดลแทนผู้ใช้ หาก Candidate หรือ Manifest ไม่ตรง/ไม่มี ให้หยุดก่อน Native inference
+
+ขอบเขต workflow:
+- ใช้ synthetic RGB และ RGBA/ICC/300-DPI images เท่านั้น ไม่เปิดไฟล์งานลูกค้า
+- ตรวจ PID-to-adapter ของแต่ละ Native process, GPU backend, VRAM budget และ Four-Engine bridge แบบ fail-closed
+- อัปโหลดเฉพาะ JSON evidence; ไม่อัปโหลดภาพ, archive, executable หรือ model weights
+- หาก runner, driver, Vulkan, adapter telemetry หรือ VRAM ไม่พร้อม ให้รายงาน blocker และคง accepted V2 เป็น Master
+- ผล synthetic GPU evidence ไม่ใช่ A/B visual quality หรือ print-quality certification
+
+Commit marker นี้อนุญาตเฉพาะการทำงานของ `v211-four-engine-manual-evidence.yml` บน runner label `niyom-shop-gpu`; ไม่อนุญาต Merge, Release, เปลี่ยน V1/V2 Stable หรือเขียนทับ accepted V2
