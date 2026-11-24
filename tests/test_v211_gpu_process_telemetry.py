@@ -1355,3 +1355,47 @@ def test_nvml_missing_target_keeps_generic_status_when_dxgi_is_unavailable(monke
     assert result["device_memory_available"] is False
     assert result["device_memory_status"] == "target_adapter_missing"
 
+
+
+
+def test_probe_constructor_closes_nvml_when_inventory_initialization_raises(monkeypatch):
+    import pytest
+    from tools import v211_gpu_process_telemetry as telemetry
+
+    shutdown_calls = []
+
+    class FakeFunction:
+        def __init__(self, callback):
+            self.callback = callback
+            self.argtypes = None
+            self.restype = None
+
+        def __call__(self, *args):
+            return self.callback(*args)
+
+    def fail_inventory(*_args):
+        raise RuntimeError("synthetic NVML inventory failure")
+
+    class FakeLibrary:
+        def __init__(self):
+            self.nvmlInit_v2 = FakeFunction(lambda: 0)
+            self.nvmlDeviceGetCount_v2 = FakeFunction(fail_inventory)
+            self.nvmlDeviceGetHandleByIndex_v2 = FakeFunction(lambda *_args: 0)
+            self.nvmlDeviceGetName = FakeFunction(lambda *_args: 0)
+            self.nvmlShutdown = FakeFunction(
+                lambda: shutdown_calls.append("shutdown") or 0
+            )
+
+    library = FakeLibrary()
+    monkeypatch.setattr(
+        telemetry.NvmlProcessProbe,
+        "_load_library",
+        staticmethod(lambda: library),
+    )
+    # Isolate explicit constructor cleanup from the destructor fallback.
+    monkeypatch.setattr(telemetry.NvmlProcessProbe, "__del__", lambda self: None)
+
+    with pytest.raises(RuntimeError, match="synthetic NVML inventory failure"):
+        telemetry.NvmlProcessProbe()
+
+    assert shutdown_calls == ["shutdown"]

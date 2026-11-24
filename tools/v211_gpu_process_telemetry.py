@@ -458,7 +458,16 @@ class NvmlProcessProbe:
         self._dxgi_adapters: list[dict[str, Any]] | None = None
         self._dxgi_status = "not_initialized"
         self.status = "not_initialized"
-        self._initialize()
+        try:
+            self._initialize()
+        except BaseException:
+            # NVML may already be initialized when a later inventory call fails.
+            # Do not rely on __del__ for deterministic driver/PDH cleanup.
+            try:
+                self.close()
+            except Exception:
+                pass
+            raise
 
     @staticmethod
     def _load_library():
