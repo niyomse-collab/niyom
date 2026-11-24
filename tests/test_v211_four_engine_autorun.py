@@ -163,14 +163,42 @@ def test_custom_four_x_target_runs_native_two_x_on_half_target_seed(tmp_path, mo
 
 
 
-def test_core_adapter_maps_face_regions_to_final_fit_canvas(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "selected,detected,expected_protected,expected_preserve_all",
+    [
+        (
+            ((0.25, 0.25, 0.75, 0.75),),
+            None,
+            ((0.375, 0.25, 0.625, 0.75),),
+            False,
+        ),
+        (
+            None,
+            ((0.25, 0.25, 0.75, 0.75),),
+            ((0.2875, 0.075, 0.7125, 0.925),),
+            False,
+        ),
+        (None, (), (), True),
+    ],
+)
+def test_core_adapter_maps_face_regions_to_final_fit_canvas(
+    tmp_path, monkeypatch, selected, detected, expected_protected, expected_preserve_all
+):
     source = tmp_path / "source.png"
     destination = tmp_path / "accepted-V2.png"
     source_icc = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
     Image.new("RGB", (8, 8), (35, 80, 120)).save(
         source, dpi=(300, 300), icc_profile=source_icc
     )
-    selected = ((0.25, 0.25, 0.75, 0.75),)
+    if selected is None:
+        from signprint_ai.face_module import detection as detection_module
+
+        class FakeDetector:
+            def detect(self, path):
+                assert Path(path) == source
+                return detected
+
+        monkeypatch.setattr(detection_module, "FaceDetector", FakeDetector)
 
     class FakeEngine:
         def enhance(self, src, out, *, scale, progress_callback=None, cancel_check=None):
@@ -252,8 +280,8 @@ def test_core_adapter_maps_face_regions_to_final_fit_canvas(tmp_path, monkeypatc
     assert observed["v2_output"] == destination
     assert observed["kwargs"]["use_ai"] is True
     assert observed["kwargs"]["cancel"] is None
-    assert observed["kwargs"]["protected_regions"] == ((0.375, 0.25, 0.625, 0.75),)
-    assert observed["kwargs"]["preserve_all_v2_faces"] is False
+    assert observed["kwargs"]["protected_regions"] == expected_protected
+    assert observed["kwargs"]["preserve_all_v2_faces"] is expected_preserve_all
     assert observed["kwargs"]["resize_mode"] == "fit"
     assert qa.is_file()
     with Image.open(destination) as saved, Image.open(qa) as preview:
