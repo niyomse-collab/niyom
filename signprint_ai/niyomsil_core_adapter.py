@@ -44,6 +44,86 @@ def _rgb_png_compatible_icc(profile: object, source_mode: str) -> bytes | None:
     return data
 
 
+def _four_engine_face_guard(
+    source_path: str | Path,
+    face_info: dict,
+    selected_regions,
+    source_size: tuple[int, int],
+    target_size: tuple[int, int],
+    resize_mode: str,
+) -> tuple[tuple, bool]:
+    """Return conservative V2 face masks for auxiliary fusion.
+
+    Explicitly selected ROIs use the same transform as V2. When GFPGAN auto-
+    detects faces (selected_regions is None), repeat the bundled RetinaFace
+    detection on the source thumbnail and require an exact face-count match.
+    Expand each matched box before mapping it to the final V2 canvas. If the
+    detector, geometry, or count is uncertain, preserve the entire V2 raster
+    instead of guessing where a restored face was pasted.
+    """
+    if not isinstance(face_info, dict) or not face_info.get("applied"):
+        return (), False
+
+    from .face_module.detection import map_regions
+
+    if selected_regions is not None:
+        if not selected_regions:
+            return (), True
+        mapped = tuple(
+            map_regions(tuple(selected_regions), source_size, target_size, resize_mode)
+        )
+        return mapped, not bool(mapped)
+
+    expected_count = face_info.get("face_count")
+    if (
+        isinstance(expected_count, bool)
+        or not isinstance(expected_count, int)
+        or expected_count < 1
+    ):
+        return (), True
+
+    try:
+        from .face_module.detection import FaceDetector
+
+        detected = tuple(FaceDetector().detect(source_path))
+        if len(detected) != expected_count:
+            return (), True
+
+        expanded = []
+        for region in detected:
+            if not isinstance(region, (tuple, list)) or len(region) != 4:
+                raise ValueError("automatic face detector returned an invalid ROI")
+            x1, y1, x2, y2 = (float(value) for value in region)
+            if not (
+                all(math.isfinite(value) for value in (x1, y1, x2, y2))
+                and 0.0 <= x1 < x2 <= 1.0
+                and 0.0 <= y1 < y2 <= 1.0
+            ):
+                raise ValueError("automatic face detector returned an out-of-range ROI")
+            # The auxiliary guard is deliberately wider than the detected
+            # face box to include GFPGAN paste-back feathering and nearby
+            # identity cues. It only protects V2 pixels; it never edits them.
+            margin_x = max((x2 - x1) * 0.35, 0.015)
+            margin_y = max((y2 - y1) * 0.35, 0.02)
+            expanded.append((
+                max(0.0, x1 - margin_x),
+                max(0.0, y1 - margin_y),
+                min(1.0, x2 + margin_x),
+                min(1.0, y2 + margin_y),
+            ))
+
+        mapped = tuple(
+            map_regions(tuple(expanded), source_size, target_size, resize_mode)
+        )
+        if len(mapped) != expected_count:
+            return (), True
+        return mapped, False
+    except Exception:
+        # An uncertain secondary detection must never make the fusion mask
+        # smaller than the face region that GFPGAN may already have changed.
+        return (), True
+
+
 class NiyomSilpCoreAdapter:
     """Compatibility adapter for the NiyomSilp independently orchestrated PyTorch/CUDA core.
 
@@ -287,14 +367,10 @@ class NiyomSilpCoreAdapter:
                     maybe_run_four_engine_assist, map_protected_effect_regions,
                 )
                 face_info = large_result.get("face_protection") or {}
-                mapped_faces = ()
-                selected_faces = getattr(settings, "face_regions", ()) or ()
-                if face_info.get("applied") and selected_faces:
-                    from .face_module.detection import map_regions
-                    mapped_faces = tuple(map_regions(
-                        tuple(selected_faces), source_size, target_size,
-                        settings.resize_mode,
-                    ))
+                mapped_faces, preserve_all_v2_faces = _four_engine_face_guard(
+                    src, face_info, getattr(settings, "face_regions", None),
+                    source_size, target_size, settings.resize_mode,
+                )
                 try:
                     mapped_effect_regions = map_protected_effect_regions(
                         getattr(settings, "v211_protected_effect_regions", ()),
@@ -314,9 +390,7 @@ class NiyomSilpCoreAdapter:
                         src, dst, use_ai=use_ai, cancel=cancel,
                         protected_regions=mapped_faces,
                         protected_effect_regions=mapped_effect_regions,
-                        preserve_all_v2_faces=bool(
-                            face_info.get("applied") and not mapped_faces
-                        ),
+                        preserve_all_v2_faces=preserve_all_v2_faces,
                         progress=progress,
                         resize_mode=settings.resize_mode,
                     )
@@ -569,20 +643,13 @@ class NiyomSilpCoreAdapter:
             from .v211_four_engine_bridge import (
                 maybe_run_four_engine_assist, map_protected_effect_regions,
             )
-            mapped_faces = ()
-            if face_info.get("applied") and getattr(settings, "face_regions", None):
-                # Fusion runs on the final V2 target raster, after fit/stretch
-                # has been applied. Map source-space ROIs to that exact canvas
-                # so letterboxing cannot move the face-protection mask.
-                from .face_module.detection import map_regions
-                mapped_faces = tuple(
-                    map_regions(
-                        tuple(settings.face_regions),
-                        source_size,
-                        target_size,
-                        settings.resize_mode,
-                    )
-                )
+            # Map explicit or automatically detected GFPGAN faces to the
+            # exact final V2 canvas. If the automatic detector cannot reproduce
+            # the same face count, keep the entire V2 raster as the safe result.
+            mapped_faces, preserve_all_v2_faces = _four_engine_face_guard(
+                src, face_info, getattr(settings, "face_regions", None),
+                source_size, target_size, settings.resize_mode,
+            )
             try:
                 mapped_effect_regions = map_protected_effect_regions(
                     getattr(settings, "v211_protected_effect_regions", ()),
@@ -602,7 +669,7 @@ class NiyomSilpCoreAdapter:
                     src, dst, use_ai=use_ai, cancel=cancel,
                     protected_regions=mapped_faces,
                     protected_effect_regions=mapped_effect_regions,
-                    preserve_all_v2_faces=bool(face_info.get("applied") and not mapped_faces),
+                    preserve_all_v2_faces=preserve_all_v2_faces,
                     progress=progress,
                     resize_mode=settings.resize_mode,
                 )
