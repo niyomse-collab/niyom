@@ -94,7 +94,7 @@ def test_runtime_probe_is_closed_when_processor_factory_fails(tmp_path, monkeypa
     reference_before = reference.read_bytes()
 
     commands = {
-        name: EngineCommand(("fake-" + name,)) for name in ENGINES
+        name: EngineCommand(("fake-" + name, "{input}", "{output}")) for name in ENGINES
     }
     monkeypatch.setattr(runner, "load_real_engine_manifest", lambda _path: commands)
 
