@@ -44,6 +44,35 @@ def _rgb_png_compatible_icc(profile: object, source_mode: str) -> bytes | None:
     return data
 
 
+
+def _validated_normalized_face_regions(regions) -> tuple[tuple[float, float, float, float], ...]:
+    """Validate face masks before passing them to auxiliary fusion.
+
+    Empty, malformed, non-finite, reversed or out-of-canvas regions are not
+    safe masks. Returning an empty tuple makes callers preserve the complete
+    accepted V2 raster instead of guessing.
+    """
+    try:
+        normalized = []
+        for region in regions:
+            if not isinstance(region, (tuple, list)) or len(region) != 4:
+                return ()
+            coordinates = []
+            for value in region:
+                if isinstance(value, bool):
+                    return ()
+                number = float(value)
+                if not math.isfinite(number):
+                    return ()
+                coordinates.append(number)
+            x1, y1, x2, y2 = coordinates
+            if not (0.0 <= x1 < x2 <= 1.0 and 0.0 <= y1 < y2 <= 1.0):
+                return ()
+            normalized.append((x1, y1, x2, y2))
+        return tuple(normalized)
+    except Exception:
+        return ()
+
 def _four_engine_face_guard(
     v2_output_path: str | Path,
     face_info: dict,
@@ -65,15 +94,26 @@ def _four_engine_face_guard(
     if not isinstance(face_info, dict) or not face_info.get("applied"):
         return (), False
 
-    from .face_module.detection import map_regions
+    try:
+        from .face_module.detection import FaceDetector, map_regions
+    except Exception:
+        return (), True
 
     if selected_regions is not None:
-        if not selected_regions:
+        try:
+            requested = tuple(selected_regions)
+            if not requested:
+                return (), True
+            mapped = _validated_normalized_face_regions(
+                map_regions(requested, source_size, target_size, resize_mode)
+            )
+            if not mapped or len(mapped) != len(requested):
+                return (), True
+            return mapped, False
+        except Exception:
+            # Explicit UI/CLI geometry is untrusted at this optional boundary.
+            # A bad ROI must not turn a completed V2 export into a failed job.
             return (), True
-        mapped = tuple(
-            map_regions(tuple(selected_regions), source_size, target_size, resize_mode)
-        )
-        return mapped, not bool(mapped)
 
     expected_count = face_info.get("face_count")
     if (
@@ -84,8 +124,6 @@ def _four_engine_face_guard(
         return (), True
 
     try:
-        from .face_module.detection import FaceDetector
-
         detected = tuple(FaceDetector().detect(v2_output_path))
         if len(detected) != expected_count:
             return (), True
@@ -115,7 +153,7 @@ def _four_engine_face_guard(
 
         # FaceDetector returns normalized coordinates on the exact saved V2
         # canvas; no second source-to-print transform is needed here.
-        mapped = tuple(expanded)
+        mapped = _validated_normalized_face_regions(expanded)
         if len(mapped) != expected_count:
             return (), True
         return mapped, False
