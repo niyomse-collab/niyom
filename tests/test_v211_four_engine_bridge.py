@@ -1816,6 +1816,7 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
     """
     pytest.importorskip("pyvips")
     tifffile = pytest.importorskip("tifffile")
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
 
     from tools.v211_four_engine_coordinator import ENGINES
     from tools.v211_four_engine_fusion import fuse_four_engine_details
@@ -2031,7 +2032,6 @@ def test_large_four_x_rgba_bridge_preserves_v2_alpha_and_fails_closed_without_gp
     QA sidecar and leave the accepted V2 file byte-identical.
     """
     pytest.importorskip("pyvips")
-    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
     from tools.v211_four_engine_coordinator import ENGINES
     from tools.v211_four_engine_fusion import fuse_four_engine_details
     from tools.v211_four_engine_tiled_inference import run_tiled_candidates
