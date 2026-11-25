@@ -1817,7 +1817,6 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
     pytest.importorskip("pyvips")
     tifffile = pytest.importorskip("tifffile")
 
-    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
     from tools.v211_four_engine_coordinator import ENGINES
     from tools.v211_four_engine_fusion import fuse_four_engine_details
     from tools.v211_four_engine_tiled_inference import run_tiled_candidates
@@ -2022,6 +2021,8 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
 
 def test_large_four_x_rgba_bridge_preserves_v2_alpha_and_fails_closed_without_gpu_evidence(
+    tmp_path, monkeypatch
+):
     """Force the streamed 4x bridge with RGBA and verify V2 alpha remains authoritative.
 
     The small fixture exercises the exact disk-backed preparation/tile/fusion
