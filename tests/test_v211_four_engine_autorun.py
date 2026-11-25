@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from PIL import Image, ImageCms
 
 from signprint_ai import niyomsil_core_adapter as adapter_module
-from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
+from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter, _four_engine_face_guard
 
 from signprint_ai import v211_four_engine_bridge as bridge
 from tools import v211_four_engine_run
@@ -653,3 +653,30 @@ def test_large_job_missing_manifest_keeps_v2_output_and_skips_four_ai(
     assert source.read_bytes() == before_source
     assert not missing_manifest.exists()
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+
+@pytest.mark.parametrize(
+    "selected_regions,source_size,target_size",
+    [
+        ((), (8, 8), (16, 16)),
+        (((-0.1, 0.1, 0.5, 0.5),), (8, 8), (16, 16)),
+        (((0.7, 0.2, 0.3, 0.8),), (8, 8), (16, 16)),
+        (((0.1, 0.1, float("nan"), 0.8),), (8, 8), (16, 16)),
+        (((0.1, 0.1, 0.8),), (8, 8), (16, 16)),
+        (((0.1, 0.1, 0.8, 0.8),), (0, 0), (16, 16)),
+    ],
+)
+def test_invalid_explicit_gfpgan_rois_preserve_the_complete_v2_raster(
+    tmp_path, selected_regions, source_size, target_size
+):
+    mapped, preserve_all = _four_engine_face_guard(
+        tmp_path / "already-saved-v2.png",
+        {"applied": True, "face_count": 1},
+        selected_regions,
+        source_size,
+        target_size,
+        "fit",
+    )
+
+    assert mapped == ()
+    assert preserve_all is True
+
