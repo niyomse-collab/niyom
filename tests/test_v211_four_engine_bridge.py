@@ -2020,3 +2020,155 @@ def test_large_24mp_four_x_print_path_uses_one_native_two_x_tiled_pass_and_fails
     assert result["quality_certified"] is False
     assert digest(baseline) == accepted_v2_sha
     assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
+
+def test_large_four_x_rgba_bridge_preserves_v2_alpha_and_fails_closed_without_gpu_evidence(
+    """Force the streamed 4x bridge with RGBA and verify V2 alpha remains authoritative.
+
+    The small fixture exercises the exact disk-backed preparation/tile/fusion
+    branch without allocating a 24 MP test raster. Native processors are
+    deterministic CPU fixtures; absent physical-GPU evidence must suppress the
+    QA sidecar and leave the accepted V2 file byte-identical.
+    """
+    pytest.importorskip("pyvips")
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
+    from tools.v211_four_engine_coordinator import ENGINES
+    from tools.v211_four_engine_fusion import fuse_four_engine_details
+    from tools.v211_four_engine_tiled_inference import run_tiled_candidates
+    from tools import v211_four_engine_run
+
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source_pixels = np.zeros((64, 64, 4), dtype=np.uint8)
+    yy, xx = np.indices((64, 64))
+    source_pixels[..., 0] = (xx * 3 + 20).astype(np.uint8)
+    source_pixels[..., 1] = (yy * 2 + 40).astype(np.uint8)
+    source_pixels[..., 2] = ((xx + yy) * 2 + 60).astype(np.uint8)
+    source_pixels[..., 3] = 255
+    source_pixels[12:52, 12:52, 3] = 128
+    source_pixels[24:40, 24:40, 3] = 0
+
+    source = tmp_path / "large-branch-rgba-source.png"
+    baseline = tmp_path / "accepted-v2-four-x-rgba.png"
+    Image.fromarray(source_pixels, "RGBA").save(
+        source, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    with Image.open(source) as original:
+        v2 = original.resize((256, 256), Image.Resampling.LANCZOS)
+        v2.save(baseline, format="PNG", dpi=(300, 300), icc_profile=profile)
+        expected_alpha = np.asarray(v2.getchannel("A")).copy()
+        v2.close()
+
+    source_before = source.read_bytes()
+    baseline_before = baseline.read_bytes()
+    manifest = tmp_path / "synthetic-manifest.json"
+    manifest.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(bridge, "_AUXILIARY_MAX_PIXELS", 4096)
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI", "1")
+    monkeypatch.setenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", str(manifest))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR", raising=False)
+    monkeypatch.setattr(
+        bridge,
+        "_prepare_runtime_bound_manifest",
+        lambda _manifest, _work_dir: (manifest, {"configured": True}),
+    )
+
+    observed = {}
+
+    def synthetic_run(seed_path, output_dir, _manifest, size, *, real_engines, v2_reference, **_kwargs):
+        assert real_engines is True
+        assert tuple(size) == (256, 256)
+        with Image.open(seed_path) as seed, Image.open(v2_reference) as reference:
+            assert seed.size == (128, 128)
+            assert seed.mode == "RGBA"
+            assert seed.info.get("icc_profile") == profile
+            assert seed.info.get("dpi", (0, 0))[0] == pytest.approx(300, abs=0.1)
+            assert reference.size == (256, 256)
+            assert reference.mode == "RGBA"
+            np.testing.assert_array_equal(
+                np.asarray(reference.getchannel("A")), expected_alpha
+            )
+
+        def drop_alpha_processor(tile_source, destination):
+            with Image.open(tile_source) as tile:
+                rgb = tile.convert("RGB")
+                output = rgb.resize(
+                    (tile.width * 2, tile.height * 2),
+                    resample=Image.Resampling.NEAREST,
+                )
+                options = {
+                    key: tile.info[key]
+                    for key in ("icc_profile", "dpi")
+                    if key in tile.info
+                }
+                output.save(destination, format="PNG", **options)
+                output.close()
+                rgb.close()
+
+        candidate_dir = Path(output_dir) / "rgba-four-x-candidates"
+        tiled = run_tiled_candidates(
+            Path(seed_path),
+            Path(v2_reference),
+            candidate_dir,
+            tuple(size),
+            {name: drop_alpha_processor for name in ENGINES},
+            tile_size=64,
+            overlap=8,
+        )
+        assert tiled["ready_for_fusion_research"] is True, tiled["failures"]
+        candidates = {item.engine: item.path for item in tiled["candidates"]}
+        for name in ENGINES:
+            with Image.open(candidates[name]) as candidate:
+                assert candidate.mode == "RGBA"
+                np.testing.assert_array_equal(
+                    np.asarray(candidate.getchannel("A")), expected_alpha
+                )
+                assert candidate.info.get("icc_profile") == profile
+                assert candidate.info.get("dpi", (0, 0))[0] == pytest.approx(300, abs=0.1)
+
+        fused_path = Path(output_dir) / "rgba-four-x-fused.png"
+        fusion = fuse_four_engine_details(
+            Path(seed_path), Path(v2_reference), candidates, fused_path
+        )
+        assert fusion["fusion_implemented"] is True
+        with Image.open(fused_path) as fused:
+            assert fused.mode == "RGBA"
+            np.testing.assert_array_equal(
+                np.asarray(fused.getchannel("A")), expected_alpha
+            )
+            assert fused.info.get("icc_profile") == profile
+            assert fused.info.get("dpi", (0, 0))[0] == pytest.approx(300, abs=0.1)
+
+        observed["engine_names"] = [item.engine for item in tiled["candidates"]]
+        observed["alpha_preserved"] = True
+        observed["fusion"] = fusion
+        return {
+            "ready_for_fusion_research": True,
+            "completed_engine_count": len(ENGINES),
+            "completed_engine_names": list(ENGINES),
+            "runtime_device_use_verified": False,
+            "per_engine_runtime_device_use_verified": {
+                name: False for name in ENGINES
+            },
+            "fusion_block_reason": "gpu_runtime_unverified",
+            "four_engine_fusion": {
+                "fusion_implemented": True,
+                "all_four_engine_candidates_consumed": fusion["all_four_engine_candidates_consumed"],
+                "all_four_engine_pixels_contributed": fusion["all_four_engine_pixels_contributed"],
+                "output": str(fused_path),
+                "output_sha256": "0" * 64,
+            },
+        }
+
+    monkeypatch.setattr(v211_four_engine_run, "run", synthetic_run)
+    result = bridge.maybe_run_four_engine_assist(source, baseline)
+
+    assert observed["engine_names"] == list(ENGINES)
+    assert observed["alpha_preserved"] is True
+    assert result["status"] == "gpu_runtime_unverified"
+    assert result["completed_engine_count"] == 4
+    assert result["four_engine_fusion_output"] is None
+    assert result["v2_output_preserved"] is True
+    assert result["quality_certified"] is False
+    assert source.read_bytes() == source_before
+    assert baseline.read_bytes() == baseline_before
+    assert not list(tmp_path.glob("*.V211-4AI-QA-*.png"))
