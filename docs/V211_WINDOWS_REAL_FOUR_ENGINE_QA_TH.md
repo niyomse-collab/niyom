@@ -877,3 +877,45 @@ Commit marker สำหรับ workflow เฉพาะเครื่อง�
 - Native CLI Smoke #535 remains diagnostic only: Real-CUGAN and Anime4KCPP produced validated synthetic 2x outputs; Real-ESRGAN failed hosted-runner Vulkan initialization (`vkCreateInstance failed -9`); Waifu2x failed Vulkan initialization with `0xC0000005`. Physical GPU adapter verification is 0/4 and no VRAM evidence was collected. [Native CLI #535](https://github.com/niyomse-collab/niyom/actions/runs/45539184271).
 - The prior shop-GPU consent marker in this document names Candidate #1072, not #1075. It does **not** authorize running #1075. No current commit marker or `confirm_shop_gpu=yes` was supplied for #1075; the self-hosted shop evidence job must remain unstarted. Do not reuse Candidate #1072 consent for #1075.
 - The official archive audit #401 is successful, but model-weight/license redistribution certification remains false; no native binaries or weights are committed. V2 remains the accepted master; no V1/V2 Stable changes, merge or release.
+
+
+## 25 พฤศจิกายน 2569 21:53 ICT — Exact-head Candidate #1076 และ A/B 12 หมวด
+
+### Source และ Windows Candidate
+- PR #20 HEAD: `29cf3390c221a673392308d16a0ed97e81b416c8`; branch `work/v211-four-engine-v2-bridge-20261103`; PR ยังคง OPEN / DRAFT / UNMERGED.
+- Windows Candidate #1076: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/45579906097) — `bridge-tests` และ `windows-v2-candidate` ผ่านทั้งสอง jobs.
+- Bridge/Fusion/coordination suite: **484 passed**; privacy/provisioning/asset/hash suite: **69 passed**.
+- Independent Core #1798: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/45579906082) — Windows **1,153 passed / 1 skipped**, Ubuntu **1,151 passed / 3 skipped**; pytest และ compileall ผ่านทั้งสองระบบ.
+- Candidate #1076 ตรวจ V2 imports, BigTIFF/libvips package path, packaged provisioning `--check-only` โดยไม่ดาวน์โหลด, synthetic consent/uninstall lifecycle, diagnostic `--help`, BUILD_PROOF/source provenance และ installer-slice SHA256.
+- Installer SHA256: `2f9398dabdd6b629f1bbc4827de75b52021f4879adc05ba6cf6570d55d7075b8`.
+- Artifact ID `15007637429`; size **2,584,780,308 bytes**; artifact ZIP SHA256 `e01f0cbcbeb61569cfeb9b2976bbfd9abd805391c43fee9c8ecb38dcf045a9b5`; expires **2 Dec 2026 09:17:20 UTC**. [Download Candidate #1076](https://github.com/niyomse-collab/niyom/actions/runs/45579906097/artifacts/15007637429).
+- Candidate #1076 is package/provenance acceptance only. It does not certify installation or GPU execution on the shop PC.
+
+### Official archive and license audit
+- Official Archive Audit #402: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/45579906078) — all four official archives fetched, hashed, safely audited and provisioned transactionally into ephemeral QA storage; all license documents retrieved.
+- Archive SHA256:
+  - Real-ESRGAN v0.2.5.0: `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` — recorded CI pin; upstream publisher digest not published.
+  - Waifu2x 20250915: `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` — published digest.
+  - Real-CUGAN 20220728: `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` — recorded CI pin; upstream publisher digest not published.
+  - Anime4KCPP v3.2.0: `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` — published digest.
+- Audit explicitly reports `all_upstream_digests_pinned=false`, `license_redistribution_approved=false`, `model_weights_and_license_certified=false`, and `real_inference_verified=false`. Archive audit success is not permission to redistribute binaries or weights.
+
+### Native CLI Smoke #536 — diagnostic only
+- [Actions](https://github.com/niyomse-collab/niyom/actions/runs/45579906104) ran the official executables on synthetic RGB and RGBA/ICC/300-DPI images only.
+- Real-CUGAN and Anime4KCPP produced validated synthetic 2x outputs.
+- Real-ESRGAN failed on the hosted runner with `vkCreateInstance failed -9`.
+- Waifu2x failed with Vulkan initialization failure / `0xC0000005`.
+- Physical NVIDIA DXGI adapter was not present; runtime adapter verification was **0/4**, all four per-engine `runtime_device_use_verified=false`; VRAM guard was not enabled and VRAM sample count was **0**.
+- This is not evidence against the shop GTX 1660 Ti, and it is not proof of four-engine GPU inference.
+
+### A/B review suite — implemented, real review still pending
+- `tools/v211_four_engine_ab_batch.py` and `tools/v211_four_engine_ab_report.py` implement the private 12-category review pack: person, animal, object, frame, Thai pattern, Thai text, English text, Chinese text, flat colour, gradient, RGBA edge and face.
+- Each category requires local source, accepted V2 reference, four-engine QA candidate, evidence sidecar and user-selected crop. The batch refuses incomplete/duplicate categories and writes output outside the Git repository.
+- The report checks pixel dimensions, RGB/RGBA mode, ICC, DPI, exact alpha equality to accepted V2, input hashes and per-engine evidence fields; it creates a contact sheet only when all 12 categories are ready for human review.
+- Bridge tests include synthetic A/B fixtures. These fixtures test schema/hash and fail-closed behavior only; the evidence sidecar is unsigned, so `evidence_authenticity_verified=false`. A status of `ready_for_human_review` is **not** GPU, visual-quality or print-quality certification.
+- No real 12-category V2-versus-V2.1.1 A/B was run in this workflow. Customer images remain local/private and must not be uploaded to GitHub.
+
+### Shop GPU consent and V2/GFPGAN preservation
+- The only existing shop-GPU consent marker names Candidate #1072. It does not authorize Candidate #1076. No exact #1076 `confirm_shop_gpu=yes` dispatch or `[shop-gpu-evidence yes candidate=...]` commit marker exists; the self-hosted shop evidence job remains unstarted.
+- PR #18 remains OPEN / DRAFT / UNMERGED at head `288dd8501c230a118d9a7e60d2522a2cc7411bcc`. PR #20 is based on that PR #18 head. The incremental PR #20 diff contains no `signprint_ai/face_module/` changes and does not modify `large_faces.py` or `v211_face_contract.py`; the GFPGAN/face implementation from PR #18 is preserved.
+- No V1 or accepted V2 Stable changes, no merge/release, no customer artwork, native binaries or model weights committed. V2 remains the accepted master.
