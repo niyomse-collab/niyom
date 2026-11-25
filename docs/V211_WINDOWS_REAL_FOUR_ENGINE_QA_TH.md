@@ -866,3 +866,14 @@ Commit marker สำหรับ workflow เฉพาะเครื่อง�
 `[shop-gpu-evidence yes candidate=3b82d3264dc7f234c9c06eae8302132a1026386f]`
 
 อนุญาตเฉพาะ synthetic diagnostic ของ Candidate #1072 บน runner label `niyom-shop-gpu` ภายใต้ preflight ข้างต้น ไม่อนุญาต Merge, Release, เปลี่ยน V1/V2 Stable, ดาวน์โหลด/ติดตั้งโมเดลโดยไม่มี consent แยกต่างหาก หรือเขียนทับ accepted V2
+
+
+## 25 พฤศจิกายน 2569 15:43 ICT — Candidate #1075 package status (no shop-GPU consent)
+
+- Exact PR #20 source: `c27d4250b77a9e25cb263ef87740e88ec6734ab7` on `work/v211-four-engine-v2-bridge-20261103`; PR #20 remains OPEN / DRAFT / UNMERGED. PR #18 remains the base and is not modified.
+- Windows Candidate #1075 completed SUCCESS (2/2 jobs): [Actions](https://github.com/niyomse-collab/niyom/actions/runs/45539184307). The bridge/privacy suites report 484 + 69 passing tests. The frozen candidate job verified V2 imports, BigTIFF/libvips package path, packaged no-download provisioning dispatch, synthetic consent/uninstall lifecycle, BUILD_PROOF exact source SHA and installer-slice SHA256.
+- Candidate artifact ID: `14989518650`; size `2,584,753,220` bytes; ZIP SHA256 `f1e8dcab6c71dbb14a33f4941a097d2ed44b1832d9a2feb50553adae38e0daad`; installer SHA256 `405ed4fc5ebc18744d1b5a791ef6594892655f139fe3138f15d44f645fa0d4a3`; expires `2026-12-02 03:53:26 UTC` (`10:53:26 ICT`). [Artifact](https://github.com/niyomse-collab/niyom/actions/runs/45539184307/artifacts/14989518650).
+- This is package/provenance acceptance only. It does not prove shop installation, native four-engine inference, physical adapter binding, 6 GB VRAM, large-image GPU behavior, visual A/B or print quality.
+- Native CLI Smoke #535 remains diagnostic only: Real-CUGAN and Anime4KCPP produced validated synthetic 2x outputs; Real-ESRGAN failed hosted-runner Vulkan initialization (`vkCreateInstance failed -9`); Waifu2x failed Vulkan initialization with `0xC0000005`. Physical GPU adapter verification is 0/4 and no VRAM evidence was collected. [Native CLI #535](https://github.com/niyomse-collab/niyom/actions/runs/45539184271).
+- The prior shop-GPU consent marker in this document names Candidate #1072, not #1075. It does **not** authorize running #1075. No current commit marker or `confirm_shop_gpu=yes` was supplied for #1075; the self-hosted shop evidence job must remain unstarted. Do not reuse Candidate #1072 consent for #1075.
+- The official archive audit #401 is successful, but model-weight/license redistribution certification remains false; no native binaries or weights are committed. V2 remains the accepted master; no V1/V2 Stable changes, merge or release.
