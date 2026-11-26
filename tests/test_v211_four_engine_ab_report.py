@@ -595,3 +595,16 @@ def test_crop_label_parser_accepts_only_review_categories():
 def test_crop_label_parser_accepts_person_and_thai_pattern_categories():
     assert ab_report.parse_crop_label("person") == "person"
     assert ab_report.parse_crop_label("Thai_Pattern") == "thai_pattern"
+
+def test_ab_report_rejects_boolean_schema_version(tmp_path):
+    source, v2, candidate, evidence = _fixture(tmp_path)
+    payload = json.loads(evidence.read_text(encoding="utf-8"))
+    payload["schema_version"] = True
+    evidence.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "ab-boolean-schema-version"
+
+    report = run(source, v2, candidate, evidence, output)
+
+    assert report["status"] == "blocked"
+    assert "evidence_schema_mismatch" in report["block_reasons"]
+    assert not (output / "ab_contact_sheet.png").exists()
