@@ -83,6 +83,8 @@ def _fixture(tmp_path, *, alpha_match=True, icc_match=True, dpi_match=True):
 
 def test_ab_report_creates_private_human_review_pack_without_quality_claims(tmp_path):
     source, v2, candidate, evidence = _fixture(tmp_path)
+    with Image.open(v2) as accepted:
+        expected_icc = accepted.info.get("icc_profile")
     hashes_before = (_sha(source), _sha(v2), _sha(candidate))
     output = tmp_path / "ab-review"
     report = run(source, v2, candidate, evidence, output)
@@ -105,6 +107,11 @@ def test_ab_report_creates_private_human_review_pack_without_quality_claims(tmp_
     assert "ab_contact_sheet.png" in report["artifacts"]
     assert (output / "ab_contact_sheet.png").is_file()
     assert any(name.startswith("ab_crop_") for name in report["artifacts"])
+    # Review sheets contain raw source pixels, so embed the shared ICC profile
+    # rather than letting viewers reinterpret a print-space image as untagged RGB.
+    for artifact in report["artifacts"]:
+        with Image.open(output / artifact) as review_sheet:
+            assert review_sheet.info.get("icc_profile") == expected_icc
     persisted = (output / "ab_report.json").read_text(encoding="utf-8")
     assert str(tmp_path) not in persisted
     assert hashes_before == (_sha(source), _sha(v2), _sha(candidate))
