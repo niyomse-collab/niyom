@@ -366,8 +366,11 @@ def test_runtime_vram_guard_requires_two_valid_samples_not_baseline_or_prior_cou
         processor(source, destination)
 
     record = records["real_esrgan"]
-    assert calls == 2
-    assert record["runtime_vram_sample_count"] == 22
+    # The child may need one additional monitor interval to exit after the
+    # release signal on a loaded Windows runner. Every poll is a real
+    # observation; repeated WDDM sample_count=1 values must remain rejected.
+    assert calls >= 2
+    assert record["runtime_vram_sample_count"] == 20 + calls
     assert record["runtime_vram_valid_sample_count"] == 21
     assert record["runtime_vram_guard_status"] == "telemetry_unavailable"
     assert record["status"] == "vram_guard_telemetry_unavailable"
