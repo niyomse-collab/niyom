@@ -377,7 +377,10 @@ def _display_rgb(image: Image.Image) -> Image.Image:
     return background
 
 
-def _comparison_sheet(left: Image.Image, right: Image.Image) -> Image.Image:
+def _comparison_sheet(
+    left: Image.Image, right: Image.Image, *, icc_profile: bytes | None = None,
+) -> Image.Image:
+    """Build a raw-pixel comparison sheet; the caller supplies the shared source ICC."""
     left_rgb, right_rgb = _display_rgb(left), _display_rgb(right)
     header, gutter = 34, 16
     sheet = Image.new(
@@ -696,8 +699,13 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), crop
 
             left = _thumbnail(v2_reference, mode, (width, height), max_preview_edge)
             right = _thumbnail(candidate, mode, (width, height), max_preview_edge)
-            sheet = _comparison_sheet(left, right)
-            sheet.save(output_dir / "ab_contact_sheet.png", format="PNG")
+            sheet = _comparison_sheet(
+                left, right, icc_profile=v2_info["icc_profile"],
+            )
+            sheet.save(
+                output_dir / "ab_contact_sheet.png", format="PNG",
+                icc_profile=v2_info["icc_profile"],
+            )
             left.close()
             right.close()
             sheet.close()
@@ -714,10 +722,15 @@ def run(source, v2_reference, candidate, evidence, output_dir, *, crops=(), crop
                 box = (x, y, x + crop_width, y + crop_height)
                 left_crop, right_crop = v2_raster.crop(box), candidate_raster.crop(box)
                 region_metrics = _compute_crop_metrics(left_crop, right_crop, mode)
-                crop_sheet = _comparison_sheet(left_crop, right_crop)
+                crop_sheet = _comparison_sheet(
+                    left_crop, right_crop, icc_profile=v2_info["icc_profile"],
+                )
                 label = review_labels[index - 1]
                 filename = f"ab_crop_{index:02d}_{label}.png"
-                crop_sheet.save(output_dir / filename, format="PNG")
+                crop_sheet.save(
+                    output_dir / filename, format="PNG",
+                    icc_profile=v2_info["icc_profile"],
+                )
                 left_crop.close()
                 right_crop.close()
                 crop_sheet.close()
