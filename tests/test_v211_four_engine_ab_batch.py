@@ -130,7 +130,7 @@ def test_batch_ab_requires_all_12_categories_and_creates_private_review_pack(tmp
 
 
 def test_batch_ab_skips_aggregate_sheet_when_category_icc_profiles_differ(tmp_path):
-    manifest, _ = _batch_manifest(
+    manifest, cases = _batch_manifest(
         tmp_path, untagged_labels={"thai_pattern"}
     )
     output = tmp_path / "ab-12-mixed-icc"
