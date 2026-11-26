@@ -399,7 +399,11 @@ def _record_diagnostic(exc: BaseException) -> None:
     # the provisioning layer. Never inspect exception text: it may contain
     # customer paths, URLs, credentials, or filenames.
     candidate_engine = getattr(exc, "engine", None)
-    engine = candidate_engine if candidate_engine in engine_names else "unknown"
+    engine = (
+        candidate_engine
+        if isinstance(candidate_engine, str) and candidate_engine in engine_names
+        else "unknown"
+    )
     exception_name = type(exc).__name__
     allowed_exceptions = {
         "PermissionError", "FileNotFoundError", "TimeoutError", "HTTPError",
