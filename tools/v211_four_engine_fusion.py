@@ -212,6 +212,17 @@ def _read_png_header(path: Path) -> tuple[int, int, str, dict]:
                 info["chromaticity"] = tuple(value / 100000.0 for value in chromaticity)
                 color_chunks.append((kind, payload))
                 saw_chrm = True
+            elif kind == b"tRNS":
+                # RGB PNG can encode a transparent colour key without an
+                # explicit alpha channel. The fusion raster currently accepts
+                # only RGB/RGBA pixel planes; silently dropping tRNS would turn
+                # those pixels opaque. Reject it until a lossless RGBA adapter
+                # is implemented. tRNS is invalid for the supported RGBA type.
+                if color_type == 2 and length == 6:
+                    raise ValueError(
+                        "RGB PNG tRNS transparency is unsupported; convert to explicit RGBA before four-engine fusion"
+                    )
+                raise ValueError("PNG tRNS transparency metadata is invalid for four-engine RGB/RGBA input")
             elif kind == b"IEND":
                 raise ValueError("PNG ended before image data")
             
