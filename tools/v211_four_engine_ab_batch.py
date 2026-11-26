@@ -97,14 +97,41 @@ def _write_json(path: Path, payload: dict) -> None:
     )
 
 
+class CategoryContactSheetError(ValueError):
+    """The aggregate review sheet cannot preserve one shared ICC profile."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
 def _create_category_contact_sheet(output_dir: Path, categories: list[dict]) -> str:
-    """Create a compact contact sheet from the 12 already-generated review crops."""
+    """Create a compact raw-pixel sheet only when all crops share one ICC profile."""
+    profiles = []
+    for category in categories:
+        crop_path = output_dir / category["crop_preview"]
+        with Image.open(crop_path) as opened:
+            profile = opened.info.get("icc_profile")
+            if profile is not None:
+                if not isinstance(profile, (bytes, bytearray)):
+                    raise CategoryContactSheetError("invalid_icc_profile")
+                profile = bytes(profile)
+            profiles.append(profile)
+    if profiles and any(profile != profiles[0] for profile in profiles[1:]):
+        # A PNG can carry only one ICC profile. Do not silently tag a mixed-profile
+        # contact sheet with the first category's profile or strip profiles from
+        # raw RGB crops. The individual category sheets remain valid review assets.
+        raise CategoryContactSheetError("mixed_icc_profiles")
+    icc_profile = profiles[0] if profiles else None
+
     rows = (len(REQUIRED_CATEGORIES) + COLUMNS - 1) // COLUMNS
     sheet = Image.new(
         "RGB",
         (COLUMNS * CELL_WIDTH, rows * CELL_HEIGHT),
         (30, 30, 30),
     )
+    if icc_profile is not None:
+        sheet.info["icc_profile"] = icc_profile
     draw = ImageDraw.Draw(sheet)
     font = ImageFont.load_default()
     try:
@@ -134,7 +161,10 @@ def _create_category_contact_sheet(output_dir: Path, categories: list[dict]) -> 
                 sheet.paste(preview, (x, y))
                 preview.close()
         name = "ab_12_category_contact_sheet.png"
-        sheet.save(output_dir / name, format="PNG")
+        save_options = {"format": "PNG"}
+        if icc_profile is not None:
+            save_options["icc_profile"] = icc_profile
+        sheet.save(output_dir / name, **save_options)
         return name
     finally:
         sheet.close()
@@ -162,6 +192,8 @@ def run(manifest, output_dir) -> dict:
         "print_quality_certified": False,
         "human_review_required": True,
         "artifacts": [],
+        "warnings": [],
+        "category_contact_sheet_status": "not_created",
         "privacy": {
             "input_paths_included": False,
             "commands_included": False,
@@ -257,8 +289,16 @@ def run(manifest, output_dir) -> dict:
         try:
             contact_sheet = _create_category_contact_sheet(output, category_results)
             report["artifacts"].append(contact_sheet)
+            report["category_contact_sheet_status"] = "created"
+            report["status"] = "ready_for_human_review"
+        except CategoryContactSheetError as exc:
+            # Per-category A/B sheets already carry their own accepted-V2 ICC.
+            # A mixed-profile aggregate is optional and must not misrepresent colour.
+            report["category_contact_sheet_status"] = "skipped_" + exc.code
+            report["warnings"].append("category_contact_sheet_" + exc.code)
             report["status"] = "ready_for_human_review"
         except Exception as exc:
+            report["category_contact_sheet_status"] = "failed"
             report["block_reasons"].append(
                 "category_contact_sheet_" + type(exc).__name__.lower()
             )
