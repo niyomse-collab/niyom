@@ -392,6 +392,33 @@ def safe_failure_code(exc: BaseException) -> str:
         return "filesystem_error"
     return "setup_failed"
 
+def _record_diagnostic(exc: BaseException) -> None:
+    """Append bounded diagnostic context without paths, URLs, or raw exception text."""
+    import re
+
+    engine_names = ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
+    message = str(exc).casefold()
+    engine = next((name for name in engine_names if name in message), "unknown")
+    exception_name = type(exc).__name__
+    allowed_exceptions = {
+        "PermissionError", "FileNotFoundError", "TimeoutError", "HTTPError",
+        "URLError", "BadZipFile", "ValueError", "OSError", "FileExistsError",
+        "RuntimeError", "KeyError", "TypeError",
+    }
+    if exception_name not in allowed_exceptions:
+        exception_name = "OtherError"
+    code = safe_failure_code(exc)
+    line = "DIAGNOSTIC code=" + code + " engine=" + engine + " exception=" + exception_name
+    # Only fixed tokens are persisted; exception messages may contain user paths,
+    # URLs, credentials, or image filenames and are deliberately never logged.
+    try:
+        path = _log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(line + "\\n")
+    except OSError:
+        pass
+
 
 def _clear_completion_marker() -> Path:
     marker = completion_marker_path()
@@ -499,7 +526,7 @@ def main(*, silent: bool = False, preflight_only: bool = False) -> int:
         try:
             events.put(("success", _run_and_publish_success()))
         except Exception as exc:
-            events.put(("failure", safe_failure_code(exc)))
+            _record_diagnostic(exc)\n            events.put(("failure", safe_failure_code(exc)))
 
     def poll() -> None:
         try:
