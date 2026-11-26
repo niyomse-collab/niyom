@@ -9,9 +9,9 @@ def test_diagnostic_log_identifies_engine_and_exception_without_private_paths(
     monkeypatch.setattr(v211_setup_cli, "_log_path", lambda: log_path)
     private_path = r"C:\\Users\\Customer\\Artwork\\secret-sign.png"
 
-    v211_setup_cli._record_diagnostic(
-        ValueError("real_esrgan: SHA256 mismatch at " + private_path)
-    )
+    exc = ValueError("SHA256 mismatch at " + private_path)
+    exc.engine = "real_esrgan"
+    v211_setup_cli._record_diagnostic(exc)
 
     content = log_path.read_text(encoding="utf-8")
     assert "DIAGNOSTIC code=verification_failed" in content
