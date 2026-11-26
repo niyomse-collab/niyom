@@ -7,11 +7,11 @@ from tools import v211_four_engine_ab_batch as batch
 from tools.v211_four_engine_ab_report import ENGINES, REVIEW_REGION_LABELS, sha256_file
 
 
+_SRGB_PROFILE = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+
+
 def _fixture(tmp_path, *, with_icc=True):
-    profile = (
-        ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
-        if with_icc else None
-    )
+    profile = _SRGB_PROFILE if with_icc else None
     source = tmp_path / "source.png"
     v2 = tmp_path / "accepted-v2.png"
     candidate = tmp_path / "qa-candidate.png"
