@@ -665,6 +665,22 @@ def _insert_pre_idat_chunks(path, chunks):
     raise AssertionError("PNG fixture has no IDAT chunk")
 
 
+def test_rgb_trns_transparency_is_rejected_without_losing_pixels(tmp_path):
+    from tools import v211_four_engine_fusion as fusion
+
+    source, baseline, candidates = _fixture(tmp_path)
+    # Valid PNG truecolour tRNS key: the RGB value (70, 70, 70) is transparent.
+    _insert_pre_idat_chunks(baseline, [(b"tRNS", b"\\x00\\x46" * 3)])
+    accepted_bytes = baseline.read_bytes()
+    output = tmp_path / "rgb-trns-must-not-become-opaque.png"
+
+    with pytest.raises(ValueError, match="tRNS transparency is unsupported"):
+        fusion.fuse_four_engine_details(source, baseline, candidates, output)
+
+    assert baseline.read_bytes() == accepted_bytes
+    assert not output.exists()
+
+
 def _read_pre_idat_chunks(path, wanted):
     data = path.read_bytes()
     offset = 8
