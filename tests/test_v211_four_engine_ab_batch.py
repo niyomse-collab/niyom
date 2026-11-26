@@ -142,8 +142,15 @@ def test_batch_ab_skips_aggregate_sheet_when_category_icc_profiles_differ(tmp_pa
     assert report["category_contact_sheet_status"] == "skipped_mixed_icc_profiles"
     assert "category_contact_sheet_mixed_icc_profiles" in report["warnings"]
     assert not (output / "ab_12_category_contact_sheet.png").exists()
+    case_by_label = {case["label"]: case for case in cases}
     for label in REVIEW_REGION_LABELS:
-        assert (output / label / f"ab_crop_01_{label}.png").is_file()
+        crop_path = output / label / f"ab_crop_01_{label}.png"
+        v2_path = tmp_path / case_by_label[label]["v2_reference"]
+        assert crop_path.is_file()
+        with Image.open(crop_path) as crop, Image.open(v2_path) as reference:
+            # Mixed ICC prevents one aggregate profile, but each individual
+            # review crop must retain its own accepted-V2 profile (or None).
+            assert crop.info.get("icc_profile") == reference.info.get("icc_profile")
 
 
 def test_batch_ab_blocks_missing_category_before_processing_images(tmp_path):
