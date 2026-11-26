@@ -640,3 +640,69 @@ def test_png_over_pillow_bomb_limit_uses_header_shell_and_preserves_icc_dpi(tmp_
         assert image.info["icc_profile"] == expected_icc
         assert image.info["dpi"][0] == pytest.approx(300, abs=0.1)
         assert image.info["dpi"][1] == pytest.approx(300, abs=0.1)
+
+
+def _png_chunk_bytes(kind, payload):
+    checksum = zlib.crc32(kind)
+    checksum = zlib.crc32(payload, checksum) & 0xFFFFFFFF
+    return (
+        len(payload).to_bytes(4, "big") + kind + payload
+        + checksum.to_bytes(4, "big")
+    )
+
+
+def _insert_pre_idat_chunks(path, chunks):
+    data = path.read_bytes()
+    offset = 8
+    while offset + 12 <= len(data):
+        length = int.from_bytes(data[offset:offset + 4], "big")
+        kind = data[offset + 4:offset + 8]
+        if kind == b"IDAT":
+            encoded = b"".join(_png_chunk_bytes(name, payload) for name, payload in chunks)
+            path.write_bytes(data[:offset] + encoded + data[offset:])
+            return
+        offset += 12 + length
+    raise AssertionError("PNG fixture has no IDAT chunk")
+
+
+def _read_pre_idat_chunks(path, wanted):
+    data = path.read_bytes()
+    offset = 8
+    found = []
+    while offset + 12 <= len(data):
+        length = int.from_bytes(data[offset:offset + 4], "big")
+        kind = data[offset + 4:offset + 8]
+        payload = data[offset + 8:offset + 8 + length]
+        if kind == b"IDAT":
+            return found
+        if kind in wanted:
+            found.append((kind, payload))
+        offset += 12 + length
+    raise AssertionError("PNG fixture has no IDAT chunk")
+
+
+def test_fusion_preserves_v2_srgb_gamma_and_chromaticity_chunks(tmp_path):
+    from tools import v211_four_engine_fusion as fusion
+
+    source, baseline, candidates = _fixture(tmp_path)
+    chromaticity = (31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000)
+    chunks = [
+        (b"cHRM", b"".join(value.to_bytes(4, "big") for value in chromaticity)),
+        (b"gAMA", (45455).to_bytes(4, "big")),
+        (b"sRGB", b"\x00"),
+    ]
+    _insert_pre_idat_chunks(baseline, chunks)
+    accepted_v2_bytes = baseline.read_bytes()
+    output = tmp_path / "fused-colourimetry.png"
+
+    report = fusion.fuse_four_engine_details(source, baseline, candidates, output)
+
+    assert report["fusion_implemented"] is True
+    assert report["quality_certified"] is False
+    assert baseline.read_bytes() == accepted_v2_bytes
+    assert _read_pre_idat_chunks(output, {b"cHRM", b"gAMA", b"sRGB"}) == chunks
+    with Image.open(output) as fused:
+        assert fused.info["gamma"] == pytest.approx(0.45455)
+        assert fused.info["chromaticity"] == pytest.approx(
+            tuple(value / 100000.0 for value in chromaticity)
+        )
