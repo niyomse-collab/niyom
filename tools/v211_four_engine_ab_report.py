@@ -388,6 +388,8 @@ def _comparison_sheet(
                 max(left_rgb.height, right_rgb.height) + header),
         (32, 32, 32),
     )
+    if icc_profile is not None:
+        sheet.info["icc_profile"] = icc_profile
     draw = ImageDraw.Draw(sheet)
     font = ImageFont.load_default()
     draw.text((4, 8), "ACCEPTED V2", fill="white", font=font)
