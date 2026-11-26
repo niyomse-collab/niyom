@@ -33,3 +33,22 @@ def test_diagnostic_log_uses_unknown_engine_when_not_identifiable(
     assert "engine=unknown" in content
     assert "exception=RuntimeError" in content
     assert "customer.png" not in content
+
+
+
+def test_diagnostic_entries_are_separate_lines_and_never_embed_literal_newline_tokens(
+    monkeypatch, tmp_path
+):
+    log_path = tmp_path / "installer-setup.log"
+    monkeypatch.setattr(v211_setup_cli, "_log_path", lambda: log_path)
+
+    v211_setup_cli._record_diagnostic(ValueError("private path C:\\customer\\one.png"))
+    v211_setup_cli._record_diagnostic(RuntimeError("private path C:\\customer\\two.png"))
+
+    content = log_path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    assert len(lines) == 2
+    assert all(line.startswith("DIAGNOSTIC code=") for line in lines)
+    assert content.endswith("\n")
+    assert "\\n" not in content
+    assert "customer" not in content

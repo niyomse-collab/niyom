@@ -241,3 +241,24 @@ def test_manifest_parent_symlink_is_rejected_before_prompt_and_download(
 
     assert downloaded == []
     assert not (outside / "manifest.json").exists()
+
+
+
+def test_archive_failure_is_tagged_with_allowlisted_engine_context(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "AppData" / "Local"))
+    monkeypatch.delenv("NIYOMSIL_V211_FOUR_AI_MANIFEST", raising=False)
+    packages = {
+        name: {"url": "https://example.org/test-only"}
+        for name in ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
+    }
+    monkeypatch.setattr(official, "PACKAGES", packages)
+
+    def fail_archive(_destination, _package):
+        raise ValueError("SHA256 mismatch at C:\\Users\\Customer\\Artwork\\private.png")
+
+    monkeypatch.setattr(provisioning, "ensure_verified_archive", fail_archive)
+
+    with pytest.raises(ValueError) as caught:
+        setup.provision_after_consent()
+
+    assert caught.value.engine == "real_esrgan"

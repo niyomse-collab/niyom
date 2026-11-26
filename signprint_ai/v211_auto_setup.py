@@ -144,7 +144,16 @@ def provision_after_consent() -> dict:
     archives.mkdir(parents=True, exist_ok=True)
     for name, package in PACKAGES.items():
         target = archives / (name + ".zip")
-        ensure_verified_archive(target, package)
+        try:
+            ensure_verified_archive(target, package)
+        except Exception as exc:
+            # Keep the failure attributable without parsing unsafe exception text.
+            # The diagnostic writer independently allowlists this engine name.
+            try:
+                exc.engine = name
+            except (AttributeError, TypeError):
+                pass
+            raise
     details = provision_from_archives(archives, root / "engines", manifest)
     verified = load_real_engine_manifest(manifest)
     if set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:

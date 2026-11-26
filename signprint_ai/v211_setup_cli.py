@@ -416,7 +416,7 @@ def _record_diagnostic(exc: BaseException) -> None:
         path = _log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as stream:
-            stream.write(line + "\\n")
+            stream.write(line + "\n")
     except OSError:
         pass
 
