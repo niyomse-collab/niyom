@@ -670,7 +670,7 @@ def test_rgb_trns_transparency_is_rejected_without_losing_pixels(tmp_path):
 
     source, baseline, candidates = _fixture(tmp_path)
     # Valid PNG truecolour tRNS key: the RGB value (70, 70, 70) is transparent.
-    _insert_pre_idat_chunks(baseline, [(b"tRNS", b"\\x00\\x46" * 3)])
+    _insert_pre_idat_chunks(baseline, [(b"tRNS", b"\x00\x46" * 3)])
     accepted_bytes = baseline.read_bytes()
     output = tmp_path / "rgb-trns-must-not-become-opaque.png"
 
