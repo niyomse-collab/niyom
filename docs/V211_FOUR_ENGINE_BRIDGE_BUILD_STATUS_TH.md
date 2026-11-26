@@ -1776,3 +1776,43 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - Disk-backed tiling and synthetic 24 MP / 4x regression do not certify native GPU performance or 4x support for the >18 MP production path.
 - No affirmative exact-candidate shop-GPU authorization was present; no self-hosted shop runner was dispatched or accessed. Owner-reported successful individual-engine tests on Windows 11 / GTX 1660 Ti remain distinct from acceptance of the integrated four-engine fusion.
 - V2 remains the accepted master. No V1/V2 Stable changes, merge/release, customer images or native binaries/weights committed, and no claim that V2.1.1 quality exceeds V2.
+
+## 26 พฤศจิกายน 2569 02:44 ICT — exact PR HEAD 0a8328a / Candidate #1080
+
+### Source and scope
+- Exact PR #20 HEAD: `0a8328a8f86f6be225c69a84b2d2bc62cc0cec97` on `work/v211-four-engine-v2-bridge-20261103`.
+- The HEAD commit restores the large-TIFF fixture import in `tests/test_v211_four_engine_bridge.py`. The production engine/fusion path is unchanged by this final commit.
+- PR #20 remains OPEN / DRAFT / UNMERGED; PR #18 remains OPEN / DRAFT / UNMERGED and is the base. No V1/V2 Stable files were changed.
+
+### Windows Candidate #1080 — SUCCESS on exact PR HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45682848494
+- Both jobs passed: `bridge-tests` and `windows-v2-candidate`.
+- Bridge/fusion/coordination: **485 passed**; privacy/provisioning/hash: **69 passed**.
+- Frozen checks passed: source syntax; V2 output preservation; four-engine coordination; privacy and manifest hashes; verified-download retry fault injection; synthetic installer consent/uninstall lifecycle; frozen V2 imports; BigTIFF/streamed libvips QA path; packaged provisioning `--check-only` without downloads; consented model-cache cleanup and cross-profile rejection; diagnostic `--help`; read-only shop-runner/provenance script parsing; BUILD_PROOF and every installer-slice SHA256.
+- Installer SHA256: `0ac718d444ac4bfc85d0ce8662718b1c64b50f03091d49b688bb9e6ac22330a1`.
+- Artifact ID **15058205249**, size **2,584,862,789 bytes**, ZIP SHA256 `b71aad1dfdbbb55f3a3a459e7bac03949d24010e5d9af35669f77eca1c9a6cde`; expires **3 Dec 2569 02:44 ICT**. [Download Candidate #1080](https://github.com/niyomse-collab/niyom/actions/runs/45682848494/artifacts/15058205249).
+- This is frozen-package/build-provenance evidence, not shop-PC install or GPU acceptance.
+
+### Independent Core #1806 — SUCCESS on exact PR HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45682848345
+- Windows: **1,154 passed / 1 skipped**. Ubuntu: **1,152 passed / 3 skipped**. `compileall` passed on both.
+
+### Official Archive Audit #406 — SUCCESS, provenance only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45682848441
+- All four official Windows archives were downloaded, SHA256/member/path audited, and transactionally provisioned into an ephemeral QA directory. The generated manifest contained all four engines.
+- Archive SHA256: Real-ESRGAN v0.2.5.0 `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (observed CI pin; no publisher digest); Waifu2x 20250915 `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (published digest); Real-CUGAN 20220728 `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (observed CI pin; no publisher digest); Anime4KCPP v3.2.0 `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (published digest).
+- Upstream license documents were retrieved and hashed. `all_upstream_digests_pinned=false`, `model_weights_and_license_certified=false`, and `license_redistribution_approved=false`; no native binaries or weights are committed or bundled.
+
+### Native CLI Smoke #543 — classified diagnostic only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/45682848321; synthetic-only JSON report artifact ID **15054677061**.
+- Real-CUGAN and Anime4KCPP produced validated synthetic 2x outputs for RGB and RGBA/ICC/300-DPI fixtures. This does not prove their NVIDIA adapter was used.
+- Real-ESRGAN was blocked by hosted-runner `vkCreateInstance failed -9`; Waifu2x was blocked by the same Vulkan initialization failure and Windows access violation `0xC0000005`.
+- NVIDIA DXGI/NVML adapter verification was **0/4**; runtime VRAM guard was not enabled; `real_inference_verified=false`; `quality_improvement_verified=false`. Diagnostic SUCCESS means the host limitation was classified, not that integrated four-engine inference passed.
+
+### Prior regression correction and exact-head status
+- Earlier Core #1774 / Candidate #1064 on the intermediate `abd2adf` revision exposed a new test-fixture error: the fake `EngineCommand` omitted required `{input}` and `{output}` placeholders. The failure was in the regression fixture, not native inference. The branch subsequently corrected the fixture; exact-head Core #1806 and Candidate #1080 now pass.
+- Direct Git Blob SHA comparison against PR #18 base confirms **9/9 protected face/GFPGAN files byte-identical**: `verify-v211-face.yml`, `face_protection.py`, `detection.py`, `selection.py`, `face_module/__init__.py`, `large_faces.py`, `v211_face_contract.py`, `test_v211_face_contract.py`, and `test_v211_large_face_audit.py`.
+- The optional HAT Assist route in PR #18 remains a separate compatibility difference and is intentionally disabled in PR #20; this is not a change to the protected GFPGAN/V2 files.
+- Large disk-backed inference remains a one-pass exact 2x native path from the half-target seed. **4x is not certified for >18 MP**, and 8x/multi-pass remains disabled. Synthetic tiling tests do not certify native GPU throughput or 6 GB VRAM behavior.
+- Integrated four-engine inference on the shop GTX 1660 Ti, per-process adapter binding, 6 GB VRAM peak, cancellation under GPU load, full-size A/B across 12 categories, Photoshop/MainTop/RIP and physical print quality remain **NOT CERTIFIED**.
+- No exact-candidate affirmative shop-GPU authorization was present; no self-hosted shop runner was dispatched. V2 remains the accepted master. No merge/release, customer images, native binaries or model weights committed, and no claim that V2.1.1 is visually superior to V2.
