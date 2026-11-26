@@ -394,11 +394,12 @@ def safe_failure_code(exc: BaseException) -> str:
 
 def _record_diagnostic(exc: BaseException) -> None:
     """Append bounded diagnostic context without paths, URLs, or raw exception text."""
-    import re
-
-    engine_names = ("real_esrgan", "waifu2x", "real_cugan", "anime4k")
-    message = str(exc).casefold()
-    engine = next((name for name in engine_names if name in message), "unknown")
+    engine_names = {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
+    # Engine context must be supplied as a structured, allowlisted attribute by
+    # the provisioning layer. Never inspect exception text: it may contain
+    # customer paths, URLs, credentials, or filenames.
+    candidate_engine = getattr(exc, "engine", None)
+    engine = candidate_engine if candidate_engine in engine_names else "unknown"
     exception_name = type(exc).__name__
     allowed_exceptions = {
         "PermissionError", "FileNotFoundError", "TimeoutError", "HTTPError",
