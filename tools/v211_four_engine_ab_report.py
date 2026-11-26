@@ -244,7 +244,8 @@ def _verify_evidence(
     if not isinstance(evidence, dict):
         return ["evidence_json_invalid"]
     reasons = []
-    if evidence.get("schema_version") != 1:
+    schema_version = evidence.get("schema_version")
+    if type(schema_version) is not int or schema_version != 1:
         reasons.append("evidence_schema_mismatch")
     if evidence.get("evidence_type") != "niyomsil_v211_four_engine_qa":
         reasons.append("evidence_type_mismatch")
