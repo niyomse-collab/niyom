@@ -52,3 +52,20 @@ def test_diagnostic_entries_are_separate_lines_and_never_embed_literal_newline_t
     assert content.endswith("\n")
     assert "\\n" not in content
     assert "customer" not in content
+
+
+
+def test_diagnostic_log_rejects_non_string_engine_context(
+    monkeypatch, tmp_path
+):
+    log_path = tmp_path / "installer-setup.log"
+    monkeypatch.setattr(v211_setup_cli, "_log_path", lambda: log_path)
+
+    exc = ValueError("private path /customer/artwork.png")
+    exc.engine = ["real_esrgan"]
+    v211_setup_cli._record_diagnostic(exc)
+
+    content = log_path.read_text(encoding="utf-8")
+    assert "engine=unknown" in content
+    assert "real_esrgan" not in content
+    assert "customer" not in content
