@@ -482,7 +482,7 @@ def _write_streamed_png(
                 profile = metadata.get("icc_profile")
                 if profile:
                     profile_bytes = bytes(profile)
-                    iccp = b"NiyomSilp ICC\\x00\\x00" + zlib.compress(profile_bytes, 6)
+                    iccp = b"NiyomSilp ICC\x00\x00" + zlib.compress(profile_bytes, 6)
                     _write_png_chunk(stream, b"iCCP", iccp)
 
                 dpi = metadata.get("dpi")
