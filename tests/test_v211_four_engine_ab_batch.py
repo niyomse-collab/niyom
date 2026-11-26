@@ -7,8 +7,11 @@ from tools import v211_four_engine_ab_batch as batch
 from tools.v211_four_engine_ab_report import ENGINES, REVIEW_REGION_LABELS, sha256_file
 
 
-def _fixture(tmp_path):
-    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+def _fixture(tmp_path, *, with_icc=True):
+    profile = (
+        ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+        if with_icc else None
+    )
     source = tmp_path / "source.png"
     v2 = tmp_path / "accepted-v2.png"
     candidate = tmp_path / "qa-candidate.png"
@@ -63,7 +66,7 @@ def _fixture(tmp_path):
     return source, v2, candidate, evidence
 
 
-def _batch_manifest(tmp_path, *, omit=None):
+def _batch_manifest(tmp_path, *, omit=None, untagged_labels=()):
     cases = []
     inputs = tmp_path / "inputs"
     for label in REVIEW_REGION_LABELS:
@@ -71,7 +74,9 @@ def _batch_manifest(tmp_path, *, omit=None):
             continue
         folder = inputs / label
         folder.mkdir(parents=True, exist_ok=True)
-        source, v2, candidate, evidence = _fixture(folder)
+        source, v2, candidate, evidence = _fixture(
+            folder, with_icc=label not in set(untagged_labels)
+        )
         cases.append({
             "label": label,
             "source": str(source.relative_to(tmp_path)),
@@ -110,13 +115,35 @@ def test_batch_ab_requires_all_12_categories_and_creates_private_review_pack(tmp
     assert report["visual_quality_certified"] is False
     assert report["print_quality_certified"] is False
     assert report["evidence_authenticity_verified"] is False
-    assert (output / "ab_12_category_contact_sheet.png").is_file()
+    contact_sheet_path = output / "ab_12_category_contact_sheet.png"
+    assert contact_sheet_path.is_file()
+    with Image.open(contact_sheet_path) as contact_sheet:
+        with Image.open(output / REVIEW_REGION_LABELS[0] / f"ab_crop_01_{REVIEW_REGION_LABELS[0]}.png") as crop:
+            assert contact_sheet.info.get("icc_profile") == crop.info.get("icc_profile")
+    assert report["category_contact_sheet_status"] == "created"
     assert (output / "ab_12_category_report.json").is_file()
     for label in REVIEW_REGION_LABELS:
         assert (output / label / f"ab_crop_01_{label}.png").is_file()
     persisted = (output / "ab_12_category_report.json").read_text(encoding="utf-8")
     assert str(tmp_path) not in persisted
     assert all(sha256_file(path) == digest for path, digest in hashes_before.items())
+
+
+def test_batch_ab_skips_aggregate_sheet_when_category_icc_profiles_differ(tmp_path):
+    manifest, _ = _batch_manifest(
+        tmp_path, untagged_labels={"thai_pattern"}
+    )
+    output = tmp_path / "ab-12-mixed-icc"
+
+    report = batch.run(manifest, output)
+
+    assert report["status"] == "ready_for_human_review"
+    assert report["all_12_categories_ready_for_human_review"] is True
+    assert report["category_contact_sheet_status"] == "skipped_mixed_icc_profiles"
+    assert "category_contact_sheet_mixed_icc_profiles" in report["warnings"]
+    assert not (output / "ab_12_category_contact_sheet.png").exists()
+    for label in REVIEW_REGION_LABELS:
+        assert (output / label / f"ab_crop_01_{label}.png").is_file()
 
 
 def test_batch_ab_blocks_missing_category_before_processing_images(tmp_path):
