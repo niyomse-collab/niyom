@@ -526,7 +526,8 @@ def main(*, silent: bool = False, preflight_only: bool = False) -> int:
         try:
             events.put(("success", _run_and_publish_success()))
         except Exception as exc:
-            _record_diagnostic(exc)\n            events.put(("failure", safe_failure_code(exc)))
+            _record_diagnostic(exc)
+            events.put(("failure", safe_failure_code(exc)))
 
     def poll() -> None:
         try:
