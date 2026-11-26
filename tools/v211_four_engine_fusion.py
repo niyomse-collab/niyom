@@ -106,7 +106,9 @@ def _read_png_header(path: Path) -> tuple[int, int, str, dict]:
         width = height = None
         mode = None
         info: dict = {}
+        color_chunks: list[tuple[bytes, bytes]] = []
         saw_ihdr = saw_iccp = saw_phys = False
+        saw_srgb = saw_gamma = saw_chrm = False
         while True:
             chunk_header = stream.read(8)
             if len(chunk_header) != 8:
@@ -116,6 +118,10 @@ def _read_png_header(path: Path) -> tuple[int, int, str, dict]:
             if kind == b"IDAT":
                 if not saw_ihdr:
                     raise ValueError("PNG IDAT precedes IHDR")
+                # Preserve the accepted V2's exact pre-IDAT colour and
+                # resolution chunks. Re-encoding only ICC/DPI can silently
+                # drop PNG sRGB/gAMA/cHRM declarations used by print viewers.
+                info["png_pre_idat_chunks"] = tuple(color_chunks)
                 return int(width), int(height), str(mode), info
             if length > MAX_PNG_HEADER_CHUNK_BYTES:
                 raise ValueError("PNG pre-IDAT metadata chunk exceeds the safe header limit")
@@ -166,6 +172,7 @@ def _read_png_header(path: Path) -> tuple[int, int, str, dict]:
                         or not decompressor.eof or decompressor.unused_data):
                     raise ValueError("PNG ICC profile stream is invalid or oversized")
                 info["icc_profile"] = profile + tail
+                color_chunks.append((kind, payload))
                 saw_iccp = True
             elif kind == b"pHYs":
                 if saw_phys or length != 9:
@@ -179,7 +186,32 @@ def _read_png_header(path: Path) -> tuple[int, int, str, dict]:
                     info["dpi"] = (x_ppm * 0.0254, y_ppm * 0.0254)
                 elif unit != 0:
                     raise ValueError("PNG pHYs unit is invalid")
+                color_chunks.append((kind, payload))
                 saw_phys = True
+            elif kind == b"sRGB":
+                if saw_srgb or length != 1 or payload[0] > 3:
+                    raise ValueError("PNG sRGB rendering-intent metadata is invalid")
+                info["srgb_intent"] = payload[0]
+                color_chunks.append((kind, payload))
+                saw_srgb = True
+            elif kind == b"gAMA":
+                if saw_gamma or length != 4:
+                    raise ValueError("PNG gAMA metadata is invalid or duplicated")
+                gamma_value = int.from_bytes(payload, "big")
+                if gamma_value < 1:
+                    raise ValueError("PNG gAMA value must be positive")
+                info["gamma"] = gamma_value / 100000.0
+                color_chunks.append((kind, payload))
+                saw_gamma = True
+            elif kind == b"cHRM":
+                if saw_chrm or length != 32:
+                    raise ValueError("PNG cHRM metadata is invalid or duplicated")
+                chromaticity = struct.unpack(">8I", payload)
+                if any(value > 100000 for value in chromaticity):
+                    raise ValueError("PNG cHRM coordinates exceed the PNG range")
+                info["chromaticity"] = tuple(value / 100000.0 for value in chromaticity)
+                color_chunks.append((kind, payload))
+                saw_chrm = True
             elif kind == b"IEND":
                 raise ValueError("PNG ended before image data")
             
@@ -216,7 +248,11 @@ def _open_fusion_image(path: Path):
         header = _read_png_header(path)
         if header[0] * header[1] > MAX_RGBA_VALIDATION_PIXELS:
             return _PngHeaderImage(path, header)
-        return PngImagePlugin.PngImageFile(path)
+        image = PngImagePlugin.PngImageFile(path)
+        # Use the same bounded, CRC-checked metadata parser for both small and
+        # disk-backed PNGs so colour-chunk retention cannot differ by size.
+        image.info.update(header[3])
+        return image
     return Image.open(path)
 
 
@@ -433,27 +469,37 @@ def _write_streamed_png(
             ihdr = struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0)
             _write_png_chunk(stream, b"IHDR", ihdr)
 
-            profile = metadata.get("icc_profile")
-            if profile:
-                profile_bytes = bytes(profile)
-                iccp = b"NiyomSilp ICC\x00\x00" + zlib.compress(profile_bytes, 6)
-                _write_png_chunk(stream, b"iCCP", iccp)
+            pre_idat_chunks = metadata.get("png_pre_idat_chunks")
+            if pre_idat_chunks is not None:
+                allowed_chunks = {b"iCCP", b"pHYs", b"sRGB", b"gAMA", b"cHRM"}
+                for kind, payload in pre_idat_chunks:
+                    if kind not in allowed_chunks or not isinstance(payload, bytes):
+                        raise ValueError("accepted V2 PNG contains unsupported colour metadata")
+                    _write_png_chunk(stream, kind, payload)
+            else:
+                # Compatibility fallback for callers without the bounded PNG
+                # header metadata object.
+                profile = metadata.get("icc_profile")
+                if profile:
+                    profile_bytes = bytes(profile)
+                    iccp = b"NiyomSilp ICC\\x00\\x00" + zlib.compress(profile_bytes, 6)
+                    _write_png_chunk(stream, b"iCCP", iccp)
 
-            dpi = metadata.get("dpi")
-            if dpi is not None:
-                if isinstance(dpi, (tuple, list)) and len(dpi) >= 2:
-                    dpi_x, dpi_y = float(dpi[0]), float(dpi[1])
-                else:
-                    dpi_x = dpi_y = float(dpi)
-                if (math.isfinite(dpi_x) and math.isfinite(dpi_y)
-                        and dpi_x > 0 and dpi_y > 0):
-                    ppm_x = int(round(dpi_x / 0.0254))
-                    ppm_y = int(round(dpi_y / 0.0254))
-                    if 0 < ppm_x <= 0xFFFFFFFF and 0 < ppm_y <= 0xFFFFFFFF:
-                        _write_png_chunk(
-                            stream, b"pHYs",
-                            struct.pack(">IIB", ppm_x, ppm_y, 1),
-                        )
+                dpi = metadata.get("dpi")
+                if dpi is not None:
+                    if isinstance(dpi, (tuple, list)) and len(dpi) >= 2:
+                        dpi_x, dpi_y = float(dpi[0]), float(dpi[1])
+                    else:
+                        dpi_x = dpi_y = float(dpi)
+                    if (math.isfinite(dpi_x) and math.isfinite(dpi_y)
+                            and dpi_x > 0 and dpi_y > 0):
+                        ppm_x = int(round(dpi_x / 0.0254))
+                        ppm_y = int(round(dpi_y / 0.0254))
+                        if 0 < ppm_x <= 0xFFFFFFFF and 0 < ppm_y <= 0xFFFFFFFF:
+                            _write_png_chunk(
+                                stream, b"pHYs",
+                                struct.pack(">IIB", ppm_x, ppm_y, 1),
+                            )
 
             compressor = zlib.compressobj(level=6)
             pending = bytearray()
@@ -660,7 +706,11 @@ def fuse_four_engine_details(
         with _open_fusion_image(source) as original:
             if not any((W, H) == (original.width * scale, original.height * scale) for scale in (2, 4)):
                 raise ValueError("four-engine fusion requires exact 2x or 4x dimensions")
-        metadata = {key: base.info[key] for key in ("icc_profile", "dpi") if key in base.info}
+        metadata = {
+            key: base.info[key]
+            for key in ("icc_profile", "dpi", "png_pre_idat_chunks")
+            if key in base.info
+        }
         # Above the Pillow validation threshold, every source/candidate/V2
         # pixel access must go through bounded libvips regions, for RGB and RGBA.
         use_vips = W * H > MAX_RGBA_VALIDATION_PIXELS
