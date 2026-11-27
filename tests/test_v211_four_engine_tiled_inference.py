@@ -872,10 +872,13 @@ def test_large_rgba_four_x_tiled_inference_fusion_preserves_exact_v2_alpha_icc_d
                 assert bytes(qa_alpha.crop(x, y, width, height).write_to_memory()) == bytes(
                     v2_alpha.crop(x, y, width, height).write_to_memory()
                 )
-        # Transparent outside, partially transparent centre, and opaque field
-        # are all represented in the accepted alpha plane and retained exactly.
+        # Sample one transparent border pixel, one fully opaque field pixel,
+        # and one partially transparent centre pixel from the known source
+        # geometry. The outer rectangle begins at (750, 500) in the 4x target;
+        # the partial-alpha inner rectangle begins at (2000, 1333).
         assert bytes(qa_alpha.crop(0, 0, 1, 1).write_to_memory()) == bytes([0])
-        assert bytes(qa_alpha.crop(600, 600, 1, 1).write_to_memory()) == bytes([255])
+        assert bytes(qa_alpha.crop(1200, 900, 1, 1).write_to_memory()) == bytes([255])
+        assert bytes(qa_alpha.crop(2500, 1800, 1, 1).write_to_memory()) == bytes([128])
         assert _sha256_file(source) == source_before
         assert _sha256_file(baseline) == baseline_before
 
