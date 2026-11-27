@@ -224,6 +224,8 @@ def test_v211_hats_assist_loader_is_optional_and_checkpoint_is_never_bundled():
     assert 'model_datas = [(str(ROOT / "models"), "models")]' in spec
 
     assert '"spandrel"' in run_source
+    assert 'spandrel_version = str(spandrel.__version__)' in run_source
+    assert "importlib.metadata.version(\"spandrel\")" not in run_source
     assert '"spandrel_version": spandrel_version' in run_source
     assert '"hat_checkpoint_loaded": False' in run_source
     assert '$dependencyReport.spandrel_version -ne "0.4.2"' in package_script

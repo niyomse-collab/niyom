@@ -269,10 +269,10 @@ if __name__ == "__main__":
         try:
             import json
             import math
-            import importlib.metadata
             import numpy as np
             import scipy
-            spandrel_version = importlib.metadata.version("spandrel")
+            import spandrel
+            spandrel_version = str(spandrel.__version__)
             if spandrel_version != "0.4.2":
                 raise RuntimeError("Unexpected Spandrel version: " + spandrel_version)
             from scipy import special
