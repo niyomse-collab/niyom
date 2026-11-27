@@ -99,6 +99,20 @@ try {
     Stop-Preflight 5 'The requested diagnostic output directory is invalid.'
 }
 
+# A caller-supplied folder may contain an earlier QA image or unrelated file.
+# Never let the packaged diagnostic overwrite evidence in an existing folder.
+if (Test-Path -LiteralPath $OutputDirectory -PathType Container) {
+    try {
+        $existingOutputEntry = Get-ChildItem -LiteralPath $OutputDirectory -Force -ErrorAction Stop |
+            Select-Object -First 1
+    } catch {
+        Stop-Preflight 5 'The existing diagnostic output directory cannot be inspected safely.'
+    }
+    if ($null -ne $existingOutputEntry) {
+        Stop-Preflight 5 'The diagnostic output directory must be new or empty; refusing to overwrite existing files.'
+    }
+}
+
 $installPrefix = $installPath.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
 $manifestRootFull = [System.IO.Path]::GetFullPath($manifestRoot)
 $manifestPrefix = $manifestRootFull.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
