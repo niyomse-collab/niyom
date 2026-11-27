@@ -151,6 +151,7 @@ def provision_after_consent() -> dict:
             # The diagnostic writer independently allowlists this engine name.
             try:
                 exc.engine = name
+                exc.stage = "download_or_archive_verification"
             except (AttributeError, TypeError):
                 pass
             raise
