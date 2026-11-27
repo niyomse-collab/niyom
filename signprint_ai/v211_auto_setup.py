@@ -110,25 +110,52 @@ def provision_after_consent() -> dict:
     )
     from tools.v211_real_engine_manifest import load_real_engine_manifest, safe_manifest_path
 
-    root = _validate_four_ai_data_root(qa_root())
+    try:
+        root = _validate_four_ai_data_root(qa_root())
+    except Exception as exc:
+        try:
+            exc.engine = "unknown"
+            exc.stage = "cache_path_validation"
+        except (AttributeError, TypeError):
+            pass
+        raise
     try:
         # Reject linked/reparse-point ancestors before any archive download.
         manifest = safe_manifest_path(selected_manifest())
     except (OSError, ValueError) as exc:
-        raise RuntimeError("four-engine manifest path is not a safe regular file") from exc
+        try:
+            exc.engine = "unknown"
+            exc.stage = "manifest_path_validation"
+        except (AttributeError, TypeError):
+            pass
+        raise
     declined_marker = root / "setup-declined.flag"
     # Revalidate at the write boundary: the path may have changed after the
     # first-launch status check or while the consent dialog was open.
     if (_is_link_or_reparse_point(manifest)
             or (os.path.lexists(manifest) and not manifest.is_file())):
-        raise RuntimeError("four-engine manifest path is not a safe regular file")
+        exc = RuntimeError("four-engine manifest path is not a safe regular file")
+        exc.engine = "unknown"
+        exc.stage = "manifest_path_validation"
+        raise exc
     if (_is_link_or_reparse_point(declined_marker)
             or (os.path.lexists(declined_marker) and not declined_marker.is_file())):
-        raise RuntimeError("four-engine decline marker is not a safe regular file")
+        exc = RuntimeError("four-engine decline marker is not a safe regular file")
+        exc.engine = "unknown"
+        exc.stage = "decline_marker_validation"
+        raise exc
     if manifest.is_file():
-        verified = load_real_engine_manifest(manifest)
-        if set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
-            raise RuntimeError("existing manifest does not verify all four engines")
+        try:
+            verified = load_real_engine_manifest(manifest)
+            if set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
+                raise ValueError("existing manifest does not verify all four engines")
+        except Exception as exc:
+            try:
+                exc.engine = getattr(exc, "engine", "unknown")
+                exc.stage = "existing_manifest_validation"
+            except (AttributeError, TypeError):
+                pass
+            raise
         declined_marker.unlink(missing_ok=True)
         return {
             "status": "already_installed",
@@ -141,7 +168,15 @@ def provision_after_consent() -> dict:
             "verified_engine_names": sorted(verified),
         }
     archives = root / "archives"
-    archives.mkdir(parents=True, exist_ok=True)
+    try:
+        archives.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        try:
+            exc.engine = "unknown"
+            exc.stage = "cache_directory_create"
+        except (AttributeError, TypeError):
+            pass
+        raise
     for name, package in PACKAGES.items():
         target = archives / (name + ".zip")
         try:
@@ -156,10 +191,26 @@ def provision_after_consent() -> dict:
                 pass
             raise
     details = provision_from_archives(archives, root / "engines", manifest)
-    verified = load_real_engine_manifest(manifest)
-    if set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
-        raise RuntimeError("four-engine installed manifest did not validate")
-    declined_marker.unlink(missing_ok=True)
+    try:
+        verified = load_real_engine_manifest(manifest)
+        if set(verified) != {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}:
+            raise ValueError("four-engine installed manifest did not validate")
+    except Exception as exc:
+        try:
+            exc.engine = getattr(exc, "engine", "unknown")
+            exc.stage = "installed_manifest_validation"
+        except (AttributeError, TypeError):
+            pass
+        raise
+    try:
+        declined_marker.unlink(missing_ok=True)
+    except Exception as exc:
+        try:
+            exc.engine = "unknown"
+            exc.stage = "decline_marker_cleanup"
+        except (AttributeError, TypeError):
+            pass
+        raise
     return {
         "status": "installed_for_offline_qa",
         "manifest": str(manifest),
