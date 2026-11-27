@@ -1729,8 +1729,8 @@ class App(tk.Tk):
                 report = provision_after_user_consent(consent=True)
             except Exception as exc:
                 try:
-                    from .v211_setup_cli import safe_failure_code
-                    failure = safe_failure_code(exc)
+                    from .v211_setup_cli import safe_failure_detail
+                    failure = safe_failure_detail(exc)
                 except Exception:
                     failure = "setup_failed"
                 self._events.put(("four_ai_setup_failed", failure))
@@ -1820,7 +1820,7 @@ class App(tk.Tk):
                         APP_NAME,
                         "ไม่สามารถดาวน์โหลดและตรวจสอบ AI ทั้ง 4 ตัวได้\n"
                         "V2 เดิมยังใช้งานได้ และไม่มีการเปลี่ยนไฟล์งานที่อนุมัติแล้ว\n\n"
-                        "รหัสสาเหตุ: " + code,
+                        "รายละเอียด: " + code,
                         parent=self,
                     )
                 elif kind == "result_done":
