@@ -203,7 +203,7 @@ def test_consent_provisioning_rejects_manifest_symlink_before_any_download(
                             "symlink target must not be read"
                         )))
 
-    with pytest.raises(RuntimeError, match="manifest path is not a safe regular file"):
+    with pytest.raises(ValueError, match="manifest path must not traverse a symlink or reparse point"):
         setup.provision_after_consent()
 
     assert downloaded == []
@@ -236,7 +236,7 @@ def test_manifest_parent_symlink_is_rejected_before_prompt_and_download(
         provisioning, "ensure_verified_archive",
         lambda *args, **kwargs: downloaded.append(args),
     )
-    with pytest.raises(RuntimeError, match="manifest path is not a safe regular file"):
+    with pytest.raises(ValueError, match="manifest path must not traverse a symlink or reparse point"):
         setup.provision_after_consent()
 
     assert downloaded == []
