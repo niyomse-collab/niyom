@@ -413,7 +413,16 @@ def _record_diagnostic(exc: BaseException) -> None:
     if exception_name not in allowed_exceptions:
         exception_name = "OtherError"
     code = safe_failure_code(exc)
-    line = "DIAGNOSTIC code=" + code + " engine=" + engine + " exception=" + exception_name
+    candidate_stage = getattr(exc, "stage", None)
+    allowed_stages = {
+        "archive_hash_or_structure", "executable_or_model_layout",
+        "staged_manifest_validation", "download_or_archive_verification",
+    }
+    stage = candidate_stage if isinstance(candidate_stage, str) and candidate_stage in allowed_stages else "unknown"
+    line = (
+        "DIAGNOSTIC code=" + code + " engine=" + engine
+        + " stage=" + stage + " exception=" + exception_name
+    )
     # Only fixed tokens are persisted; exception messages may contain user paths,
     # URLs, credentials, or image filenames and are deliberately never logged.
     try:
