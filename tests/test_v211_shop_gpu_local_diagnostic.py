@@ -53,3 +53,11 @@ def test_local_gpu_diagnostic_keeps_output_outside_install_and_model_folders():
     assert "$manifestPrefix" in source
     assert "$OutputDirectory.StartsWith" in source
     assert "SetEnvironmentVariable" in source
+
+
+def test_local_gpu_diagnostic_refuses_to_overwrite_existing_qa_files():
+    source = _source()
+    inspect_output = source.index("Get-ChildItem -LiteralPath $OutputDirectory -Force")
+    create_output = source.index("[System.IO.Directory]::CreateDirectory($OutputDirectory)")
+    assert inspect_output < create_output
+    assert "must be new or empty" in source
