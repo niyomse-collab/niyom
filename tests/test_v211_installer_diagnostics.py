@@ -69,3 +69,38 @@ def test_diagnostic_log_rejects_non_string_engine_context(
     assert "engine=unknown" in content
     assert "real_esrgan" not in content
     assert "customer" not in content
+
+
+def test_provision_failure_always_records_engine_stage_even_in_silent_cli_path(
+    monkeypatch, tmp_path
+):
+    import pytest
+
+    marker = tmp_path / "setup-complete.flag"
+    pending = tmp_path / "setup-pending.flag"
+    log_path = tmp_path / "installer-setup.log"
+    pending.write_text("pending", encoding="ascii")
+    monkeypatch.setattr(v211_setup_cli, "completion_marker_path", lambda: marker)
+    monkeypatch.setattr(v211_setup_cli, "pending_marker_path", lambda: pending)
+    monkeypatch.setattr(v211_setup_cli, "_log_path", lambda: log_path)
+
+    def fail_install():
+        exc = ValueError("private customer path must never be logged")
+        exc.engine = "waifu2x"
+        exc.stage = "archive_hash_or_structure"
+        raise exc
+
+    monkeypatch.setattr(v211_setup_cli, "install_for_offline_use", fail_install)
+
+    with pytest.raises(ValueError):
+        v211_setup_cli._run_and_publish_success()
+
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert lines == [
+        "DIAGNOSTIC code=verification_failed engine=waifu2x "
+        "stage=archive_hash_or_structure exception=ValueError",
+        "FAILED verification_failed",
+    ]
+    assert not marker.exists()
+    assert pending.is_file()
+    assert "customer" not in log_path.read_text(encoding="utf-8")
