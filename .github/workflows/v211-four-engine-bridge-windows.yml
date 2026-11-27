@@ -72,6 +72,14 @@ jobs:
       - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
+      # The candidate job is a fresh runner, separate from bridge-tests.
+      # The frozen-install manifest verifier imports the subprocess adapter,
+      # which imports PIL; install and assert Pillow in this job explicitly.
+      - name: Install candidate manifest verification dependency
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check Pillow
+          python -c "from PIL import Image; print('Pillow manifest verifier dependency ready:', Image.__version__)"
       - name: Install Windows installer compiler
         shell: pwsh
         run: choco install innosetup -y --no-progress
