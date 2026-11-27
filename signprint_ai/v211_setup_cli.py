@@ -392,28 +392,19 @@ def safe_failure_code(exc: BaseException) -> str:
         return "filesystem_error"
     return "setup_failed"
 
-def _record_diagnostic(exc: BaseException) -> None:
-    """Append bounded diagnostic context without paths, URLs, or raw exception text."""
+def safe_failure_detail(exc: BaseException) -> str:
+    """Return a fixed-token diagnostic suitable for UI display or local logs."""
     engine_names = {"real_esrgan", "waifu2x", "real_cugan", "anime4k"}
-    # Engine context must be supplied as a structured, allowlisted attribute by
-    # the provisioning layer. Never inspect exception text: it may contain
-    # customer paths, URLs, credentials, or filenames.
     candidate_engine = getattr(exc, "engine", None)
-    engine = (
-        candidate_engine
-        if isinstance(candidate_engine, str) and candidate_engine in engine_names
-        else "unknown"
-    )
-    exception_name = type(exc).__name__
+    engine = candidate_engine if isinstance(candidate_engine, str) and candidate_engine in engine_names else "unknown"
     allowed_exceptions = {
         "PermissionError", "FileNotFoundError", "TimeoutError", "HTTPError",
         "URLError", "BadZipFile", "ValueError", "OSError", "FileExistsError",
         "RuntimeError", "KeyError", "TypeError",
     }
+    exception_name = type(exc).__name__
     if exception_name not in allowed_exceptions:
         exception_name = "OtherError"
-    code = safe_failure_code(exc)
-    candidate_stage = getattr(exc, "stage", None)
     allowed_stages = {
         "cache_path_validation", "manifest_path_validation",
         "existing_manifest_validation", "cache_directory_create",
@@ -424,11 +415,19 @@ def _record_diagnostic(exc: BaseException) -> None:
         "engine_promotion", "manifest_publish", "final_manifest_validation",
         "installed_manifest_validation",
     }
+    candidate_stage = getattr(exc, "stage", None)
     stage = candidate_stage if isinstance(candidate_stage, str) and candidate_stage in allowed_stages else "unknown"
-    line = (
-        "DIAGNOSTIC code=" + code + " engine=" + engine
-        + " stage=" + stage + " exception=" + exception_name
+    return (
+        "code=" + safe_failure_code(exc)
+        + " engine=" + engine
+        + " stage=" + stage
+        + " exception=" + exception_name
     )
+
+
+def _record_diagnostic(exc: BaseException) -> None:
+    """Append bounded diagnostic context without paths, URLs, or raw exception text."""
+    line = "DIAGNOSTIC " + safe_failure_detail(exc)
     # Only fixed tokens are persisted; exception messages may contain user paths,
     # URLs, credentials, or image filenames and are deliberately never logged.
     try:
@@ -553,7 +552,7 @@ def main(*, silent: bool = False, preflight_only: bool = False) -> int:
         try:
             events.put(("success", _run_and_publish_success()))
         except Exception as exc:
-            events.put(("failure", safe_failure_code(exc)))
+            events.put(("failure", safe_failure_detail(exc)))
 
     def poll() -> None:
         try:
@@ -576,7 +575,7 @@ def main(*, silent: bool = False, preflight_only: bool = False) -> int:
             "NiyomSilp Design · ติดตั้ง AI ไม่สำเร็จ",
             "ไม่สามารถติดตั้งและตรวจสอบ AI ทั้ง 4 ตัวได้\n"
             "V2 เดิมยังใช้งานได้ และสามารถลองติดตั้งใหม่ภายหลัง\n\n"
-            + "รหัสสาเหตุ: " + str(payload),
+            + "รายละเอียด: " + str(payload),
             parent=root,
         )
         root.destroy()
