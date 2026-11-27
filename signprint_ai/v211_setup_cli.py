@@ -415,8 +415,14 @@ def _record_diagnostic(exc: BaseException) -> None:
     code = safe_failure_code(exc)
     candidate_stage = getattr(exc, "stage", None)
     allowed_stages = {
-        "archive_hash_or_structure", "executable_or_model_layout",
-        "staged_manifest_validation", "download_or_archive_verification",
+        "cache_path_validation", "manifest_path_validation",
+        "existing_manifest_validation", "cache_directory_create",
+        "decline_marker_validation", "decline_marker_cleanup",
+        "download_or_archive_verification", "archive_hash_or_structure",
+        "archive_extraction", "executable_or_model_layout",
+        "staged_manifest_validation", "install_directory_preflight",
+        "engine_promotion", "manifest_publish", "final_manifest_validation",
+        "installed_manifest_validation",
     }
     stage = candidate_stage if isinstance(candidate_stage, str) and candidate_stage in allowed_stages else "unknown"
     line = (
@@ -442,9 +448,10 @@ def _clear_completion_marker() -> Path:
 
 def _run_and_publish_success() -> dict:
     """Run all verification first; publish success and clear pending last."""
-    marker = _clear_completion_marker()
+    marker = completion_marker_path()
     pending = pending_marker_path()
     try:
+        marker = _clear_completion_marker()
         result = install_for_offline_use()
         names = set(result.get("verified_engine_names", ()))
         if names != _REQUIRED_ENGINES:
@@ -465,7 +472,13 @@ def _run_and_publish_success() -> dict:
         _record("SUCCESS verified engines: " + ",".join(sorted(names)))
         return result
     except Exception as exc:
-        marker.unlink(missing_ok=True)
+        try:
+            marker.unlink(missing_ok=True)
+        except OSError:
+            pass
+        # Centralize diagnostics here so interactive, silent installer, and
+        # editor first-launch setup all record the same safe engine/stage data.
+        _record_diagnostic(exc)
         _record("FAILED " + safe_failure_code(exc))
         raise
 
@@ -540,7 +553,6 @@ def main(*, silent: bool = False, preflight_only: bool = False) -> int:
         try:
             events.put(("success", _run_and_publish_success()))
         except Exception as exc:
-            _record_diagnostic(exc)
             events.put(("failure", safe_failure_code(exc)))
 
     def poll() -> None:
