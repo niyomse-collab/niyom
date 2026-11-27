@@ -736,3 +736,182 @@ def test_large_four_x_cancellation_discards_partial_tiles_and_preserves_v2(tmp_p
             seed_path.unlink(missing_ok=True)
         if reference_path is not None:
             reference_path.unlink(missing_ok=True)
+
+
+
+def test_large_rgba_four_x_tiled_inference_fusion_preserves_exact_v2_alpha_icc_dpi_and_cancel(
+    tmp_path, monkeypatch
+):
+    """Exercise >18 MP RGBA through seed, four 2x tile engines, fusion and cancel.
+
+    Pixels are synthetic and constant-colour so this is a geometry/metadata/
+    alpha-integrity test, not a visual-quality or real-GPU inference claim.
+    """
+    pytest.importorskip("pyvips")
+    from PIL import ImageDraw
+    import pyvips
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
+    from tools.v211_four_engine_fusion import fuse_four_engine_details
+
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source_size = (1500, 1000)
+    target_size = (6000, 4000)
+    source = tmp_path / "source-rgba-1500x1000.png"
+    baseline = tmp_path / "accepted-v2-rgba-6000x4000.png"
+
+    def write_rgba(path, size):
+        width, height = size
+        image = Image.new("RGBA", size, (218, 73, 41, 0))
+        alpha = Image.new("L", size, 0)
+        draw = ImageDraw.Draw(alpha)
+        draw.rectangle(
+            (width // 8, height // 8, width * 7 // 8 - 1, height * 7 // 8 - 1),
+            fill=255,
+        )
+        draw.rectangle(
+            (width // 3, height // 3, width * 2 // 3 - 1, height * 2 // 3 - 1),
+            fill=128,
+        )
+        image.putalpha(alpha)
+        image.save(path, format="PNG", dpi=(300, 300), icc_profile=profile)
+        image.close()
+        alpha.close()
+
+    write_rgba(source, source_size)
+    write_rgba(baseline, target_size)
+    source_before = _sha256_file(source)
+    baseline_before = _sha256_file(baseline)
+
+    # The large source and accepted V2 must never be decoded into one Pillow
+    # frame. Tile candidates are allowed to decode only their bounded regions.
+    original_load = PngImagePlugin.PngImageFile.load
+
+    def reject_large_master_decode(image, *args, **kwargs):
+        if image.filename in (str(source), str(baseline)) and image.width * image.height > 18_000_000:
+            raise AssertionError("large RGBA masters must remain disk-backed")
+        return original_load(image, *args, **kwargs)
+
+    monkeypatch.setattr(PngImagePlugin.PngImageFile, "load", reject_large_master_decode)
+
+    work_dir = tmp_path / "rgba-four-x-work"
+    candidates_dir = tmp_path / "rgba-four-x-candidates"
+    qa_output = tmp_path / "private-rgba-qa" / "large-rgba-four-x.V211-4AI-QA.png"
+    seed_path = reference_path = None
+    try:
+        seed_path, reference_path, actual_target, padded_size, actual_source, metadata = (
+            prepare_native_2x_inputs_streamed(
+                source, baseline, work_dir, resize_mode="stretch"
+            )
+        )
+        assert actual_source == source_size
+        assert actual_target == padded_size == target_size
+        assert metadata["icc_profile"] == profile
+        assert metadata["dpi"][0] == pytest.approx(300, abs=0.1)
+        with Image.open(seed_path) as seed:
+            assert seed.size == (3000, 2000)
+            assert seed.mode == "RGBA"
+            assert seed.info["icc_profile"] == profile
+            assert seed.info["dpi"][0] == pytest.approx(300, abs=0.1)
+            # Fully transparent hidden RGB is safely bled from the visible
+            # foreground; a partially transparent pixel remains meaningful.
+            assert seed.getpixel((300, 1000))[3] == 0
+            assert seed.getpixel((1500, 1000))[3] in (127, 128, 129)
+
+        observation = {
+            "input_sizes": [], "output_sizes": [], "active": 0, "max_active": 0,
+        }
+        tiled = run_tiled_candidates(
+            seed_path, reference_path, candidates_dir, target_size,
+            _observed_processors(observation),
+            tile_size=1024, overlap=32,
+        )
+        assert tiled["ready_for_fusion_research"] is True
+        assert tiled["native_tiled_inference"]["all_four_engines_completed"] is True
+        assert tiled["native_tiled_inference"]["native_scale"] == 2
+        assert observation["max_active"] == 1
+        assert len(observation["input_sizes"]) == 24
+        assert max(width for width, _ in observation["input_sizes"]) <= 1088
+        assert max(height for _, height in observation["input_sizes"]) <= 1088
+        for name in ENGINES:
+            candidate = candidates_dir / (name + ".png")
+            with Image.open(candidate) as image:
+                assert image.size == target_size
+                assert image.mode == "RGBA"
+                assert image.info["icc_profile"] == profile
+                assert image.info["dpi"][0] == pytest.approx(300, abs=0.1)
+            result = tiled["native_tiled_inference"]["engine_results"][name]
+            assert result["tile_count"] == 6
+            assert result["seam_validation"] == "passed"
+
+        fused = fuse_four_engine_details(
+            source, reference_path,
+            {name: candidates_dir / (name + ".png") for name in ENGINES},
+            qa_output,
+        )
+        assert fused["all_four_engine_candidates_consumed"] is True
+        assert fused["v2_file_not_modified"] is True
+        assert fused["quality_certified"] is False
+        assert fused["experimental_preview_only"] is True
+        with Image.open(qa_output) as preview:
+            assert preview.size == target_size
+            assert preview.mode == "RGBA"
+            assert preview.info["icc_profile"] == profile
+            assert preview.info["dpi"][0] == pytest.approx(300, abs=0.1)
+
+        # Compare every alpha sample in bounded row strips against accepted V2.
+        # No Pillow full-frame decode is used for either 24 MP image.
+        qa_vips = pyvips.Image.new_from_file(str(qa_output), access="random", fail_on="error")
+        v2_vips = pyvips.Image.new_from_file(str(reference_path), access="random", fail_on="error")
+        assert qa_vips.bands == v2_vips.bands == 4
+        qa_alpha = qa_vips.extract_band(3)
+        v2_alpha = v2_vips.extract_band(3)
+        for y in range(0, target_size[1], 256):
+            height = min(256, target_size[1] - y)
+            for x in range(0, target_size[0], 1024):
+                width = min(1024, target_size[0] - x)
+                assert qa_alpha.crop(x, y, width, height).write_to_memory() == (
+                    v2_alpha.crop(x, y, width, height).write_to_memory()
+                )
+        # Transparent outside, partially transparent centre, and opaque field
+        # are all represented in the accepted alpha plane and retained exactly.
+        assert qa_alpha.crop(0, 0, 1, 1).write_to_memory() == b"\\x00"
+        assert qa_alpha.crop(600, 600, 1, 1).write_to_memory() == b"\\xff"
+        assert _sha256_file(source) == source_before
+        assert _sha256_file(baseline) == baseline_before
+
+        # Repeat the same RGBA large-job route with cancellation after the first
+        # native tile. No partial candidates, work rasters or accepted-V2 edits
+        # may survive the cancelled transaction.
+        cancel_dir = tmp_path / "rgba-cancelled-candidates"
+        calls = []
+        checks = {"count": 0}
+        base = _processors()
+
+        def cancel_after_first_native_tile():
+            checks["count"] += 1
+            return checks["count"] >= 3
+
+        def wrap(name):
+            def process(src, dst):
+                calls.append(name)
+                base[name](src, dst)
+            return process
+
+        with pytest.raises(InterruptedError, match="stopped by user"):
+            run_tiled_candidates(
+                seed_path, reference_path, cancel_dir, target_size,
+                {name: wrap(name) for name in ENGINES},
+                tile_size=1024, overlap=32,
+                cancel_check=cancel_after_first_native_tile,
+            )
+        assert checks["count"] == 3
+        assert calls == [ENGINES[0]]
+        assert not list(cancel_dir.glob("*.png"))
+        assert not list(cancel_dir.glob(".v211_*"))
+        assert _sha256_file(source) == source_before
+        assert _sha256_file(baseline) == baseline_before
+    finally:
+        if seed_path is not None:
+            seed_path.unlink(missing_ok=True)
+        if reference_path is not None:
+            reference_path.unlink(missing_ok=True)
