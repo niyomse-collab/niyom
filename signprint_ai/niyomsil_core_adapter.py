@@ -73,6 +73,29 @@ def _validated_normalized_face_regions(regions) -> tuple[tuple[float, float, flo
     except Exception:
         return ()
 
+def _expand_normalized_face_regions(regions) -> tuple[tuple[float, float, float, float], ...]:
+    """Expand mapped face ROIs for GFPGAN paste-back and nearby identity cues.
+
+    Explicit user selections and automatic detections must receive the same
+    conservative margin before they are used to protect accepted V2 pixels.
+    Invalid geometry returns an empty result so the caller preserves all of V2.
+    """
+    validated = _validated_normalized_face_regions(regions)
+    if not validated:
+        return ()
+    expanded = []
+    for x1, y1, x2, y2 in validated:
+        margin_x = max((x2 - x1) * 0.35, 0.015)
+        margin_y = max((y2 - y1) * 0.35, 0.02)
+        expanded.append((
+            round(max(0.0, x1 - margin_x), 6),
+            round(max(0.0, y1 - margin_y), 6),
+            round(min(1.0, x2 + margin_x), 6),
+            round(min(1.0, y2 + margin_y), 6),
+        ))
+    return _validated_normalized_face_regions(expanded)
+
+
 def _four_engine_face_guard(
     v2_output_path: str | Path,
     face_info: dict,
@@ -109,7 +132,10 @@ def _four_engine_face_guard(
             )
             if not mapped or len(mapped) != len(requested):
                 return (), True
-            return mapped, False
+            expanded = _expand_normalized_face_regions(mapped)
+            if len(expanded) != len(mapped):
+                return (), True
+            return expanded, False
         except Exception:
             # Explicit UI/CLI geometry is untrusted at this optional boundary.
             # A bad ROI must not turn a completed V2 export into a failed job.
@@ -128,32 +154,9 @@ def _four_engine_face_guard(
         if len(detected) != expected_count:
             return (), True
 
-        expanded = []
-        for region in detected:
-            if not isinstance(region, (tuple, list)) or len(region) != 4:
-                raise ValueError("automatic face detector returned an invalid ROI")
-            x1, y1, x2, y2 = (float(value) for value in region)
-            if not (
-                all(math.isfinite(value) for value in (x1, y1, x2, y2))
-                and 0.0 <= x1 < x2 <= 1.0
-                and 0.0 <= y1 < y2 <= 1.0
-            ):
-                raise ValueError("automatic face detector returned an out-of-range ROI")
-            # The auxiliary guard is deliberately wider than the detected
-            # face box to include GFPGAN paste-back feathering and nearby
-            # identity cues. It only protects V2 pixels; it never edits them.
-            margin_x = max((x2 - x1) * 0.35, 0.015)
-            margin_y = max((y2 - y1) * 0.35, 0.02)
-            expanded.append((
-                round(max(0.0, x1 - margin_x), 6),
-                round(max(0.0, y1 - margin_y), 6),
-                round(min(1.0, x2 + margin_x), 6),
-                round(min(1.0, y2 + margin_y), 6),
-            ))
-
         # FaceDetector returns normalized coordinates on the exact saved V2
         # canvas; no second source-to-print transform is needed here.
-        mapped = _validated_normalized_face_regions(expanded)
+        mapped = _expand_normalized_face_regions(detected)
         if len(mapped) != expected_count:
             return (), True
         return mapped, False
