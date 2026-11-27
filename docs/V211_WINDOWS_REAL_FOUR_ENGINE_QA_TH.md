@@ -919,3 +919,12 @@ Commit marker สำหรับ workflow เฉพาะเครื่อง�
 - The only existing shop-GPU consent marker names Candidate #1072. It does not authorize Candidate #1076. No exact #1076 `confirm_shop_gpu=yes` dispatch or `[shop-gpu-evidence yes candidate=...]` commit marker exists; the self-hosted shop evidence job remains unstarted.
 - PR #18 remains OPEN / DRAFT / UNMERGED at head `288dd8501c230a118d9a7e60d2522a2cc7411bcc`. PR #20 is based on that PR #18 head. The incremental PR #20 diff contains no `signprint_ai/face_module/` changes and does not modify `large_faces.py` or `v211_face_contract.py`; the GFPGAN/face implementation from PR #18 is preserved.
 - No V1 or accepted V2 Stable changes, no merge/release, no customer artwork, native binaries or model weights committed. V2 remains the accepted master.
+
+
+## 27 พฤศจิกายน 2569 — Candidate #1123 shop-GPU evidence dispatch
+
+- The owner requested continuation through real Windows 11 / GTX 1660 Ti verification. This documentation-only commit authorizes the existing fail-closed self-hosted evidence workflow for the exact installed candidate source `518295b03292ed49f3231e97be1bd62246501380`.
+- The workflow first verifies the installed application's `BUILD_PROOF.txt`, installed executable, and the user's four-engine verified manifest. A stale or missing Candidate #1123 installation stops at preflight; no substitute candidate is accepted.
+- The diagnostic uses only newly generated synthetic RGB and RGBA/ICC/300-DPI test images. It does not open customer artwork, make network requests, retain image files, or upload images. Only build identity, static HAT audit and `shop_gpu_diagnostic.json` are eligible for the seven-day artifact.
+- Acceptance is fail-closed: all four native child processes must have verified runtime adapter telemetry naming GTX 1660 Ti, per-process GPU evidence, passing VRAM budget, and successful bridge/fusion output validation. Synthetic diagnostics never certify visual or print quality.
+- The exact candidate source SHA is `518295b03292ed49f3231e97be1bd62246501380`; this evidence commit changes documentation only. PR #20 remains Draft and unmerged; no V1/V2 Stable, GFPGAN, binaries, weights or customer images are changed.
