@@ -930,19 +930,19 @@ Commit marker สำหรับ workflow เฉพาะเครื่อง�
 - The exact candidate source SHA is `518295b03292ed49f3231e97be1bd62246501380`; this evidence commit changes documentation only. PR #20 remains Draft and unmerged; no V1/V2 Stable, GFPGAN, binaries, weights or customer images are changed.
 
 
-## 27 พฤศจิกายน 2569 — local synthetic GPU diagnostic without a self-hosted Runner
+## 28 พฤศจิกายน 2569 — candidate-independent local synthetic GPU diagnostic
 
-- Added \`tools/Run-V211-ShopGPU-Diagnostic.ps1\` as a one-command local alternative to waiting for the \`niyom-shop-gpu\` GitHub Runner. The initial version was pinned to Candidate #1123; the hard-coded pin has now been removed so newer experimental candidates are not rejected by stale authorization. \`518295b03292ed49f3231e97be1bd62246501380\` authorized by the existing 27 November marker. It refuses a different installed Candidate; do not change the pin without a new exact-candidate authorization.
-- Run from a checkout of this branch, under the same normal Windows account that installed the candidate and provisioned the four models. Copy the exact `Source commit:` value from that installation's `BUILD_PROOF.txt`:
-  \`powershell -NoProfile -ExecutionPolicy Bypass -File .\\tools\\Run-V211-ShopGPU-Diagnostic.ps1 -ExpectedCandidateSha <40-character-source-SHA>\`
-- The script checks the current user's uninstall record, installed executable, exact \`BUILD_PROOF.txt\` source SHA, and four manifest entry names. The packaged diagnostic then performs the authoritative manifest/executable/model SHA256 checks before launching native engines. No native engine is launched when the preflight fails.
-- The packaged command uses only newly generated synthetic RGB and RGBA/ICC/300-DPI fixtures. It does not read customer artwork, download models, access the network, upload files, modify the installed manifest or write into the application/model folders. It clears the optional intermediate-image retention override for the child process and restores the caller's process environment afterward.
-- The JSON report is written to a new Desktop folder named \`NiyomSilp-V211-GPU-QA-<timestamp>\`. The script exits 0 only when the full fail-closed shop GPU gates pass; a completed diagnostic that does not pass still retains \`shop_gpu_diagnostic.json\` for local review. A nonzero result is not a quality failure classification by itself; inspect the per-engine Stage, adapter and VRAM fields.
-- This local script does not start/register a GitHub Runner and does not upload its JSON. Attach only \`shop_gpu_diagnostic.json\` to the private project conversation for review. A diagnostic pass proves runtime/adapter/VRAM and synthetic output invariants only; visual A/B, face identity, Photoshop/MainTop/RIP and print quality remain separate gates.
-- The script is parsed by the Windows Candidate workflow and its safety contract is covered by \`tests/test_v211_shop_gpu_local_diagnostic.py\`. The script is not part of the installer and does not change V1, accepted V2, GFPGAN or the four-engine runtime implementation.
+- `tools/Run-V211-ShopGPU-Diagnostic.ps1` is the local alternative when no self-hosted `niyom-shop-gpu` Runner is registered. It no longer embeds Candidate #1123's SHA.
+- Every invocation requires `-ExpectedCandidateSha` with exactly 40 hexadecimal characters. Copy the `Source commit:` value from the installed candidate's `BUILD_PROOF.txt`; the script compares that value with the installed proof before checking the four-engine manifest or launching the packaged diagnostic.
+- Run from a checkout of this branch, under the same normal Windows account that installed the candidate and provisioned the four models:
 
-## 28 พฤศจิกายน 2569 — candidate-independent local diagnostic identity
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Run-V211-ShopGPU-Diagnostic.ps1 -ExpectedCandidateSha <40-character-source-SHA>
+```
 
-- The local GPU diagnostic no longer embeds Candidate #1123's source SHA. Every invocation requires the exact 40-character source SHA copied from the installed candidate's `BUILD_PROOF.txt`; the script compares it with the installed proof before it checks the four-engine manifest or launches the packaged diagnostic.
-- This prevents a newer Candidate from shipping a local diagnostic script that rejects its own installer. The separate manual GitHub evidence workflow still requires explicit `confirm_shop_gpu=yes` and the exact installed source SHA.
-- This is a candidate-identity/preflight correction only. It does not claim shop GPU acceptance and does not change inference, fusion, V1/V2 Stable, GFPGAN or model weights.
+- The script checks the current user's uninstall record, installed executable, exact `BUILD_PROOF.txt` source SHA, and four manifest entry names. The packaged diagnostic performs the authoritative manifest/executable/model SHA256 checks before launching native engines. No native engine is launched when preflight fails.
+- It uses only newly generated synthetic RGB and RGBA/ICC/300-DPI fixtures. It does not read customer artwork, download models, access the network, upload files, modify the installed manifest, or write into the application/model folders. Intermediate candidate-image retention is disabled for the diagnostic child process.
+- The JSON report is written to a new Desktop folder named `NiyomSilp-V211-GPU-QA-<timestamp>`. Exit code 0 means the fail-closed runtime/adapter/VRAM and synthetic-output gates passed; it does not certify visual A/B, face identity, Photoshop/MainTop/RIP, or print quality.
+- This local script does not start/register a GitHub Runner and does not upload its JSON. Attach only `shop_gpu_diagnostic.json` to the private project conversation for review.
+- The separate manual GitHub evidence workflow still requires explicit `confirm_shop_gpu=yes` and the exact installed source SHA. This change does not authorize a self-hosted workflow run.
+- This candidate-identity/preflight correction does not change inference, fusion, V1/V2 Stable, GFPGAN, or model weights.
