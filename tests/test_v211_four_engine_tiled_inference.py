@@ -664,7 +664,7 @@ def test_large_four_x_target_runs_all_four_tiled_passes_and_disk_backed_fusion(
         import pyvips
         qa_vips = pyvips.Image.new_from_file(str(qa_output), access="random")
         v2_vips = pyvips.Image.new_from_file(str(reference_path), access="random")
-        assert qa_vips.crop(0, 0, 1, 1).write_to_memory() == (
+        assert bytes(qa_vips.crop(0, 0, 1, 1).write_to_memory()) == bytes(
             v2_vips.crop(0, 0, 1, 1).write_to_memory()
         )
         assert _sha256_file(source) == source_before
@@ -869,13 +869,13 @@ def test_large_rgba_four_x_tiled_inference_fusion_preserves_exact_v2_alpha_icc_d
             height = min(256, target_size[1] - y)
             for x in range(0, target_size[0], 1024):
                 width = min(1024, target_size[0] - x)
-                assert qa_alpha.crop(x, y, width, height).write_to_memory() == (
+                assert bytes(qa_alpha.crop(x, y, width, height).write_to_memory()) == bytes(
                     v2_alpha.crop(x, y, width, height).write_to_memory()
                 )
         # Transparent outside, partially transparent centre, and opaque field
         # are all represented in the accepted alpha plane and retained exactly.
-        assert qa_alpha.crop(0, 0, 1, 1).write_to_memory() == b"\\x00"
-        assert qa_alpha.crop(600, 600, 1, 1).write_to_memory() == b"\\xff"
+        assert bytes(qa_alpha.crop(0, 0, 1, 1).write_to_memory()) == bytes([0])
+        assert bytes(qa_alpha.crop(600, 600, 1, 1).write_to_memory()) == bytes([255])
         assert _sha256_file(source) == source_before
         assert _sha256_file(baseline) == baseline_before
 
