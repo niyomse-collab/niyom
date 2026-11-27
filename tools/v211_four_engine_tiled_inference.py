@@ -362,6 +362,12 @@ def run_tiled_candidates(
             tile_count = 0
             tile_process_count = 0
             tile_process_elapsed_ms_total = 0.0
+            max_input_tile_width = 0
+            max_input_tile_height = 0
+            max_input_tile_pixels = 0
+            max_output_tile_width = 0
+            max_output_tile_height = 0
+            max_output_tile_pixels = 0
             try:
                 # Completed candidates remain on disk. Count their actual
                 # bytes and reserve raw-raster space for every engine still to run.
@@ -393,6 +399,20 @@ def run_tiled_candidates(
                                 tx0, tx1 = _expand_interval(x0, x1, source_width, overlap)
                                 ty0, ty1 = _expand_interval(y0, y1, source_height, overlap)
                                 tile_rect = (tx0, ty0, tx1, ty1)
+                                input_tile_width = tx1 - tx0
+                                input_tile_height = ty1 - ty0
+                                output_tile_width = input_tile_width * 2
+                                output_tile_height = input_tile_height * 2
+                                max_input_tile_width = max(max_input_tile_width, input_tile_width)
+                                max_input_tile_height = max(max_input_tile_height, input_tile_height)
+                                max_input_tile_pixels = max(
+                                    max_input_tile_pixels, input_tile_width * input_tile_height
+                                )
+                                max_output_tile_width = max(max_output_tile_width, output_tile_width)
+                                max_output_tile_height = max(max_output_tile_height, output_tile_height)
+                                max_output_tile_pixels = max(
+                                    max_output_tile_pixels, output_tile_width * output_tile_height
+                                )
                                 tile_source = temp_dir / ("tile-r" + str(row_index) + "-c" + str(column_index) + ".png")
                                 tile_output = temp_dir / ("candidate-r" + str(row_index) + "-c" + str(column_index) + ".png")
                                 tile_image = _read_region(
@@ -487,6 +507,13 @@ def run_tiled_candidates(
                     "seam_mean_limit": SEAM_MEAN_CHANNEL_DELTA,
                     "seam_validation": "passed",
                     "output_pixels": pixels,
+                    "max_input_tile_width": max_input_tile_width,
+                    "max_input_tile_height": max_input_tile_height,
+                    "max_input_tile_pixels": max_input_tile_pixels,
+                    "max_output_tile_width": max_output_tile_width,
+                    "max_output_tile_height": max_output_tile_height,
+                    "max_output_tile_pixels": max_output_tile_pixels,
+                    "resource_measurement_scope": "tile_geometry_only_not_process_rss_or_vram",
                 }
                 candidates.append(Candidate(name, destination, width, height))
             except InterruptedError:
@@ -504,6 +531,13 @@ def run_tiled_candidates(
                     "seam_max_channel_delta": seam_max,
                     "seam_validation": "failed",
                     "error_type": type(exc).__name__,
+                    "max_input_tile_width": max_input_tile_width,
+                    "max_input_tile_height": max_input_tile_height,
+                    "max_input_tile_pixels": max_input_tile_pixels,
+                    "max_output_tile_width": max_output_tile_width,
+                    "max_output_tile_height": max_output_tile_height,
+                    "max_output_tile_pixels": max_output_tile_pixels,
+                    "resource_measurement_scope": "tile_geometry_only_not_process_rss_or_vram",
                 }
                 if isinstance(exc, DiskReserveError):
                     # Once the full four-engine workspace cannot be reserved,
@@ -531,7 +565,39 @@ def run_tiled_candidates(
                     execution_records[name]["tile_process_elapsed_ms_total"] = round(tile_process_elapsed_ms_total, 3)
                     execution_records[name]["tile_seam_count"] = seam_count
                     execution_records[name]["tile_seam_max_channel_delta"] = seam_max
+                    execution_records[name]["max_input_tile_width"] = max_input_tile_width
+                    execution_records[name]["max_input_tile_height"] = max_input_tile_height
+                    execution_records[name]["max_input_tile_pixels"] = max_input_tile_pixels
+                    execution_records[name]["max_output_tile_width"] = max_output_tile_width
+                    execution_records[name]["max_output_tile_height"] = max_output_tile_height
+                    execution_records[name]["max_output_tile_pixels"] = max_output_tile_pixels
                     execution_records[name]["tile_process_scope"] = "all_tiles_aggregated"
+        observed_reports = [
+            report for report in tile_reports.values()
+            if isinstance(report, dict) and report.get("max_input_tile_width", 0)
+        ]
+        resource_bounds = {
+            "max_input_tile_width": max(
+                (report["max_input_tile_width"] for report in observed_reports), default=0
+            ),
+            "max_input_tile_height": max(
+                (report["max_input_tile_height"] for report in observed_reports), default=0
+            ),
+            "max_input_tile_pixels": max(
+                (report["max_input_tile_pixels"] for report in observed_reports), default=0
+            ),
+            "max_output_tile_width": max(
+                (report["max_output_tile_width"] for report in observed_reports), default=0
+            ),
+            "max_output_tile_height": max(
+                (report["max_output_tile_height"] for report in observed_reports), default=0
+            ),
+            "max_output_tile_pixels": max(
+                (report["max_output_tile_pixels"] for report in observed_reports), default=0
+            ),
+            "concurrent_native_processes": 1,
+            "measurement_scope": "tile_geometry_only_not_process_rss_or_vram",
+        }
         return {
             "research_only": True,
             "fusion_implemented": False,
@@ -546,6 +612,7 @@ def run_tiled_candidates(
                 "native_scale": 2,
                 "execution_order": list(ENGINES),
                 "engine_results": tile_reports,
+                "resource_bounds": resource_bounds,
                 "all_four_engines_completed": len(candidates) == len(ENGINES),
                 "gpu_adapter_verified": False,
             },
