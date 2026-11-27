@@ -1729,7 +1729,8 @@ class App(tk.Tk):
                 report = provision_after_user_consent(consent=True)
             except Exception as exc:
                 try:
-                    from .v211_setup_cli import safe_failure_code
+                    from .v211_setup_cli import _record_diagnostic, safe_failure_code
+                    _record_diagnostic(exc)
                     failure = safe_failure_code(exc)
                 except Exception:
                     failure = "setup_failed"
