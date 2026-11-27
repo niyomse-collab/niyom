@@ -144,7 +144,7 @@ jobs:
               -not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
             throw 'Frozen four-engine install did not publish a clean completion state.'
           }
-          python -c "from pathlib import Path; import os; from tools.v211_real_engine_manifest import load_real_engine_manifest; root=Path(os.environ['LOCALAPPDATA'])/'NiyomSilp'/'V211-FourAI-QA'; commands=load_real_engine_manifest(root/'manifest.json'); expected={'real_esrgan','waifu2x','real_cugan','anime4k'}; assert set(commands)==expected; assert all(Path(commands[name].executable).is_file() for name in expected); print('FROZEN MANIFEST READY: '+','.join(sorted(commands)))"
+          python -c "from pathlib import Path; import os; from tools.v211_real_engine_manifest import load_real_engine_manifest; root=Path(os.environ['LOCALAPPDATA'])/'NiyomSilp'/'V211-FourAI-QA'; commands=load_real_engine_manifest(root/'manifest.json'); expected={'real_esrgan','waifu2x','real_cugan','anime4k'}; assert set(commands)==expected; assert all(Path(commands[name].argv[0]).is_file() for name in expected); print('FROZEN MANIFEST READY: '+','.join(sorted(commands)))"
           if ($LASTEXITCODE -ne 0) {
             throw 'Frozen four-engine manifest failed independent verification.'
           }
