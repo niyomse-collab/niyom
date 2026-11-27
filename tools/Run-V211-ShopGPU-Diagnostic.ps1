@@ -21,7 +21,11 @@ function Stop-Preflight([int]$Code, [string]$Message) {
 # Require an explicit, exact candidate identity on every invocation. This
 # avoids a stale hard-coded SHA when a newer experimental candidate is built.
 if ([string]::IsNullOrWhiteSpace($ExpectedCandidateSha) -or
-    $ExpectedCandidateSha -notmatch '^[0-9a-fA-F]{40}
+    $ExpectedCandidateSha -notmatch '^[0-9a-fA-F]{40}$') {
+    Stop-Preflight 3 'Pass -ExpectedCandidateSha with the exact 40-character Source commit from the installed candidate BUILD_PROOF.txt.'
+}
+$ExpectedCandidateSha = $ExpectedCandidateSha.ToLowerInvariant()
+
 if ($env:OS -ne 'Windows_NT') {
     Stop-Preflight 2 'This diagnostic is supported only on Windows.'
 }
