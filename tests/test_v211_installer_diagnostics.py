@@ -104,3 +104,32 @@ def test_provision_failure_always_records_engine_stage_even_in_silent_cli_path(
     assert not marker.exists()
     assert pending.is_file()
     assert "customer" not in log_path.read_text(encoding="utf-8")
+
+
+def test_safe_failure_detail_exposes_only_allowlisted_engine_stage_and_type():
+    private_path = r"C:\Users\Customer\Artwork\secret-sign.png"
+    exc = ValueError("verification failed at " + private_path)
+    exc.engine = "real_cugan"
+    exc.stage = "executable_or_model_layout"
+
+    detail = v211_setup_cli.safe_failure_detail(exc)
+
+    assert detail == (
+        "code=verification_failed engine=real_cugan "
+        "stage=executable_or_model_layout exception=ValueError"
+    )
+    assert "Customer" not in detail
+    assert "secret-sign.png" not in detail
+
+
+def test_safe_failure_detail_rejects_unapproved_engine_and_stage():
+    exc = RuntimeError("private path /customer/artwork.png")
+    exc.engine = "customer_engine"
+    exc.stage = "customer_path"
+
+    detail = v211_setup_cli.safe_failure_detail(exc)
+
+    assert detail == (
+        "code=setup_failed engine=unknown stage=unknown exception=RuntimeError"
+    )
+    assert "customer" not in detail
