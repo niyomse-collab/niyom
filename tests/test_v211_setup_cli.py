@@ -200,7 +200,7 @@ def test_safe_failure_codes_never_include_exception_details():
 def test_setup_ui_worker_queues_only_safe_failure_code():
     source = (Path(__file__).resolve().parents[1] /
               "signprint_ai" / "v211_setup_cli.py").read_text(encoding="utf-8")
-    assert 'events.put(("failure", safe_failure_code(exc)))' in source
+    assert 'events.put(("failure", safe_failure_detail(exc)))' in source
     assert 'str(payload)' in source  # payload is the fixed safe code, not an Exception
     assert 'str(exc)' not in source
 
