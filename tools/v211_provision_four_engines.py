@@ -205,13 +205,21 @@ def provision_from_archives(archives: Path, install_dir: Path, manifest_path: Pa
     # Validate EVERYTHING before extracting any executable.
     verified = {}
     for engine, package in PACKAGES.items():
-        zippath = archives / (engine + ".zip")
-        if not zippath.is_file():
-            raise FileNotFoundError("missing official " + engine + ".zip")
-        digest = verify_archive_hash(zippath, package.get("release_sha256"),
-                                     package.get("observed_sha256"))
-        audit_archive(zippath)
-        verified[engine] = (zippath, digest)
+        try:
+            zippath = archives / (engine + ".zip")
+            if not zippath.is_file():
+                raise FileNotFoundError("missing official " + engine + ".zip")
+            digest = verify_archive_hash(zippath, package.get("release_sha256"),
+                                         package.get("observed_sha256"))
+            audit_archive(zippath)
+            verified[engine] = (zippath, digest)
+        except Exception as exc:
+            try:
+                exc.engine = engine
+                exc.stage = "archive_hash_or_structure"
+            except (AttributeError, TypeError):
+                pass
+            raise
 
     install_dir.mkdir(parents=True, exist_ok=True)
     if any((install_dir / engine).exists() for engine in PACKAGES):
@@ -237,9 +245,17 @@ def provision_from_archives(archives: Path, install_dir: Path, manifest_path: Pa
                 staged_engine = stage_root / engine
                 staged_engine.mkdir()
                 safe_extract_zip(zippath, staged_engine)
-                staged_manifest[engine] = manifest_entry(
-                    engine, staged_engine, package, digest
-                )
+                try:
+                    staged_manifest[engine] = manifest_entry(
+                        engine, staged_engine, package, digest
+                    )
+                except Exception as exc:
+                    try:
+                        exc.engine = engine
+                        exc.stage = "executable_or_model_layout"
+                    except (AttributeError, TypeError):
+                        pass
+                    raise
 
             staged_manifest_path = stage_root / "manifest.staged.json"
             staged_manifest_path.write_text(
@@ -248,7 +264,15 @@ def provision_from_archives(archives: Path, install_dir: Path, manifest_path: Pa
             )
             # Re-verify every staged executable and every model asset before
             # promoting any engine directory to the persistent install path.
-            load_real_engine_manifest(staged_manifest_path)
+            try:
+                load_real_engine_manifest(staged_manifest_path)
+            except Exception as exc:
+                try:
+                    exc.engine = "unknown"
+                    exc.stage = "staged_manifest_validation"
+                except (AttributeError, TypeError):
+                    pass
+                raise
 
             final_manifest = {}
             for engine, entry in staged_manifest.items():
