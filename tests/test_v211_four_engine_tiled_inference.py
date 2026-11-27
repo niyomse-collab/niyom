@@ -1,4 +1,6 @@
 """Regression tests for disk-backed four-engine native tile orchestration."""
+import hashlib
+
 import pytest
 from PIL import Image, ImageCms, PngImagePlugin
 import numpy as np
@@ -30,6 +32,35 @@ def _processors(*, drop_alpha=False, corrupt_right_seam=False):
             output.save(destination, format="PNG", **options)
             output.close()
     return {name: process for name in ENGINES}
+
+def _sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _observed_processors(observation):
+    base = _processors()
+
+    def wrap(name):
+        def process(source, destination):
+            with Image.open(source) as image:
+                observation["input_sizes"].append(image.size)
+            observation["active"] += 1
+            observation["max_active"] = max(
+                observation["max_active"], observation["active"]
+            )
+            try:
+                base[name](source, destination)
+                with Image.open(destination) as output:
+                    observation["output_sizes"].append(output.size)
+            finally:
+                observation["active"] -= 1
+        return process
+
+    return {name: wrap(name) for name in ENGINES}
 
 
 def test_tiled_runner_reserves_all_candidate_and_fusion_disk_before_native_launch(tmp_path, monkeypatch):
@@ -532,8 +563,8 @@ def test_large_four_x_target_runs_all_four_tiled_passes_and_disk_backed_fusion(
     Image.new("RGB", (6000, 4000), (38, 82, 126)).save(
         baseline, format="PNG", dpi=(300, 300), icc_profile=profile
     )
-    source_before = source.read_bytes()
-    baseline_before = baseline.read_bytes()
+    source_before = _sha256_file(source)
+    baseline_before = _sha256_file(baseline)
 
     original_load = PngImagePlugin.PngImageFile.load
 
@@ -566,13 +597,35 @@ def test_large_four_x_target_runs_all_four_tiled_passes_and_disk_backed_fusion(
 
         # Four synthetic processors each perform one native-equivalent 2x tile
         # pass over the half-target seed. This validates geometry/streaming only.
+        # Record every native input/output tile to prove the 24 MP print raster
+        # is never handed to a processor as one full-frame allocation.
+        observation = {
+            "input_sizes": [], "output_sizes": [], "active": 0, "max_active": 0,
+        }
         tiled = run_tiled_candidates(
-            seed_path, reference_path, candidates_dir, target_size, _processors(),
+            seed_path, reference_path, candidates_dir, target_size,
+            _observed_processors(observation),
             tile_size=1024, overlap=32,
         )
         assert tiled["ready_for_fusion_research"] is True
         assert tiled["native_tiled_inference"]["all_four_engines_completed"] is True
         assert tiled["native_tiled_inference"]["native_scale"] == 2
+        assert len(observation["input_sizes"]) == 24
+        assert len(observation["output_sizes"]) == 24
+        assert observation["max_active"] == 1
+        resource_bounds = tiled["native_tiled_inference"]["resource_bounds"]
+        assert resource_bounds["concurrent_native_processes"] == 1
+        assert resource_bounds["measurement_scope"] == "tile_geometry_only_not_process_rss_or_vram"
+        assert resource_bounds["max_input_tile_width"] <= 1024 + 2 * 32
+        assert resource_bounds["max_input_tile_height"] <= 1024 + 2 * 32
+        assert resource_bounds["max_input_tile_pixels"] <= (1024 + 2 * 32) ** 2
+        assert resource_bounds["max_output_tile_width"] <= 2 * (1024 + 2 * 32)
+        assert resource_bounds["max_output_tile_height"] <= 2 * (1024 + 2 * 32)
+        assert resource_bounds["max_output_tile_pixels"] <= (2 * (1024 + 2 * 32)) ** 2
+        assert max(width for width, _ in observation["input_sizes"]) <= 1088
+        assert max(height for _, height in observation["input_sizes"]) <= 1088
+        assert max(width for width, _ in observation["output_sizes"]) <= 2176
+        assert max(height for _, height in observation["output_sizes"]) <= 2176
         for name in ENGINES:
             candidate = candidates_dir / (name + ".png")
             with Image.open(candidate) as image:
@@ -614,8 +667,70 @@ def test_large_four_x_target_runs_all_four_tiled_passes_and_disk_backed_fusion(
         assert qa_vips.crop(0, 0, 1, 1).write_to_memory() == (
             v2_vips.crop(0, 0, 1, 1).write_to_memory()
         )
-        assert source.read_bytes() == source_before
-        assert baseline.read_bytes() == baseline_before
+        assert _sha256_file(source) == source_before
+        assert _sha256_file(baseline) == baseline_before
+    finally:
+        if seed_path is not None:
+            seed_path.unlink(missing_ok=True)
+        if reference_path is not None:
+            reference_path.unlink(missing_ok=True)
+
+
+
+def test_large_four_x_cancellation_discards_partial_tiles_and_preserves_v2(tmp_path):
+    """A cancelled 24 MP / 4x job must leave no partial candidate or V2 edit."""
+    pytest.importorskip("pyvips")
+    from signprint_ai.v211_large_image_bridge import prepare_native_2x_inputs_streamed
+
+    profile = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+    source = tmp_path / "cancel-source-1500x1000.png"
+    baseline = tmp_path / "cancel-accepted-v2-6000x4000.png"
+    Image.new("RGB", (1500, 1000), (38, 82, 126)).save(
+        source, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    Image.new("RGB", (6000, 4000), (38, 82, 126)).save(
+        baseline, format="PNG", dpi=(300, 300), icc_profile=profile
+    )
+    source_before = _sha256_file(source)
+    baseline_before = _sha256_file(baseline)
+    work_dir = tmp_path / "cancel-large-four-x-work"
+    output_dir = tmp_path / "cancel-large-four-x-candidates"
+    seed_path = reference_path = None
+    calls = []
+    checks = {"count": 0}
+
+    def cancel_after_one_native_tile():
+        checks["count"] += 1
+        return checks["count"] >= 3
+
+    base = _processors()
+    processors = {
+        name: (lambda src, dst, name=name: (calls.append(name), base[name](src, dst))[1])
+        for name in ENGINES
+    }
+    try:
+        seed_path, reference_path, target_size, padded_size, _, _ = (
+            prepare_native_2x_inputs_streamed(
+                source, baseline, work_dir, resize_mode="stretch"
+            )
+        )
+        assert target_size == padded_size == (6000, 4000)
+        with Image.open(seed_path) as seed:
+            assert seed.size == (3000, 2000)
+
+        with pytest.raises(InterruptedError, match="stopped by user"):
+            run_tiled_candidates(
+                seed_path, reference_path, output_dir, target_size, processors,
+                tile_size=1024, overlap=32,
+                cancel_check=cancel_after_one_native_tile,
+            )
+
+        assert checks["count"] == 3
+        assert calls == [ENGINES[0]]
+        assert not list(output_dir.glob("*.png"))
+        assert not list(output_dir.glob(".v211_*"))
+        assert _sha256_file(source) == source_before
+        assert _sha256_file(baseline) == baseline_before
     finally:
         if seed_path is not None:
             seed_path.unlink(missing_ok=True)
