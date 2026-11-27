@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 $ExpectedCandidateSha = '518295b03292ed49f3231e97be1bd62246501380'
 
 function Stop-Preflight([int]$Code, [string]$Message) {
-    Write-Error $Message
+    Write-Host ('ERROR: ' + $Message) -ForegroundColor Red
     exit $Code
 }
 
@@ -126,6 +126,7 @@ $evidenceVariable = 'NIYOMSIL_V211_FOUR_AI_EVIDENCE_DIR'
 $oldEvidenceDirectory = [Environment]::GetEnvironmentVariable($evidenceVariable, 'Process')
 $diagnosticProcess = $null
 $diagnosticExitCode = $null
+$processFailure = $null
 
 try {
     [Environment]::SetEnvironmentVariable($evidenceVariable, $null, 'Process')
@@ -162,8 +163,7 @@ try {
     $diagnosticProcess.WaitForExit()
     $diagnosticExitCode = $diagnosticProcess.ExitCode
 } catch {
-    Write-Error ('Local GPU diagnostic could not complete: ' + $_.Exception.Message)
-    exit 5
+    $processFailure = $_.Exception.Message
 } finally {
     [Environment]::SetEnvironmentVariable(
         $evidenceVariable, $oldEvidenceDirectory, 'Process'
@@ -173,6 +173,10 @@ try {
     }
 }
 
+if (-not [string]::IsNullOrWhiteSpace($processFailure)) {
+    Write-Host ('ERROR: Local GPU diagnostic could not complete: ' + $processFailure) -ForegroundColor Red
+    exit 5
+}
 if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
     Stop-Preflight 5 'The diagnostic did not produce shop_gpu_diagnostic.json. No acceptance is recorded.'
 }
