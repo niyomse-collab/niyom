@@ -18,6 +18,15 @@ from tools.v211_official_assets_audit import (
     PACKAGES, audit_archive, download_archive, file_sha256, verify_archive_hash,
 )
 
+def _tag_failure(exc: BaseException, *, engine: str = "unknown", stage: str) -> None:
+    """Attach only fixed, allowlisted diagnostic context to a setup exception."""
+    try:
+        exc.engine = engine
+        exc.stage = stage
+    except (AttributeError, TypeError):
+        pass
+
+
 EXECUTABLES = {
     "real_esrgan": "realesrgan-ncnn-vulkan.exe",
     "waifu2x": "waifu2x-ncnn-vulkan.exe",
@@ -201,7 +210,11 @@ def provision_from_archives(archives: Path, install_dir: Path, manifest_path: Pa
     archives = Path(archives).resolve()
     install_dir = Path(install_dir).resolve()
     from tools.v211_real_engine_manifest import load_real_engine_manifest, safe_manifest_path
-    manifest_path = safe_manifest_path(manifest_path)
+    try:
+        manifest_path = safe_manifest_path(manifest_path)
+    except Exception as exc:
+        _tag_failure(exc, stage="manifest_path_validation")
+        raise
     # Validate EVERYTHING before extracting any executable.
     verified = {}
     for engine, package in PACKAGES.items():
@@ -221,13 +234,17 @@ def provision_from_archives(archives: Path, install_dir: Path, manifest_path: Pa
                 pass
             raise
 
-    install_dir.mkdir(parents=True, exist_ok=True)
-    if any((install_dir / engine).exists() for engine in PACKAGES):
-        raise FileExistsError("existing installation detected; use a new empty QA directory")
-    if os.path.lexists(manifest_path):
-        raise FileExistsError("manifest already exists; refusing to overwrite")
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path = safe_manifest_path(manifest_path)
+    try:
+        install_dir.mkdir(parents=True, exist_ok=True)
+        if any((install_dir / engine).exists() for engine in PACKAGES):
+            raise FileExistsError("existing installation detected; use a new empty QA directory")
+        if os.path.lexists(manifest_path):
+            raise FileExistsError("manifest already exists; refusing to overwrite")
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path = safe_manifest_path(manifest_path)
+    except Exception as exc:
+        _tag_failure(exc, stage="install_directory_preflight")
+        raise
 
     promoted: list[Path] = []
     manifest_published = False
@@ -244,7 +261,11 @@ def provision_from_archives(archives: Path, install_dir: Path, manifest_path: Pa
                 zippath, digest = verified[engine]
                 staged_engine = stage_root / engine
                 staged_engine.mkdir()
-                safe_extract_zip(zippath, staged_engine)
+                try:
+                    safe_extract_zip(zippath, staged_engine)
+                except Exception as exc:
+                    _tag_failure(exc, engine=engine, stage="archive_extraction")
+                    raise
                 try:
                     staged_manifest[engine] = manifest_entry(
                         engine, staged_engine, package, digest
@@ -284,17 +305,29 @@ def provision_from_archives(archives: Path, install_dir: Path, manifest_path: Pa
 
             for engine in PACKAGES:
                 final_engine = install_dir / engine
-                if final_engine.exists():
-                    raise FileExistsError(
-                        "engine destination appeared during install: " + str(final_engine)
-                    )
-                (stage_root / engine).rename(final_engine)
-                promoted.append(final_engine)
+                try:
+                    if final_engine.exists():
+                        raise FileExistsError(
+                            "engine destination appeared during install: " + str(final_engine)
+                        )
+                    (stage_root / engine).rename(final_engine)
+                    promoted.append(final_engine)
+                except Exception as exc:
+                    _tag_failure(exc, engine=engine, stage="engine_promotion")
+                    raise
 
         # Publish the manifest only after all four final directories exist.
-        _write_manifest_exclusive(manifest_path, final_manifest)
-        manifest_published = True
-        load_real_engine_manifest(manifest_path)
+        try:
+            _write_manifest_exclusive(manifest_path, final_manifest)
+            manifest_published = True
+        except Exception as exc:
+            _tag_failure(exc, stage="manifest_publish")
+            raise
+        try:
+            load_real_engine_manifest(manifest_path)
+        except Exception as exc:
+            _tag_failure(exc, stage="final_manifest_validation")
+            raise
     except BaseException:
         if manifest_published:
             manifest_path.unlink(missing_ok=True)
