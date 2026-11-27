@@ -36,6 +36,14 @@ def _source_and_v2(tmp_path):
     return source, baseline
 
 
+def test_explicit_face_guard_margin_clamps_at_canvas_edges():
+    from signprint_ai.niyomsil_core_adapter import _expand_normalized_face_regions
+
+    assert _expand_normalized_face_regions(((0.0, 0.0, 0.2, 0.2),)) == (
+        (0.0, 0.0, 0.27, 0.27),
+    )
+
+
 def test_installed_four_ai_is_auto_executed_and_exports_separate_result(tmp_path, monkeypatch):
     original, v2 = _source_and_v2(tmp_path)
     before = v2.read_bytes()
@@ -169,7 +177,7 @@ def test_custom_four_x_target_runs_native_two_x_on_half_target_seed(tmp_path, mo
         (
             ((0.25, 0.25, 0.75, 0.75),),
             None,
-            ((0.375, 0.25, 0.625, 0.75),),
+            ((0.2875, 0.075, 0.7125, 0.925),),
             False,
         ),
         (
