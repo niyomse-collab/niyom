@@ -31,11 +31,11 @@ def test_hat_4x_output_contract_and_2x_resample():
         _downsample_4x(pixels, 4, 9, 10)
 
 
-def test_retired_hat_model_rejected_before_loading_models():
+def test_standalone_hat_model_remains_disabled_before_loading_models():
     from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
     adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
     adapter.engine_manager = SimpleNamespace(
-        create_engine=lambda _: pytest.fail("retired HAT triggered V2 engine"),
+        create_engine=lambda _: pytest.fail("standalone HAT bypassed V2 primary"),
         engine=None,
     )
     settings = SimpleNamespace(device="AUTO", v211_photo_model="hat",

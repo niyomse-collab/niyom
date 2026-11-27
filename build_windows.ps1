@@ -206,6 +206,16 @@ if ($LASTEXITCODE -ne 0) { throw "PyTorch CUDA runtime install failed" }
 & $py -m pip install -r requirements_arm_core.txt
 if ($LASTEXITCODE -ne 0) { throw "ARM core dependencies install failed" }
 
+# The Spandrel loader is a V2.1.1-only optional dependency. Stable V1/V2 keep
+# their exact dependency graph. No HAT model weights are downloaded.
+if ($experimentalV211) {
+    Write-Host "Installing V2.1.1 optional HAT Assist loader (no model weights)..."
+    & $py -m pip install -r requirements_v211_optional.txt
+    if ($LASTEXITCODE -ne 0) { throw "V2.1.1 optional HAT loader install failed" }
+    & $py -c "from spandrel import ImageModelDescriptor, ModelLoader; print('Spandrel 0.4.2 HAT loader import OK')"
+    if ($LASTEXITCODE -ne 0) { throw "V2.1.1 HAT loader import smoke failed" }
+}
+
 Write-Host "Generating transparent Niyomsil Design icon..."
 & $py ".\tools\generate_brand_assets.py"
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path ".\assets\app_icon.ico")) {

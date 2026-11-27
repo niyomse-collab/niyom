@@ -1,0 +1,2 @@
+# V2.1.1-only optional runtime dependencies. No HAT model weights are included.
+spandrel==0.4.2

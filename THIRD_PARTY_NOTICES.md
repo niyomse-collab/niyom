@@ -6,6 +6,8 @@ The V2.1 build can include these third-party components:
 
 - **Real-ESRGAN / BasicSR** — image super-resolution and supporting model architecture. Upstream projects by Xintao Wang and contributors; subject to their upstream licenses and model terms.
 - **PyTorch / TorchVision** — neural inference runtime; subject to their upstream licenses.
+- **Spandrel 0.4.2** — optional V2.1.1 HAT model loader, MIT. Included only in the experimental V2.1.1 package; source: https://github.com/chaiNNer-org/spandrel. Its HAT architecture support is code only; no HAT checkpoint is bundled or auto-downloaded.
+- **HAT (XPixelGroup)** — optional experimental V2 Assist, upstream project code Apache-2.0. The HAT_SRx4_ImageNet-pretrain.pth checkpoint is operator-supplied only, SHA-256 checked at runtime, and excluded from installers; checkpoint-specific redistribution and print-quality approval remain separate and are not claimed.
 - **GFPGAN 1.3.8** — optional face-restoration module. Upstream TencentARC/GFPGAN project, Apache-2.0 project license.
 - **facexlib 0.3.0** — optional face detection/alignment helpers, including the RetinaFace integration; subject to its upstream license.
 - **GFPGANv1.4.pth** — optional face-restoration checkpoint distributed from the official GFPGAN release.

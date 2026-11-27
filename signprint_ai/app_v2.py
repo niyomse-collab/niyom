@@ -687,14 +687,20 @@ class App(tk.Tk):
             command=self._settings_changed,
             style="Dark.TCheckbutton",
         ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(5, 2))
-        # Optional V2.1.1 external model; V2 baseline remains the default.
+        # Optional V2.1.1 assists; V2 Real-ESRGAN remains the default.
+        # HAT is experimental, local-checkpoint-only and never auto-downloaded.
         self.v211_photo_model_var = tk.StringVar(value="V2 Real-ESRGAN (เดิม)")
-        ttk.Label(ai, text="Super AI ภาพถ่าย V2.1.1 (ทดลอง)").grid(
+        ttk.Label(ai, text="Super AI เสริม V2.1.1 (ทดลอง)").grid(
             row=4, column=0, sticky="w", pady=(5, 2)
         )
         selection = ttk.Combobox(
             ai, textvariable=self.v211_photo_model_var,
-            values=("V2 Real-ESRGAN (เดิม)", "V2 + NAFNet Deblur (ภาพถ่าย ทดลอง)", "V2 + SwinIR Pre-Restore (ทดลอง)"),
+            values=(
+                "V2 Real-ESRGAN (เดิม)",
+                "V2 + NAFNet Deblur (ภาพถ่าย ทดลอง)",
+                "V2 + SwinIR Pre-Restore (ทดลอง)",
+                "V2 + HAT Assist (ทดลอง • ต้องมีโมเดลที่ตรวจ SHA256)",
+            ),
             state="readonly", width=39, style="Dark.TCombobox",
         )
         selection.grid(row=4, column=1, sticky="ew", pady=(5, 2))
@@ -1182,7 +1188,12 @@ class App(tk.Tk):
     def _settings(self) -> EnhanceSettings:
         s = EnhanceSettings(
             graphic_ai=self.graphic_ai_var.get(),
-            v211_photo_model=("v2_nafnet_deblur" if self.v211_photo_model_var.get().startswith("V2 + NAFNet ") else ("v2_swinir_pre" if self.v211_photo_model_var.get().startswith("V2 + SwinIR ") else "real_esrgan")),
+            v211_photo_model=(
+                "v2_nafnet_deblur" if self.v211_photo_model_var.get().startswith("V2 + NAFNet ")
+                else "v2_swinir_pre" if self.v211_photo_model_var.get().startswith("V2 + SwinIR ")
+                else "v2_hat_assist" if self.v211_photo_model_var.get().startswith("V2 + HAT Assist")
+                else "real_esrgan"
+            ),
             denoise=round(self.denoise_var.get()),
             flat_smoothing=round(self.flat_var.get()),
             text_graphic_boost=round(self.text_var.get()),
@@ -1504,13 +1515,37 @@ class App(tk.Tk):
             requested_scale = parse_scale(self.scale_var.get())
         except Exception:
             requested_scale = 1
-        # Check the selected backend; HAT is excluded from V2.1.1 UI.
+        # All optional assists share this existing selector; the four native
+        # engines remain automatic after the accepted V2/GFPGAN output.
         chosen_model = (
             "v2_nafnet_deblur" if self.v211_photo_model_var.get().startswith("V2 + NAFNet ")
-            else ("v2_swinir_pre" if self.v211_photo_model_var.get().startswith("V2 + SwinIR ")
-                  else "real_esrgan")
+            else "v2_swinir_pre" if self.v211_photo_model_var.get().startswith("V2 + SwinIR ")
+            else "v2_hat_assist" if self.v211_photo_model_var.get().startswith("V2 + HAT Assist")
+            else "real_esrgan"
         )
         if requested_scale > 1 and not self.pipeline.selected_model_available(chosen_model):
+            if chosen_model == "v2_hat_assist":
+                from .v211_hat_engine import checkpoint_path, validate_checkpoint
+                checkpoint = checkpoint_path()
+                if not self.pipeline.selected_model_available("real_esrgan"):
+                    reason = "ไม่พบโมเดล Real-ESRGAN หลักของ V2"
+                else:
+                    try:
+                        validate_checkpoint(checkpoint)
+                        from spandrel import ImageModelDescriptor, ModelLoader
+                        reason = "ไม่พบ HAT loader ที่พร้อมใช้งานในโปรแกรม"
+                    except (ImportError, OSError, RuntimeError, ValueError) as exc:
+                        reason = str(exc)
+                messagebox.showerror(
+                    APP_NAME,
+                    "V2 + HAT Assist ยังไม่พร้อมใช้งาน\n"
+                    + reason
+                    + "\n\nไฟล์โมเดลที่ต้องจัดเตรียมเองและผ่าน SHA256:\n"
+                    + str(checkpoint)
+                    + "\n\nระบบจะไม่ดาวน์โหลดหรือบรรจุ HAT weights อัตโนมัติ\n"
+                    "V2 เดิมและ AI ทั้ง 4 ยังคงเป็นเส้นทางหลักเมื่อเลือก V2 Real-ESRGAN",
+                )
+                return
             if chosen_model == "v2_nafnet_deblur":
                 # NAFNet is an unrelated optional photo-deblur checkpoint,
                 # NOT one of the four native AI engines. Do not silently

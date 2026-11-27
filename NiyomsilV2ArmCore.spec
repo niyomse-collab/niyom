@@ -77,6 +77,9 @@ if IS_V211_BUILD:
         "tools.v211_four_engine_tiled_inference",
         "signprint_ai.v211_auto_setup",
         "signprint_ai.v211_setup_cli",
+        "signprint_ai.v211_hat_engine",
+        "signprint_ai.v211_hat_assist",
+        "spandrel",
         "tools.v211_official_assets_audit",
         "tools.v211_provision_four_engines",
         "tools.v211_shop_gpu_diagnostic",
@@ -86,7 +89,7 @@ if IS_V211_BUILD:
     ]
     # Static filesystem discovery avoids collect_submodules' isolated import
     # interpreter, which does not inherit the analysis-process compatibility alias.
-    for package in ("basicsr", "realesrgan", "gfpgan", "facexlib"):
+    for package in ("basicsr", "realesrgan", "gfpgan", "facexlib", "spandrel"):
         package_spec = importlib.util.find_spec(package)
         if package_spec is None or not package_spec.origin:
             raise RuntimeError("Required package not found: " + package)
@@ -125,8 +128,27 @@ for package, folders in {
                 for path in sorted(folder.rglob("*.py"))
             )
 
-datas = [
-    (str(ROOT / "models"), "models"),
+# V2.1.1 may use an operator-supplied HAT checkpoint at runtime, but never
+# bundle it into the installer. Stable V1/V2 keep their original models-folder
+# packaging path unchanged.
+if IS_V211_BUILD:
+    model_root = ROOT / "models"
+    model_datas = []
+    if model_root.is_dir():
+        for model_file in sorted(model_root.rglob("*")):
+            if not model_file.is_file():
+                continue
+            relative = model_file.relative_to(model_root)
+            if relative.as_posix().casefold() == "experimental/hat_srx4_imagenet-pretrain.pth":
+                continue
+            destination = "models"
+            if str(relative.parent) != ".":
+                destination += "/" + relative.parent.as_posix()
+            model_datas.append((str(model_file), destination))
+else:
+    model_datas = [(str(ROOT / "models"), "models")]
+
+datas = model_datas + [
     (str(ROOT / "assets"), "assets"),
     (str(ROOT / "README_TH.md"), "."),
     (str(ROOT / "THIRD_PARTY_NOTICES.md"), "."),
@@ -141,14 +163,21 @@ if (ROOT / "README_V2_TH.md").is_file():
 # pyvips-binary is a binary distribution, not an importable Python package.
 # Collect its native extension/DLLs and bundled license files explicitly.
 vips_binaries = []
-for distribution_name in ("pyvips-binary", "pyvips", "tifffile"):
+distribution_names = ["pyvips-binary", "pyvips", "tifffile"]
+if IS_V211_BUILD:
+    distribution_names.append("spandrel")
+for distribution_name in distribution_names:
     distribution = importlib.metadata.distribution(distribution_name)
     for item in distribution.files or []:
         path = Path(distribution.locate_file(item))
         destination = str(Path(str(item)).parent).replace("\\", "/")
         if path.suffix.lower() in (".dll", ".pyd", ".so") or ".so." in path.name:
             vips_binaries.append((str(path), destination))
-        elif "licenses" in str(item).lower() or path.name.startswith(".load-order-"):
+        elif (
+            "license" in str(item).lower()
+            or "notice" in str(item).lower()
+            or path.name.startswith(".load-order-")
+        ):
             datas.append((str(path), destination))
 
 a = Analysis(

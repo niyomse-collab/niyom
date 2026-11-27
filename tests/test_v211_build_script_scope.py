@@ -196,3 +196,35 @@ def test_v211_download_retry_fault_injection_is_wired_before_candidate_build():
     assert workflow.index("Fault-inject V2.1.1 verified-download retry") < workflow.index(
         "Build V2-based experimental candidate"
     )
+
+
+
+def test_v211_hats_assist_loader_is_optional_and_checkpoint_is_never_bundled():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "build_windows.ps1").read_text(encoding="utf-8")
+    spec = (root / "NiyomsilV2ArmCore.spec").read_text(encoding="utf-8")
+    optional_requirements = (root / "requirements_v211_optional.txt").read_text(encoding="utf-8")
+    run_source = (root / "run.py").read_text(encoding="utf-8")
+    package_script = (root / "tools" / "Test-V2-Package.ps1").read_text(encoding="utf-8")
+
+    assert "if ($experimentalV211)" in script
+    assert "requirements_v211_optional.txt" in script
+    assert "Spandrel 0.4.2 HAT loader import OK" in script
+    assert "spandrel==0.4.2" in optional_requirements
+    assert "spandrel" not in (root / "requirements_arm_core.txt").read_text(encoding="utf-8")
+
+    conditional = spec.index("if IS_V211_BUILD:")
+    fallback = spec.index("else:", conditional)
+    v211_block = spec[conditional:fallback]
+    assert '"spandrel"' in v211_block
+    assert '"signprint_ai.v211_hat_engine"' in v211_block
+    assert '"signprint_ai.v211_hat_assist"' in v211_block
+    assert "experimental/hat_srx4_imagenet-pretrain.pth" in spec.lower()
+    assert "model_datas" in spec
+    assert 'model_datas = [(str(ROOT / "models"), "models")]' in spec
+
+    assert '"spandrel"' in run_source
+    assert '"spandrel_version": spandrel_version' in run_source
+    assert '"hat_checkpoint_loaded": False' in run_source
+    assert '$dependencyReport.spandrel_version -ne "0.4.2"' in package_script
+    assert '$dependencyReport.hat_checkpoint_loaded' in package_script

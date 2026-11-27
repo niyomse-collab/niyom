@@ -49,6 +49,8 @@ try {
             $dependencyReport.numba_threading_layer -ne "workqueue" -or
             $dependencyReport.numba_workqueue_parallel_sum -ne 496 -or
             -not $dependencyReport.pycparser_cffi_cdef_parse -or
+            $dependencyReport.spandrel_version -ne "0.4.2" -or
+            $dependencyReport.hat_checkpoint_loaded -or
             $dependencyReport.gpu_runtime_initialized -or
             $dependencyReport.native_ai_engines_started -or
             $dependencyReport.network_access) {

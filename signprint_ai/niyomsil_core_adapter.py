@@ -223,6 +223,19 @@ class NiyomSilpCoreAdapter:
                 return True
             except (OSError, RuntimeError, ValueError):
                 return False
+        if model_name == "v2_hat_assist":
+            # HAT is an optional local-only assist. Require the accepted V2
+            # model, the exact pinned checkpoint hash, and the packaged loader.
+            # No HAT weights are downloaded or bundled by this preflight.
+            try:
+                if not self.available:
+                    return False
+                from .v211_hat_engine import checkpoint_path, validate_checkpoint
+                validate_checkpoint(checkpoint_path())
+                from spandrel import ImageModelDescriptor, ModelLoader
+                return ImageModelDescriptor is not None and ModelLoader is not None
+            except (ImportError, OSError, RuntimeError, ValueError):
+                return False
         raise ValueError("V2.1.1: unknown photo model: " + str(model_name))
 
     def default_device(self):
@@ -230,6 +243,26 @@ class NiyomSilpCoreAdapter:
 
     def create_job_engine(self, settings):
         selected_model = getattr(settings, "v211_photo_model", "real_esrgan")
+        if selected_model == "v2_hat_assist":
+            # Keep V2 as the primary image model. HAT contributes only bounded
+            # high-frequency detail; GFPGAN and the automatic four-engine
+            # bridge still run later in the existing V2 pipeline.
+            from .v211_hat_engine import HATModelEngine
+            from .v211_hat_assist import HATAssistEngine
+            v2_engine = self.engine_manager.create_engine(settings.device)
+            base = v2_engine
+            if getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0:
+                from .v21_graphics_ai import GraphicDetailEngine
+                base = GraphicDetailEngine(
+                    base, settings.text_graphic_boost / 100.,
+                    settings.face_regions if settings.face_protection else ()
+                )
+            assist = HATModelEngine(v2_engine.selected)
+            return HATAssistEngine(
+                base, assist,
+                strength=float(getattr(settings, "v211_hat_assist_strength", 0.85)),
+                protected_regions=(settings.face_regions if settings.face_protection else ())
+            )
         if selected_model in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
             # Motion deblurring occurs on the original source, BEFORE the
             # approved V2 Real-ESRGAN upscaler and untouched GFPGAN face pass.
@@ -747,6 +780,8 @@ class NiyomSilpCoreAdapter:
                 if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" and use_ai and model_scale > 1
                 else "V2 RealESRGAN_x4plus + SwinIR pre-denoise"
                 if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1
+                else "V2 RealESRGAN_x4plus + HAT Assist"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1
                 else "RealESRGAN_x4plus"
             ),
             "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),

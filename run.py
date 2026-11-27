@@ -231,6 +231,9 @@ if __name__ == "__main__":
             "tools.v211_four_engine_tiled_inference",
             "tools.v211_gpu_process_telemetry",
             "tools.v211_shop_gpu_diagnostic",
+            "signprint_ai.v211_hat_engine",
+            "signprint_ai.v211_hat_assist",
+            "spandrel",
         ):
             importlib.import_module(module_name)
         import tempfile
@@ -266,8 +269,12 @@ if __name__ == "__main__":
         try:
             import json
             import math
+            import importlib.metadata
             import numpy as np
             import scipy
+            spandrel_version = importlib.metadata.version("spandrel")
+            if spandrel_version != "0.4.2":
+                raise RuntimeError("Unexpected Spandrel version: " + spandrel_version)
             from scipy import special
 
             erf_value = float(special.erf(1.0))
@@ -309,6 +316,8 @@ if __name__ == "__main__":
                 "cffi_version": cffi.__version__,
                 "pycparser_version": pycparser.__version__,
                 "pycparser_cffi_cdef_parse": True,
+                "spandrel_version": spandrel_version,
+                "hat_checkpoint_loaded": False,
                 "gpu_runtime_initialized": False,
                 "native_ai_engines_started": False,
                 "network_access": False,
