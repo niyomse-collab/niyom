@@ -108,6 +108,52 @@ jobs:
           }
           Write-Output 'Packaged four-engine provisioning dispatch passed without downloads.'
 
+      - name: Install all four official archives through the frozen executable in an isolated profile
+        shell: pwsh
+        run: |
+          $exe = '.\\dist\\NiyomsilAIEnhancer\\NiyomsilAIEnhancer.exe'
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
+            throw 'Packaged provisioning executable is missing.'
+          }
+          # Reproduce the user's first-run flow without touching the runner profile.
+          # The official archives are downloaded and SHA256-audited first; the
+          # frozen executable then reuses them and performs the real transactional
+          # extraction, manifest publication, and completion-marker path.
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'V211-Frozen-Provision-Profile\\AppData\\Local'
+          $cacheRoot = Join-Path $env:LOCALAPPDATA 'NiyomSilp\\V211-FourAI-QA'
+          $archiveDir = Join-Path $cacheRoot 'archives'
+          $report = Join-Path $env:RUNNER_TEMP 'v211-frozen-provision-archive-audit.json'
+          New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+          python -m tools.v211_official_assets_audit --download-dir $archiveDir --report $report
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Official four-engine archive download/hash audit failed.'
+          }
+          $process = Start-Process -FilePath $exe -ArgumentList @('--provision-v211-four-ai', '--silent') -Wait -PassThru
+          if ($null -eq $process -or $process.ExitCode -ne 0) {
+            $log = Join-Path $cacheRoot 'installer-setup.log'
+            if (Test-Path -LiteralPath $log) {
+              Get-Content -LiteralPath $log | ForEach-Object { Write-Output $_ }
+            }
+            throw 'Frozen executable could not install and verify all four official AI engines.'
+          }
+          $manifest = Join-Path $cacheRoot 'manifest.json'
+          $complete = Join-Path $cacheRoot 'setup-complete.flag'
+          $pending = Join-Path $cacheRoot 'setup-pending.flag'
+          if (-not (Test-Path -LiteralPath $complete -PathType Leaf) -or
+              (Test-Path -LiteralPath $pending) -or
+              -not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+            throw 'Frozen four-engine install did not publish a clean completion state.'
+          }
+          python -c "from pathlib import Path; import os; from tools.v211_real_engine_manifest import load_real_engine_manifest; root=Path(os.environ['LOCALAPPDATA'])/'NiyomSilp'/'V211-FourAI-QA'; commands=load_real_engine_manifest(root/'manifest.json'); expected={'real_esrgan','waifu2x','real_cugan','anime4k'}; assert set(commands)==expected; assert all(Path(commands[name].executable).is_file() for name in expected); print('FROZEN MANIFEST READY: '+','.join(sorted(commands)))"
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Frozen four-engine manifest failed independent verification.'
+          }
+          $successLine = 'SUCCESS verified engines: anime4k,real_cugan,real_esrgan,waifu2x'
+          if (-not (Select-String -LiteralPath (Join-Path $cacheRoot 'installer-setup.log') -SimpleMatch $successLine -Quiet)) {
+            throw 'Frozen four-engine setup did not record the exact verified engine set.'
+          }
+          Write-Output 'Frozen installer provisioning passed for all four official engines; native inference remains a separate GPU gate.'
+
       - name: Verify packaged consented model-cache cleanup on isolated synthetic data
         shell: pwsh
         run: |
