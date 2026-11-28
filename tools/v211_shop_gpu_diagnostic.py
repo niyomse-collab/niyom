@@ -808,7 +808,9 @@ def probe_gpu() -> dict:
         item for item in summary["device_inventory"]
         if "gtx 1660 ti" in item["name"].lower()
     ]
-    dxgi_adapters = _enumerate_dxgi_adapters() if os.name == "nt" else []
+    # The helper itself is Windows-aware; call it unconditionally so tests can
+    # inject a synthetic DXGI inventory on non-Windows hosts.
+    dxgi_adapters = _enumerate_dxgi_adapters()
     target_dxgi_adapters = [
         item for item in dxgi_adapters
         if isinstance(item, dict)
