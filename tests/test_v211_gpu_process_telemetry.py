@@ -1478,3 +1478,63 @@ def test_nvml_inventory_missing_target_uses_unique_dxgi_wddm_fallback(monkeypatc
     assert result["vram_verified"] is True
     assert "adapter_index" not in result
     assert result["engine"] == "real_esrgan"
+
+
+def test_nvml_missing_target_does_not_override_pid_on_other_adapter(monkeypatch):
+    """A target DXGI sample must not mask NVML PID evidence on another GPU."""
+    from types import SimpleNamespace
+    from tools import v211_gpu_process_telemetry as telemetry
+
+    probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+    probe.target_name = "gtx 1660 ti"
+    probe.status = "ready"
+    other_handle = object()
+    probe._devices = [{
+        "index": 1,
+        "name": "NVIDIA RTX 4060",
+        "handle": other_handle,
+    }]
+    probe._process_functions = {
+        "graphics": [("graphics_v1", object(), object)],
+        "compute": [],
+    }
+    probe._memory_function = None
+    probe._dxgi_adapters = [{
+        "description": "NVIDIA GeForce GTX 1660 Ti",
+        "vendor_id": 0x10DE,
+        "luid": (0, 0xE7F7),
+    }]
+    probe._dxgi_status = "ready"
+    probe._pdh_sessions = {}
+    monkeypatch.setattr(telemetry, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        probe, "_query_process_list",
+        lambda _function, _info_type, _handle: (
+            True, [{"pid": 4321, "used_gpu_memory_bytes": 64}]
+        ),
+    )
+    pdh_calls = []
+    monkeypatch.setattr(
+        probe, "_sample_windows_gpu_engine_activity",
+        lambda _pid: pdh_calls.append(True) or {
+            "available": True,
+            "verified": True,
+            "status": "gpu_engine_activity_observed",
+            "source": "windows_gpu_engine_pdh",
+            "pid": 4321,
+            "sample_count": 2,
+            "counter_count": 1,
+            "active_sample_count": 1,
+            "max_utilization_percent": 5.0,
+            "adapter_luid": "0x00000000_0x0000e7f7",
+            "target_adapter_luid": "0x00000000_0x0000e7f7",
+        },
+    )
+
+    result = probe(4321, "real_esrgan")
+
+    assert result["verified"] is False
+    assert result["status"] == "pid_seen_on_wrong_adapter"
+    assert result["adapter_name"] == "NVIDIA RTX 4060"
+    assert result["adapter_index"] == 1
+    assert pdh_calls == []

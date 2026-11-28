@@ -982,25 +982,59 @@ class NvmlProcessProbe:
                     if not target_devices else "target_adapter_ambiguous"
                 ),
             })
-        # When NVML enumerates NVIDIA hardware but not the requested model,
-        # reconcile its generic missing-target result with the Windows DXGI
-        # inventory. This refines diagnostics only: it never upgrades a PID or
-        # VRAM observation to verified. If DXGI cannot enumerate reliably, keep
-        # the original NVML status rather than guessing.
+        # When NVML omits the requested model, do not let a target-specific
+        # WDDM observation override evidence that this PID is already running
+        # on another NVML adapter. If NVML sees no adapter for this PID, a
+        # unique DXGI target plus live PID/LUID-matched WDDM activity may use
+        # the conservative WDDM-only path below.
         if (
             os.name == "nt"
             and not target_devices
             and result.get("status") == "target_adapter_missing"
         ):
-            self._target_dxgi_luid()
-            dxgi_status = str(getattr(self, "_dxgi_status", ""))
-            if dxgi_status in {
-                "nvidia_dxgi_adapter_not_present",
-                "target_dxgi_adapter_missing",
-                "target_dxgi_adapter_ambiguous",
-            }:
-                result["status"] = dxgi_status
-                result["device_memory_status"] = dxgi_status
+            nvml_pid_devices = []
+            for device in inventory:
+                apis = device.get("apis") if isinstance(device, dict) else None
+                if not isinstance(apis, dict):
+                    continue
+                if any(
+                    api_data.get("available") is True
+                    and isinstance(api_data.get("processes"), list)
+                    and any(
+                        isinstance(process, dict) and process.get("pid") == pid
+                        for process in api_data["processes"]
+                    )
+                    for api_data in apis.values()
+                    if isinstance(api_data, dict)
+                ):
+                    nvml_pid_devices.append(device)
+            if nvml_pid_devices:
+                result["status"] = (
+                    "pid_seen_on_multiple_adapters"
+                    if len(nvml_pid_devices) > 1
+                    else "pid_seen_on_wrong_adapter"
+                )
+                if len(nvml_pid_devices) == 1:
+                    result["adapter_name"] = str(
+                        nvml_pid_devices[0].get("name") or ""
+                    )[:160]
+                    adapter_index = nvml_pid_devices[0].get("index")
+                    if (
+                        isinstance(adapter_index, int)
+                        and not isinstance(adapter_index, bool)
+                        and adapter_index >= 0
+                    ):
+                        result["adapter_index"] = adapter_index
+            else:
+                self._target_dxgi_luid()
+                dxgi_status = str(getattr(self, "_dxgi_status", ""))
+                if dxgi_status in {
+                    "nvidia_dxgi_adapter_not_present",
+                    "target_dxgi_adapter_missing",
+                    "target_dxgi_adapter_ambiguous",
+                }:
+                    result["status"] = dxgi_status
+                    result["device_memory_status"] = dxgi_status
         # If NVML is initialized but does not enumerate the requested adapter,
         # a unique DXGI target plus live PID/LUID-matched WDDM activity can still
         # provide the same conservative WDDM-only evidence used when NVML is
