@@ -28,7 +28,18 @@ def gpu_report():
             "name": "NVIDIA GeForce GTX 1660 Ti",
             "vendor_id": 0x10DE,
             "device_id": 0x2184,
+            "device_luid_valid": True,
+            "device_luid_text": "0x00000001_0x00000002",
+            "device_node_mask": 1,
         }],
+        "dxgi_adapter_inventory": [{
+            "description": "NVIDIA GeForce GTX 1660 Ti",
+            "vendor_id": 0x10DE,
+            "device_id": 0x2184,
+            "luid": [1, 2],
+            "luid_text": "0x00000001_0x00000002",
+        }],
+        "vulkan_inventory_source": "vulkan_loader_native",
         "vulkan_device_index": 2,
         "vulkan_target_device_match_count": 1,
         "vulkan_loader_available": True,
@@ -74,7 +85,12 @@ def test_resolves_separate_vulkan_and_anime4k_device_indexes():
         "backend": "vulkan",
         "device_index": 2,
         "device_name": "NVIDIA GeForce GTX 1660 Ti",
+        "device_luid": "0x00000001_0x00000002",
+        "dxgi_adapter_luid": "0x00000001_0x00000002",
+        "device_node_mask": 1,
+        "luid_match_verified": True,
     }
+    assert selection["vulkan_dxgi_luid_binding"]["luid_match_verified"] is True
     assert selection["anime4k"] == {
         "backend": "cuda",
         "device_index": 1,
@@ -263,6 +279,8 @@ def test_binds_ncnn_gpu_and_anime4k_processor_and_device_flags():
         args = bound[name]["args"]
         assert args[args.index("-g") + 1] == "2"
         assert bound[name]["device_selection"]["backend"] == "vulkan"
+        assert bound[name]["device_selection"]["luid_match_verified"] is True
+        assert bound[name]["device_selection"]["device_luid"] == "0x00000001_0x00000002"
 
     anime_args = bound["anime4k"]["args"]
     assert anime_args[anime_args.index("-p") + 1] == "cuda"
@@ -311,3 +329,57 @@ def test_write_bound_manifest_is_ephemeral_and_does_not_change_installed_file(tm
     assert selection["runtime_device_use_verified"] is False
     with pytest.raises(GPUDeviceBindingError, match="already exists"):
         write_bound_manifest(installed, destination, gpu_report(), anime_report())
+
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (
+            lambda gpu: gpu["vulkan_device_inventory"][0].update(
+                device_luid_valid=False, device_luid_text=None
+            ),
+            "deviceLUID is not valid",
+        ),
+        (
+            lambda gpu: gpu["dxgi_adapter_inventory"][0].update(
+                luid_text="0x00000003_0x00000004"
+            ),
+            "does not match",
+        ),
+        (
+            lambda gpu: gpu.update(dxgi_adapter_inventory=[]),
+            "DXGI must expose exactly one",
+        ),
+        (
+            lambda gpu: gpu["vulkan_device_inventory"][0].update(device_node_mask=3),
+            "deviceNodeMask is invalid",
+        ),
+        (
+            lambda gpu: gpu.update(vulkan_inventory_source="vulkaninfo"),
+            "native Vulkan loader inventory",
+        ),
+    ],
+)
+def test_vulkan_to_dxgi_luid_binding_fails_closed(mutate, message):
+    gpu = gpu_report()
+    mutate(gpu)
+    with pytest.raises(GPUDeviceBindingError, match=message):
+        resolve_device_selection(gpu, anime_report())
+
+
+def test_duplicate_dxgi_target_adapter_is_ambiguous():
+    gpu = gpu_report()
+    duplicate = dict(gpu["dxgi_adapter_inventory"][0])
+    duplicate["luid_text"] = "0x00000005_0x00000006"
+    duplicate["luid"] = [5, 6]
+    gpu["dxgi_adapter_inventory"].append(duplicate)
+    with pytest.raises(GPUDeviceBindingError, match="exactly one unambiguous"):
+        resolve_device_selection(gpu, anime_report())
+
+
+def test_bind_manifest_data_requires_verified_vulkan_dxgi_luid():
+    selection = resolve_device_selection(gpu_report(), anime_report())
+    selection["ncnn_vulkan"]["luid_match_verified"] = False
+    with pytest.raises(GPUDeviceBindingError, match="LUID binding is not verified"):
+        bind_manifest_data(manifest_data(), selection)

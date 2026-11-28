@@ -26,7 +26,18 @@ def _gpu():
             "name": "NVIDIA GeForce GTX 1660 Ti",
             "vendor_id": 0x10DE,
             "device_id": 0x2184,
+            "device_luid_valid": True,
+            "device_luid_text": "0x00000001_0x00000002",
+            "device_node_mask": 1,
         }],
+        "dxgi_adapter_inventory": [{
+            "description": "NVIDIA GeForce GTX 1660 Ti",
+            "vendor_id": 0x10DE,
+            "device_id": 0x2184,
+            "luid": [1, 2],
+            "luid_text": "0x00000001_0x00000002",
+        }],
+        "dxgi_target_adapter_match_count": 1,
         "vulkan_device_index": 0,
         "vulkan_target_device_match_count": 1,
         "gtx_1660_ti_detected_by_nvidia_smi": True,
@@ -34,7 +45,11 @@ def _gpu():
         "vulkan_loader_available": True,
         "vulkaninfo_succeeded": True,
         "vulkan_device_inventory_succeeded": True,
-        "vulkan_inventory_source": "vulkaninfo",
+        "vulkan_inventory_source": "vulkan_loader_native",
+        "vulkan_dxgi_luid_match_verified": True,
+        "vulkan_dxgi_luid_match_status": "verified",
+        "vulkan_target_device_luid": "0x00000001_0x00000002",
+        "dxgi_target_adapter_luid": "0x00000001_0x00000002",
         "vram_budget_6gb_detected": True,
     }
 
@@ -265,6 +280,12 @@ def test_native_vulkan_enumerator_returns_structured_result():
             isinstance(item["index"], int) and item["name"]
             for item in result["device_inventory"]
         )
+        assert all(
+            isinstance(item.get("device_luid_valid"), bool)
+            and "device_luid_status" in item
+            for item in result["device_inventory"]
+        )
+        assert "device_luid_query_status" in result
 
 
 def test_vulkan_summary_parser_extracts_device_and_api():
@@ -287,6 +308,32 @@ def test_vulkan_summary_keeps_same_model_names_at_distinct_indexes():
         {"index": 0, "name": "NVIDIA GeForce GTX 1660 Ti"},
         {"index": 1, "name": "NVIDIA GeForce GTX 1660 Ti"},
     ]
+
+
+def test_vulkan_device_id_properties_decoder_normalizes_luid_to_dxgi_order():
+    raw_luid = struct.pack("<Ii", 0x12345678, -1)
+    parsed = diagnostic._decode_vulkan_device_id_properties(
+        raw_luid, device_luid_valid=True, device_node_mask=1
+    )
+
+    assert parsed == {
+        "device_luid_valid": True,
+        "device_luid_text": "0xffffffff_0x12345678",
+        "device_node_mask": 1,
+        "device_luid_status": "ok",
+    }
+
+
+@pytest.mark.parametrize(
+    ("valid", "node_mask"),
+    [(False, 1), (True, 0), (True, 3)],
+)
+def test_vulkan_device_id_properties_rejects_invalid_luid_or_node_mask(valid, node_mask):
+    parsed = diagnostic._decode_vulkan_device_id_properties(
+        b"12345678", device_luid_valid=valid, device_node_mask=node_mask
+    )
+    assert parsed["device_luid_valid"] is False
+    assert parsed["device_luid_text"] is None
 
 
 def test_vulkan_device_properties_decoder_reads_nvidia_adapter():
@@ -326,9 +373,20 @@ def test_probe_gpu_uses_native_vulkan_loader_when_vulkaninfo_is_missing(
         "device_inventory": [{
             "index": 1, "name": "NVIDIA GeForce GTX 1660 Ti",
             "vendor_id": 0x10DE, "device_id": 0x2184, "device_type": 1,
+            "device_luid_valid": True,
+            "device_luid_text": "0x00000001_0x00000002",
+            "device_node_mask": 1,
         }],
         "device_names": ["NVIDIA GeForce GTX 1660 Ti"],
+        "device_luid_query_available": True,
+        "device_luid_query_status": "ok",
+        "device_luid_valid_count": 1,
     })
+    monkeypatch.setattr(diagnostic, "_enumerate_dxgi_adapters", lambda: [{
+        "description": "NVIDIA GeForce GTX 1660 Ti",
+        "vendor_id": 0x10DE, "device_id": 0x2184,
+        "luid": (1, 2), "luid_text": "0x00000001_0x00000002",
+    }])
 
     report = diagnostic.probe_gpu()
 
@@ -339,6 +397,9 @@ def test_probe_gpu_uses_native_vulkan_loader_when_vulkaninfo_is_missing(
     assert report["vulkan_inventory_source"] == "vulkan_loader_native"
     assert report["vulkan_device_index"] == 1
     assert report["vulkan_device_inventory"][0]["name"] == "NVIDIA GeForce GTX 1660 Ti"
+    assert report["vulkan_dxgi_luid_match_verified"] is True
+    assert report["vulkan_target_device_luid"] == "0x00000001_0x00000002"
+    assert report["dxgi_target_adapter_luid"] == "0x00000001_0x00000002"
     assert report["vulkaninfo"]["success"] is False
     assert report["vulkaninfo"]["inventory_source"] == "vulkan_loader_native"
     assert report["cuda_12_8_driver_compatibility"]["status"] == "full_cuda_12_8_ga_driver_compatible"
@@ -592,10 +653,11 @@ def test_local_diagnostic_runs_all_four_on_both_synthetic_cases(tmp_path):
     )
     assert saved["all_four_native_cli_outputs_validated_on_both_synthetic_cases"]
     assert saved["anime4k_backend_inventory"]["status"] == "ok"
-    assert saved["schema_version"] == 7
+    assert saved["schema_version"] == 8
     assert saved["vulkaninfo_succeeded"] is True
     assert saved["vulkan_device_inventory_succeeded"] is True
-    assert saved["vulkan_inventory_source"] == "vulkaninfo"
+    assert saved["vulkan_inventory_source"] == "vulkan_loader_native"
+    assert saved["vulkan_dxgi_luid_match_verified"] is True
     assert saved["three_ncnn_vulkan_engines_passed_on_gtx1660ti_vulkan_ready_host"]
     assert saved["anime4k_cli_outputs_validated_on_both_synthetic_cases"]
     assert saved["anime4k_backend_selection_verified"] is False

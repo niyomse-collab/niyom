@@ -31,9 +31,12 @@ from signprint_ai.v211_auto_setup import default_manifest, qa_root
 from tools.v211_four_engine_real_inference_qa import run as run_real_inference_qa
 from tools.v211_four_engine_subprocess import ENGINES
 from tools.v211_real_engine_manifest import load_real_engine_manifest
-from tools.v211_gpu_device_binding import GPUDeviceBindingError, write_bound_manifest
+from tools.v211_gpu_device_binding import (
+    GPUDeviceBindingError, resolve_vulkan_dxgi_adapter, write_bound_manifest,
+)
 from tools.v211_gpu_process_telemetry import (
     RUNTIME_VRAM_BUDGET_MIB, RUNTIME_VRAM_RESERVE_MIB,
+    _enumerate_dxgi_adapters,
 )
 
 # Real-ESRGAN, Waifu2x and Real-CUGAN are NCNN/Vulkan engines.
@@ -161,11 +164,63 @@ def _decode_vulkan_device_properties(raw: bytes, index: int) -> dict:
     }
 
 
-def _enumerate_vulkan_devices_native() -> dict:
-    """Enumerate Vulkan physical devices through the installed loader.
+def _decode_vulkan_device_id_properties(
+    raw_luid: bytes,
+    *,
+    device_luid_valid: bool,
+    device_node_mask: int,
+) -> dict:
+    """Decode Vulkan's 8-byte LUID using the Windows DXGI LUID field order.
 
-    This works without the optional Vulkan SDK/vulkaninfo utility. The returned
-    index follows vkEnumeratePhysicalDevices order, the index consumed by NCNN -g.
+    DXGI LUID is LowPart (uint32) followed by HighPart (int32). Vulkan's
+    deviceLUID is the same 8-byte identifier; the report normalizes both to
+    0xHIGH_0xLOW so the comparison is byte-order explicit and testable.
+    """
+    if not isinstance(raw_luid, (bytes, bytearray)) or len(raw_luid) != 8:
+        return {
+            "device_luid_valid": False,
+            "device_luid_text": None,
+            "device_node_mask": None,
+            "device_luid_status": "invalid_luid_bytes",
+        }
+    if (
+        isinstance(device_node_mask, bool)
+        or not isinstance(device_node_mask, int)
+        or device_node_mask < 0
+    ):
+        return {
+            "device_luid_valid": False,
+            "device_luid_text": None,
+            "device_node_mask": None,
+            "device_luid_status": "invalid_node_mask",
+        }
+    low_part, high_signed = struct.unpack("<Ii", bytes(raw_luid))
+    high_part = high_signed & 0xFFFFFFFF
+    single_node = (
+        device_node_mask > 0
+        and (device_node_mask & (device_node_mask - 1)) == 0
+    )
+    valid = device_luid_valid is True and single_node
+    return {
+        "device_luid_valid": valid,
+        "device_luid_text": (
+            f"0x{high_part:08x}_0x{low_part:08x}" if valid else None
+        ),
+        "device_node_mask": int(device_node_mask),
+        "device_luid_status": (
+            "ok" if valid
+            else "invalid_or_unavailable_device_luid_or_node_mask"
+        ),
+    }
+
+
+def _enumerate_vulkan_devices_native() -> dict:
+    """Enumerate Vulkan devices and query VkPhysicalDeviceIDProperties.deviceLUID.
+
+    The native physical-device order is the index consumed by NCNN -g. On
+    Vulkan 1.1+, properties2/ID properties are core. On a 1.0 loader, the
+    equivalent KHR instance extensions are enabled when both are available.
+    Missing LUID support is reported, never replaced by a name-only guess.
     """
     try:
         if os.name == "nt":
@@ -200,6 +255,42 @@ def _enumerate_vulkan_devices_native() -> dict:
             ("ppEnabledExtensionNames", ctypes.POINTER(ctypes.c_char_p)),
         ]
 
+    class VkExtensionProperties(ctypes.Structure):
+        _fields_ = [
+            ("extensionName", ctypes.c_char * 256),
+            ("specVersion", ctypes.c_uint32),
+        ]
+
+    class VkPhysicalDeviceIDProperties(ctypes.Structure):
+        _fields_ = [
+            ("sType", ctypes.c_uint32),
+            ("pNext", ctypes.c_void_p),
+            ("deviceUUID", ctypes.c_ubyte * 16),
+            ("driverUUID", ctypes.c_ubyte * 16),
+            ("deviceLUID", ctypes.c_ubyte * 8),
+            ("deviceNodeMask", ctypes.c_uint32),
+            ("deviceLUIDValid", ctypes.c_uint32),
+        ]
+
+    class VkPhysicalDevicePropertiesStorage(ctypes.Union):
+        # VkPhysicalDeviceProperties is larger than its stable 276-byte prefix.
+        # Keep an 8-byte-aligned opaque buffer for the structure passed by value.
+        _fields_ = [
+            ("aligned_words", ctypes.c_uint64 * 128),
+            ("raw", ctypes.c_ubyte * 1024),
+        ]
+
+    class VkPhysicalDeviceProperties2(ctypes.Structure):
+        _fields_ = [
+            ("sType", ctypes.c_uint32),
+            ("pNext", ctypes.c_void_p),
+            ("properties", VkPhysicalDevicePropertiesStorage),
+        ]
+
+    VK_API_VERSION_1_0 = 1 << 22
+    VK_API_VERSION_1_1 = (1 << 22) | (1 << 12)
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2 = 1000059001
+    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES = 1000071004
     instance = ctypes.c_void_p()
     created = False
     try:
@@ -222,18 +313,77 @@ def _enumerate_vulkan_devices_native() -> dict:
         destroy_instance.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         destroy_instance.restype = None
 
+        max_api_version = VK_API_VERSION_1_0
+        enumerate_instance_version = getattr(library, "vkEnumerateInstanceVersion", None)
+        if enumerate_instance_version is not None:
+            try:
+                enumerate_instance_version.argtypes = [ctypes.POINTER(ctypes.c_uint32)]
+                enumerate_instance_version.restype = ctypes.c_int32
+                version = ctypes.c_uint32(VK_API_VERSION_1_0)
+                if int(enumerate_instance_version(ctypes.byref(version))) == 0:
+                    max_api_version = int(version.value)
+            except (AttributeError, OSError, TypeError, ValueError):
+                max_api_version = VK_API_VERSION_1_0
+        requested_api_version = min(max_api_version, VK_API_VERSION_1_1)
+
+        enabled_extensions = []
+        luid_query_status = "core_1_1" if requested_api_version >= VK_API_VERSION_1_1 else "properties2_extensions_unavailable"
+        if requested_api_version < VK_API_VERSION_1_1:
+            enumerate_extensions = getattr(
+                library, "vkEnumerateInstanceExtensionProperties", None
+            )
+            if enumerate_extensions is not None:
+                try:
+                    enumerate_extensions.argtypes = [
+                        ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint32),
+                        ctypes.POINTER(VkExtensionProperties),
+                    ]
+                    enumerate_extensions.restype = ctypes.c_int32
+                    extension_count = ctypes.c_uint32(0)
+                    result = int(enumerate_extensions(None, ctypes.byref(extension_count), None))
+                    if result == 0 and extension_count.value:
+                        extension_values = (VkExtensionProperties * extension_count.value)()
+                        result = int(enumerate_extensions(
+                            None, ctypes.byref(extension_count), extension_values
+                        ))
+                        if result in (0, 5):
+                            available_extensions = {
+                                bytes(item.extensionName).split(b"\0", 1)[0].decode(
+                                    "ascii", "ignore"
+                                )
+                                for item in extension_values
+                            }
+                            required_extensions = (
+                                "VK_KHR_get_physical_device_properties2",
+                                "VK_KHR_external_memory_capabilities",
+                            )
+                            if all(name in available_extensions for name in required_extensions):
+                                enabled_extensions = list(required_extensions)
+                                luid_query_status = "khr_extensions"
+                except (AttributeError, OSError, TypeError, ValueError):
+                    enabled_extensions = []
+
         app = VkApplicationInfo(
             0, None, b"NiyomSilp V2.1.1 GPU QA", 1,
-            b"NiyomSilp", 1, (1 << 22),
+            b"NiyomSilp", 1, requested_api_version,
+        )
+        extension_names = (
+            (ctypes.c_char_p * len(enabled_extensions))(
+                *(name.encode("ascii") for name in enabled_extensions)
+            )
+            if enabled_extensions else None
         )
         create_info = VkInstanceCreateInfo(
-            1, None, 0, ctypes.pointer(app), 0, None, 0, None
+            1, None, 0, ctypes.pointer(app), 0, None,
+            len(enabled_extensions), extension_names,
         )
         result = int(create_instance(ctypes.byref(create_info), None, ctypes.byref(instance)))
         if result != 0:
             return {
                 "available": True, "success": False,
                 "status": "vkCreateInstance_failed", "vk_result": result,
+                "requested_api_version": requested_api_version,
+                "device_luid_query_status": luid_query_status,
             }
         created = True
 
@@ -258,16 +408,82 @@ def _enumerate_vulkan_devices_native() -> dict:
                 "status": "vkEnumeratePhysicalDevices_failed", "vk_result": result,
             }
 
+        get_properties2 = None
+        get_instance_proc_addr = getattr(library, "vkGetInstanceProcAddr", None)
+        if get_instance_proc_addr is not None and (
+            requested_api_version >= VK_API_VERSION_1_1 or enabled_extensions
+        ):
+            try:
+                get_instance_proc_addr.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+                get_instance_proc_addr.restype = ctypes.c_void_p
+                for symbol in (
+                    b"vkGetPhysicalDeviceProperties2",
+                    b"vkGetPhysicalDeviceProperties2KHR",
+                ):
+                    address = get_instance_proc_addr(instance, symbol)
+                    if address:
+                        prototype = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
+                        get_properties2 = prototype(
+                            None, ctypes.c_void_p,
+                            ctypes.POINTER(VkPhysicalDeviceProperties2),
+                        )(address)
+                        break
+            except (AttributeError, OSError, TypeError, ValueError):
+                get_properties2 = None
+        if get_properties2 is None:
+            luid_query_status = (
+                "properties2_function_unavailable"
+                if requested_api_version >= VK_API_VERSION_1_1 or enabled_extensions
+                else "properties2_extensions_unavailable"
+            )
+        else:
+            luid_query_status = "ok"
+
         inventory = []
         for index in range(count.value):
             properties = ctypes.create_string_buffer(1024)
             get_properties(handles[index], ctypes.byref(properties))
-            inventory.append(_decode_vulkan_device_properties(properties.raw, index))
+            item = _decode_vulkan_device_properties(properties.raw, index)
+            if get_properties2 is None:
+                item.update({
+                    "device_luid_valid": False,
+                    "device_luid_text": None,
+                    "device_node_mask": None,
+                    "device_luid_status": luid_query_status,
+                })
+            else:
+                try:
+                    id_properties = VkPhysicalDeviceIDProperties()
+                    id_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES
+                    properties2 = VkPhysicalDeviceProperties2()
+                    properties2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2
+                    properties2.pNext = ctypes.cast(
+                        ctypes.pointer(id_properties), ctypes.c_void_p
+                    )
+                    get_properties2(handles[index], ctypes.byref(properties2))
+                    item.update(_decode_vulkan_device_id_properties(
+                        bytes(id_properties.deviceLUID),
+                        device_luid_valid=int(id_properties.deviceLUIDValid) == 1,
+                        device_node_mask=int(id_properties.deviceNodeMask),
+                    ))
+                except (OSError, TypeError, ValueError, struct.error):
+                    item.update({
+                        "device_luid_valid": False,
+                        "device_luid_text": None,
+                        "device_node_mask": None,
+                        "device_luid_status": "device_luid_query_failed",
+                    })
+            inventory.append(item)
+        valid_luid_count = sum(item.get("device_luid_valid") is True for item in inventory)
         return {
             "available": True,
             "success": bool(inventory),
             "status": "ok" if inventory else "no_vulkan_physical_devices",
             "source": "vulkan_loader_native",
+            "requested_api_version": requested_api_version,
+            "device_luid_query_available": get_properties2 is not None,
+            "device_luid_query_status": luid_query_status,
+            "device_luid_valid_count": valid_luid_count,
             "device_inventory": inventory,
             "device_names": [item["name"] for item in inventory],
         }
@@ -284,7 +500,6 @@ def _enumerate_vulkan_devices_native() -> dict:
                 destroy_instance(instance, None)
             except Exception:
                 pass
-
 
 def _parse_vulkan_summary(value: str) -> dict:
     inventory = []
@@ -527,10 +742,11 @@ def probe_anime4k_backend(manifest: Path) -> dict:
 
 
 def probe_gpu() -> dict:
-    """Collect GPU names, driver, VRAM and indexed Vulkan physical devices.
+    """Collect NVIDIA, Vulkan physical-device LUID and DXGI adapter inventories.
 
-    vulkaninfo is optional. If the SDK utility is absent, enumerate devices
-    directly through vulkan-1.dll/libvulkan so end-user PCs need no SDK install.
+    Native Vulkan enumeration is preferred even when vulkaninfo is installed,
+    because the CLI summary does not expose VkPhysicalDeviceIDProperties.deviceLUID.
+    A name-only or vulkaninfo-only inventory remains diagnostic and cannot bind NCNN.
     """
     nvidia_exe = _find_tool("nvidia-smi")
     nvidia = _run_probe(
@@ -548,50 +764,58 @@ def probe_gpu() -> dict:
     vulkan_loader_available = _probe_vulkan_loader()
     vulkan_exe = _find_tool("vulkaninfo")
     vulkan = _run_probe(vulkan_exe, ["--summary"])
-    summary = _parse_vulkan_summary(vulkan.pop("stdout", ""))
+    vulkan_summary = _parse_vulkan_summary(vulkan.pop("stdout", ""))
     vulkan.pop("stderr", None)
-    # Keep the CLI result truthful: native loader enumeration is not a
-    # successful execution of the separate vulkaninfo utility.
-    vulkaninfo_succeeded = bool(vulkan.get("success") and summary["device_inventory"])
-    inventory_source = "vulkaninfo" if vulkaninfo_succeeded else None
-    native_enumeration = None
-    if not vulkaninfo_succeeded:
-        # Ignore partial stdout from a failed CLI and use only a successful
-        # native-loader enumeration as the fallback source.
+    vulkaninfo_succeeded = bool(
+        vulkan.get("success") and vulkan_summary["device_inventory"]
+    )
+
+    # Always attempt native enumeration to obtain the exact NCNN -g index and
+    # the Vulkan deviceLUID. The SDK summary is only a fallback for diagnostics.
+    native = _enumerate_vulkan_devices_native()
+    if native.get("success") is True and native.get("device_inventory"):
+        summary = {
+            "device_inventory": native.get("device_inventory", []),
+            "device_names": native.get("device_names", []),
+            "api_versions": [],
+        }
+        inventory_source = "vulkan_loader_native"
+    elif vulkaninfo_succeeded:
+        summary = vulkan_summary
+        inventory_source = "vulkaninfo"
+    else:
         summary = {"device_inventory": [], "device_names": [], "api_versions": []}
-        native = _enumerate_vulkan_devices_native()
-        if native.get("success"):
-            summary = {
-                "device_inventory": native.get("device_inventory", []),
-                "device_names": native.get("device_names", []),
-                "api_versions": [],
-            }
-            inventory_source = "vulkan_loader_native"
-            native_enumeration = {
-                "success": True,
-                "status": native.get("status", "ok"),
-                "source": "vulkan_loader_native",
-                "device_count": len(summary["device_inventory"]),
-            }
-        else:
-            native_enumeration = {
-                "success": False,
-                "status": native.get("status", "unavailable"),
-                "vk_result": native.get("vk_result"),
-                "error_type": native.get("error_type"),
-            }
+        inventory_source = None
+
+    native_enumeration = {
+        "success": native.get("success") is True,
+        "status": native.get("status", "unavailable"),
+        "source": native.get("source"),
+        "vk_result": native.get("vk_result"),
+        "error_type": native.get("error_type"),
+        "device_count": len(native.get("device_inventory") or []),
+        "device_luid_query_available": native.get("device_luid_query_available") is True,
+        "device_luid_query_status": native.get("device_luid_query_status"),
+        "device_luid_valid_count": native.get("device_luid_valid_count", 0),
+        "requested_api_version": native.get("requested_api_version"),
+    }
     vulkan.update(summary)
     vulkan["inventory_source"] = inventory_source
-    if native_enumeration is not None:
-        vulkan["native_enumeration"] = native_enumeration
+    vulkan["native_enumeration"] = native_enumeration
 
     target_nvidia = any("gtx 1660 ti" in item["name"].lower() for item in gpus)
     target_vulkan_devices = [
         item for item in summary["device_inventory"]
         if "gtx 1660 ti" in item["name"].lower()
     ]
-    target_vulkan = bool(target_vulkan_devices)
-    return {
+    dxgi_adapters = _enumerate_dxgi_adapters() if os.name == "nt" else []
+    target_dxgi_adapters = [
+        item for item in dxgi_adapters
+        if isinstance(item, dict)
+        and "gtx 1660 ti" in str(item.get("description") or "").casefold()
+        and item.get("vendor_id") == 0x10DE
+    ]
+    report = {
         "nvidia_smi": nvidia,
         "cuda_12_8_driver_compatibility": cuda_12_8_driver_compatibility,
         "vulkaninfo": vulkan,
@@ -601,7 +825,7 @@ def probe_gpu() -> dict:
         ),
         "vulkan_target_device_match_count": len(target_vulkan_devices),
         "gtx_1660_ti_detected_by_nvidia_smi": target_nvidia,
-        "gtx_1660_ti_detected_by_vulkan": target_vulkan,
+        "gtx_1660_ti_detected_by_vulkan": bool(target_vulkan_devices),
         "vulkan_loader_available": vulkan_loader_available,
         "vulkaninfo_succeeded": vulkaninfo_succeeded,
         "vulkan_device_inventory_succeeded": bool(summary["device_inventory"]),
@@ -610,8 +834,22 @@ def probe_gpu() -> dict:
             item["memory_total_mib"] >= 5500 for item in gpus
             if "gtx 1660 ti" in item["name"].lower()
         ),
+        "dxgi_adapter_inventory": dxgi_adapters,
+        "dxgi_target_adapter_match_count": len(target_dxgi_adapters),
     }
-
+    try:
+        luid_binding = resolve_vulkan_dxgi_adapter(report)
+    except GPUDeviceBindingError as exc:
+        report["vulkan_dxgi_luid_match_verified"] = False
+        report["vulkan_dxgi_luid_match_status"] = str(exc)[:180]
+        report["vulkan_target_device_luid"] = None
+        report["dxgi_target_adapter_luid"] = None
+    else:
+        report["vulkan_dxgi_luid_match_verified"] = True
+        report["vulkan_dxgi_luid_match_status"] = "verified"
+        report["vulkan_target_device_luid"] = luid_binding["device_luid"]
+        report["dxgi_target_adapter_luid"] = luid_binding["dxgi_adapter_luid"]
+    return report
 
 def create_synthetic_png(path: Path, *, rgba: bool) -> None:
     """Create harmless gradient/edge test artwork with print metadata."""
@@ -1380,6 +1618,7 @@ def run_diagnostic(
         and gpu.get("vulkan_device_index") is not None
         and gpu.get("vulkan_loader_available")
         and gpu.get("vulkan_device_inventory_succeeded")
+        and gpu.get("vulkan_dxgi_luid_match_verified") is True
         and gpu.get("vram_budget_6gb_detected")
     )
     device_binding_applied = bool(bind_devices and device_binding and binding_error is None)
@@ -1445,7 +1684,7 @@ def run_diagnostic(
         for name in ENGINES
     }
     report = {
-        "schema_version": 7,
+        "schema_version": 8,
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "manifest_present": manifest.is_file(),
         "manifest_preflight_passed": manifest_preflight_passed,
@@ -1456,6 +1695,11 @@ def run_diagnostic(
         "vulkan_inventory_source": gpu.get("vulkan_inventory_source"),
         "gpu_device_inventory_source": (gpu.get("vulkaninfo") or {}).get("inventory_source"),
         "ncnn_vulkan_target_device_index": gpu.get("vulkan_device_index"),
+        "vulkan_dxgi_luid_match_verified": gpu.get("vulkan_dxgi_luid_match_verified") is True,
+        "vulkan_dxgi_luid_match_status": gpu.get("vulkan_dxgi_luid_match_status"),
+        "vulkan_target_device_luid": gpu.get("vulkan_target_device_luid"),
+        "dxgi_target_adapter_luid": gpu.get("dxgi_target_adapter_luid"),
+        "dxgi_target_adapter_match_count": gpu.get("dxgi_target_adapter_match_count"),
         "vulkan_target_device_index_unambiguous": gpu.get("vulkan_device_index") is not None,
         "anime4k_backend_inventory": anime4k_backend,
         "anime4k_gpu_recommendation": anime4k_backend.get("recommended_gpu_processor_device"),
