@@ -60,6 +60,197 @@ def resolve_vulkan_dxgi_adapter(
     if gpu_report.get("vulkan_device_inventory_succeeded") is not True:
         raise GPUDeviceBindingError("Vulkan loader physical-device inventory is unavailable")
 
+    vulkan_devices = gpu_report.get("vulkan_device_inventory") or []
+    vulkan_matches = [
+        item for item in vulkan_devices
+        if isinstance(item, dict) and _matches_target(item.get("name"), target_name)
+    ]
+    if len(vulkan_matches) != 1:
+        raise GPUDeviceBindingError(
+            "Vulkan must expose exactly one unambiguous " + target_name + " device"
+        )
+    vulkan = vulkan_matches[0]
+    index = vulkan.get("index")
+    reported_index = gpu_report.get("vulkan_device_index")
+    match_count = gpu_report.get("vulkan_target_device_match_count")
+    if (
+        not _valid_device_index(index)
+        or not _valid_device_index(reported_index)
+        or reported_index != index
+        or isinstance(match_count, bool)
+        or not isinstance(match_count, int)
+        or match_count != 1
+    ):
+        raise GPUDeviceBindingError(
+            "Vulkan target physical-device index is missing or ambiguous"
+        )
+
+    vendor_id = vulkan.get("vendor_id")
+    device_id = vulkan.get("device_id")
+    if (
+        isinstance(vendor_id, bool) or not isinstance(vendor_id, int)
+        or vendor_id != 0x10DE
+    ):
+        raise GPUDeviceBindingError("Vulkan target device is not an NVIDIA adapter")
+    if isinstance(device_id, bool) or not isinstance(device_id, int) or device_id <= 0:
+        raise GPUDeviceBindingError("Vulkan target device PCI ID is invalid")
+    if vulkan.get("device_luid_valid") is not True:
+        raise GPUDeviceBindingError(
+            "Vulkan VkPhysicalDeviceIDProperties.deviceLUID is not valid"
+        )
+    node_mask = vulkan.get("device_node_mask")
+    if (
+        isinstance(node_mask, bool) or not isinstance(node_mask, int)
+        or node_mask <= 0 or (node_mask & (node_mask - 1)) != 0
+    ):
+        raise GPUDeviceBindingError("Vulkan deviceNodeMask is invalid")
+    vulkan_luid = vulkan.get("device_luid_text")
+    if not _valid_luid_text(vulkan_luid):
+        raise GPUDeviceBindingError("Vulkan deviceLUID format is invalid")
+    vulkan_luid = vulkan_luid.casefold()
+
+    dxgi_devices = gpu_report.get("dxgi_adapter_inventory") or []
+    dxgi_matches = [
+        item for item in dxgi_devices
+        if isinstance(item, dict)
+        and _matches_target(item.get("description"), target_name)
+        and item.get("vendor_id") == 0x10DE
+    ]
+    if len(dxgi_matches) != 1:
+        raise GPUDeviceBindingError(
+            "DXGI must expose exactly one unambiguous " + target_name + " adapter"
+        )
+    dxgi = dxgi_matches[0]
+    dxgi_luid = dxgi.get("luid_text")
+    if not _valid_luid_text(dxgi_luid):
+        raise GPUDeviceBindingError("DXGI AdapterLuid format is invalid")
+    dxgi_luid = dxgi_luid.casefold()
+    if vulkan_luid != dxgi_luid:
+        raise GPUDeviceBindingError(
+            "Vulkan deviceLUID does not match the target DXGI AdapterLuid"
+        )
+
+    duplicate_luid = [
+        item for item in dxgi_devices
+        if isinstance(item, dict)
+        and isinstance(item.get("luid_text"), str)
+        and item["luid_text"].casefold() == dxgi_luid
+    ]
+    if len(duplicate_luid) != 1:
+        raise GPUDeviceBindingError("DXGI AdapterLuid is duplicated or ambiguous")
+
+    dxgi_vendor_id = dxgi.get("vendor_id")
+    dxgi_device_id = dxgi.get("device_id")
+    if (
+        isinstance(dxgi_vendor_id, bool) or not isinstance(dxgi_vendor_id, int)
+        or dxgi_vendor_id != vendor_id
+        or isinstance(dxgi_device_id, bool) or not isinstance(dxgi_device_id, int)
+        or dxgi_device_id != device_id
+    ):
+        raise GPUDeviceBindingError("Vulkan and DXGI PCI vendor/device IDs do not match")
+
+    return {
+        "device_index": index,
+        "device_name": str(vulkan.get("name") or "")[:160],
+        "device_luid": vulkan_luid,
+        "dxgi_adapter_luid": dxgi_luid,
+        "dxgi_adapter_description": str(dxgi.get("description") or "")[:160],
+        "device_node_mask": node_mask,
+        "vendor_id": vendor_id,
+        "device_id": device_id,
+        "luid_match_verified": True,
+    }
+
+
+def validate_free_vram_report(
+    gpu_report: dict,
+    *,
+    target_name: str = TARGET_GPU,
+) -> dict:
+    """Validate a fresh NVIDIA-SMI snapshot for exactly one target adapter."""
+    nvidia = gpu_report.get("nvidia_smi") or {}
+    devices = nvidia.get("devices") or []
+    matches = [
+        item for item in devices
+        if isinstance(item, dict) and _matches_target(item.get("name"), target_name)
+    ]
+    if nvidia.get("success") is not True or len(matches) != 1:
+        raise GPUDeviceBindingError(
+            "NVIDIA-SMI must report exactly one " + target_name + " adapter"
+        )
+    device = matches[0]
+    total = device.get("memory_total_mib")
+    free = device.get("memory_free_mib")
+    if isinstance(total, bool) or not isinstance(total, int) or total <= 0:
+        raise GPUDeviceBindingError("NVIDIA-SMI must report a valid total VRAM capacity")
+    if isinstance(free, bool) or not isinstance(free, int) or free < 0:
+        raise GPUDeviceBindingError("NVIDIA-SMI must report a valid free VRAM reading")
+    if free > total:
+        raise GPUDeviceBindingError("NVIDIA-SMI free VRAM exceeds the reported total capacity")
+    if free < MIN_FREE_VRAM_MIB:
+        raise GPUDeviceBindingError(
+            f"insufficient free VRAM: {free} MiB available; "
+            f"at least {MIN_FREE_VRAM_MIB} MiB required"
+        )
+    return {
+        "total_mib": total,
+        "free_mib": free,
+        "minimum_free_mib": MIN_FREE_VRAM_MIB,
+        "passed": True,
+    }
+
+
+def resolve_device_selection(
+    gpu_report: dict,
+    anime4k_report: dict,
+    *,
+    target_name: str = TARGET_GPU,
+) -> dict:
+    """Resolve unique Vulkan and Anime4K indexes; reject missing/ambiguous devices."""
+    nvidia = gpu_report.get("nvidia_smi") or {}
+    nvidia_devices = nvidia.get("devices") or []
+    nvidia_matches = [
+        item for item in nvidia_devices
+        if isinstance(item, dict) and _matches_target(item.get("name"), target_name)
+    ]
+    if nvidia.get("success") is not True or len(nvidia_matches) != 1:
+        raise GPUDeviceBindingError(
+            "NVIDIA-SMI must report exactly one " + target_name + " adapter"
+        )
+
+    # A 6 GB card can be almost full because of Photoshop, browsers or another
+    # inference process. Require a fresh NVIDIA-SMI free-memory reading before
+    # binding any optional native engine. This is only a launch preflight: VRAM
+    # can change afterwards, so native processes must still handle OOM safely.
+    nvidia_target = nvidia_matches[0]
+    memory_total = nvidia_target.get("memory_total_mib")
+    memory_free = nvidia_target.get("memory_free_mib")
+    if (
+        isinstance(memory_total, bool)
+        or not isinstance(memory_total, int)
+        or memory_total <= 0
+    ):
+        raise GPUDeviceBindingError(
+            "NVIDIA-SMI must report a valid total VRAM capacity"
+        )
+    if (
+        isinstance(memory_free, bool)
+        or not isinstance(memory_free, int)
+        or memory_free < 0
+    ):
+        raise GPUDeviceBindingError(
+            "NVIDIA-SMI must report a valid free VRAM reading"
+        )
+    if memory_free > memory_total:
+        raise GPUDeviceBindingError(
+            "NVIDIA-SMI free VRAM exceeds the reported total capacity"
+        )
+    if memory_free < MIN_FREE_VRAM_MIB:
+        raise GPUDeviceBindingError(
+            f"insufficient free VRAM: {memory_free} MiB available; "
+            f"at least {MIN_FREE_VRAM_MIB} MiB required"
+        )
+
     vulkan_binding = resolve_vulkan_dxgi_adapter(
         gpu_report, target_name=target_name
     )
