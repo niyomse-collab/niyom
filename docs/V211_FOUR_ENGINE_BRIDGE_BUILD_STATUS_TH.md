@@ -1896,6 +1896,50 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 
 ### V2 / GFPGAN preservation and remaining blockers
 - Direct Git Blob SHA comparison against PR #18 base `288dd8501c230a118d9a7e60d2522a2cc7411bcc` confirms **9/9 protected face/GFPGAN files byte-identical**: face workflow, face protection/detection/selection/package, large-face handling, face contract and its two regression/audit tests.
-- The optional HAT Assist execution route present in PR #18 is intentionally disabled in PR #20's four-engine scope; this is a separate compatibility difference, not a change to the protected GFPGAN files.
+- HAT Assist was restored as an optional V2-first, local-checkpoint-only assist by commit `f9c5e2c2c09b0d8c9f58fdc9ba6599038b5c9e3c`; it is not one of the four automatically coordinated native engines. Standalone HAT replacement remains disabled. The default V2/GFPGAN path is preserved; no HAT checkpoint is bundled or auto-downloaded.
 - Integrated four-engine inference on the shop GTX 1660 Ti, per-process adapter binding, live 6 GB VRAM evidence, >18 MP GPU/4x jobs, cancellation under GPU load, visual A/B across the required categories, Photoshop/MainTop/RIP and physical print quality remain **NOT CERTIFIED**.
 - No affirmative exact-candidate shop-GPU authorization was supplied; no self-hosted shop runner was dispatched or accessed. V2 remains the accepted master. No merge/release, customer images or native binaries/weights committed, and no claim that V2.1.1 is visually superior to V2.
+
+
+## 28 พฤศจิกายน 2569 10:04 ICT — exact PR HEAD c6886c3 / Windows Candidate #1139
+
+### Source, scope and protected V2/GFPGAN files
+- PR #20 remains OPEN / DRAFT / UNMERGED on `work/v211-four-engine-v2-bridge-20261103`; exact HEAD `c6886c3f00f581ca23a252706dcd8ca16a878532`, base `288dd8501c230a118d9a7e60d2522a2cc7411bcc` (PR #18 head). PR #18 remains OPEN / DRAFT / UNMERGED.
+- HEAD `c6886c3` is a documentation-only commit recording Candidate #1138; Candidate #1139 and Core #1937 both ran against this exact HEAD.
+- PR #20 has 90 changed paths. No V1-named path, executable, DLL, native archive, model-weight/checkpoint or customer-image file appears in the changed-path list.
+- Direct Git Blob SHA comparison between PR #18 base and PR #20 HEAD confirms **9/9 protected face/GFPGAN files byte-identical**: `.github/workflows/verify-v211-face.yml`, `face_protection.py`, `detection.py`, `selection.py`, `face_module/__init__.py`, `large_faces.py`, `v211_face_contract.py`, `test_v211_face_contract.py`, and `test_v211_large_face_audit.py`.
+- The V2 adapter saves the accepted V2 raster before calling the optional bridge. The bridge only creates a separate QA sidecar and never promotes it to the accepted print output. If face ROI mapping is uncertain, the bridge preserves the V2 face area or the full V2 raster.
+- HAT correction: commit `f9c5e2c2c09b0d8c9f58fdc9ba6599038b5c9e3c` restored the optional **V2 + HAT Assist** selector alongside the automatic four-engine QA path; test commit `5df0a7a0836f394311ef9e3de23f22445eb589f6` covers the preflight and selector. HAT remains opt-in, requires a local SHA256-verified checkpoint and Spandrel 0.4.2, and is not one of the four automatic native engines. V2 remains the primary model; standalone HAT replacement is disabled. The HAT checkpoint is not bundled or auto-downloaded.
+
+### Windows Candidate #1139 — SUCCESS on exact HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46092161357
+- Both jobs passed: `bridge-tests` and `windows-v2-candidate`.
+- Bridge/fusion/coordination: **507 passed**; privacy/provisioning/hash: **70 passed**; total **577 passed**.
+- Frozen checks passed: V2 import/output-preservation smoke; single-page BigTIFF and streamed libvips QA path; packaged provisioning `--check-only`; synthetic Inno Setup consent/uninstall lifecycle; cache-cleanup and cross-profile safety; diagnostic dispatch; BUILD_PROOF source binding and every installer-slice SHA256.
+- The frozen EXE downloaded, audited and transactionally provisioned all four official archives in an isolated CI user profile. Independent manifest verification reported exactly `anime4k,real_cugan,real_esrgan,waifu2x`. This proves the packaged provisioning path in CI; it does not prove shop-PC installation or native GPU inference.
+- Installer SHA256: `d407772ac1f1448a0b383de5850b48e6a454fb9ccec5b43ac160fb976a071a92`.
+- Artifact ID **15243435926**, size **2,585,824,307 bytes**, ZIP SHA256 `672058aee29ab522760fba459c039dcefe6ad36feb73a0a1b216ecf26da5e645`; expires **5 Dec 2569 08:52 ICT**. [Download Candidate #1139](https://github.com/niyomse-collab/niyom/actions/runs/46092161357/artifacts/15243435926).
+- Non-fatal PyInstaller warnings: optional parser imports, `nvcuda.dll` (driver-provided; absent on hosted runner) and optional Numba `tbb12.dll`. Do not bundle driver/optional DLLs by guess; investigate only if a reproducible shop-runtime error identifies one as required.
+
+### Independent Core #1937 — SUCCESS
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46092161336
+- Windows: **1,177 passed / 1 skipped**. Ubuntu: **1,175 passed / 3 skipped**. Compileall passed on both.
+
+### Official Archive Audit #467 — SUCCESS, provenance only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46092161328
+- All four official Windows archives were downloaded, archive/member/path audited, hash-checked and transactionally provisioned to ephemeral QA storage. The manifest contained all four engine names.
+- Archive SHA256: Real-ESRGAN v0.2.5.0 `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` (observed CI pin; no publisher digest); Waifu2x 20250915 `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` (published digest); Real-CUGAN 20220728 `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` (observed CI pin; no publisher digest); Anime4KCPP v3.2.0 `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` (published digest).
+- Upstream license documents were retrieved and hashed, including the distinct Anime4KCPP GPLv3 component and MIT core notices. The audit still reports `all_upstream_digests_pinned=false`, `model_weights_and_license_certified=false`, and `license_redistribution_approved=false`; no native binaries or weights are bundled or committed.
+
+### Native CLI Smoke #616 — classified diagnostic only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46092161406; JSON evidence artifact ID **15242106435**.
+- Real-CUGAN and Anime4KCPP each started a native process and produced validated synthetic 2x RGB and RGBA/ICC/300-DPI outputs; RGBA alpha pixels, ICC and DPI were preserved. NVIDIA adapter use was not verified.
+- Real-ESRGAN failed at Vulkan initialization with `vkCreateInstance failed -9`. Waifu2x had the same Vulkan failure plus Windows exit `0xC0000005`.
+- `completed_engine_count=2`; DXGI/NVML physical adapter verification **0/4**; `runtime_device_use_verified=false`; VRAM guard not requested and no VRAM samples; `real_inference_verified=false`; `candidate_output_validation_complete=false`; `quality_improvement_verified=false`.
+- Workflow SUCCESS means the hosted-runner Vulkan limitations were classified as expected diagnostics. It is not a four-engine inference, GPU, VRAM or image-quality pass, and it does not contradict the owner's separate report that the individual engines work on Windows 11 / GTX 1660 Ti.
+
+### Large-image, GPU and visual acceptance still open
+- Source implements disk-backed libvips preparation, 512-pixel tile cores with 32-pixel overlap, streamed fusion/QA and cancellation checks for supported large raster inputs. Each native engine performs **one 2x pass** from a half-target seed. A final 4x target is output geometry, not native 4x/multi-pass inference.
+- Synthetic/component tests do not certify native GPU processing above 18 MP, 4x throughput, 6 GB peak VRAM, per-process GTX 1660 Ti binding or cancellation under GPU load.
+- The private 12-category A/B harness is implemented, but no accepted real-image A/B review exists for people, animals, objects, frames, Thai patterns, Thai/English/Chinese text, flat colours, gradients, transparent edges and faces. Photoshop, MainTop/RIP and physical print quality remain NOT CERTIFIED.
+- No exact-Candidate #1139 affirmative shop-GPU authorization was present; no self-hosted shop runner was dispatched or accessed. V2 remains the accepted master. PR #20 and PR #18 remain Draft; no merge/release, no V1/V2 Stable changes, and no claim that V2.1.1 quality exceeds V2.
