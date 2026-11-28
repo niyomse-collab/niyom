@@ -2026,3 +2026,42 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - The disk-backed path uses 512-pixel tile cores with 32-pixel overlap and one native 2x pass from a half-target seed. A 4x final canvas is output geometry, not native 4x/multi-pass inference. Tile geometry and cancellation tests do not certify actual peak RAM/VRAM or sustained >18 MP inference on the GTX 1660 Ti.
 - Per-process GTX 1660 Ti binding, live 6 GB VRAM guard, real large-image GPU stress, cancellation under load, private 12-category visual A/B, Photoshop/MainTop/RIP and physical print acceptance remain **NOT CERTIFIED**.
 - V2 remains the accepted master. No customer images, native binaries or model weights are committed; no merge/release or quality-superiority claim.
+
+## 28 พฤศจิกายน 2569 20:11 ICT — exact PR HEAD ed294c3 / Candidate #1146 / Core #1951
+
+### PR scope and V2/GFPGAN protection
+- PR #20 remains OPEN / DRAFT / UNMERGED on `work/v211-four-engine-v2-bridge-20261103`. Exact PR HEAD: `ed294c3e3a017bc29dfde42364ee8c6dd55454f1`; runtime/test code HEAD remains `29f7c391ad5d1142f283acb7580de95b9f0c49b1`. The only commit after that runtime/test SHA is this documentation update; it changes no production code.
+- PR #18 remains OPEN / DRAFT / UNMERGED; its head/base for this comparison is `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- Direct Git blob comparison at PR #18 base versus PR #20 HEAD confirms **9/9 protected face/GFPGAN paths identical**: `.github/workflows/verify-v211-face.yml`, `signprint_ai/face_module/face_protection.py`, `detection.py`, `selection.py`, `face_module/__init__.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`, and `tests/test_v211_large_face_audit.py`.
+- The PR does add bridge integration in `app_v2.py`, `niyomsil_core_adapter.py` and the large-image adapter. Those changes invoke the optional four-engine QA only after the accepted V2 raster is saved; uncertain GFPGAN face mapping preserves the entire V2 raster. They do not edit the protected face/GFPGAN implementation files above.
+
+### Windows Candidate #1146 — SUCCESS on exact PR HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46146482350. Run metadata confirms branch `work/v211-four-engine-v2-bridge-20261103`, head SHA `ed294c3e3a017bc29dfde42364ee8c6dd55454f1`, and SUCCESS.
+- Both jobs passed: `bridge-tests` **510 passed**; `privacy/provisioning/hash` **70 passed**; total **580 passed**. Windows frozen candidate job also passed the installer lifecycle fixture, frozen V2 imports, BigTIFF/libvips dispatch, packaged provisioning preflight, actual frozen-EXE provisioning of all four official archives in an isolated profile, manifest verification, cache cleanup, diagnostic dispatch and candidate provenance/slice-hash checks.
+- The packaged >18 MP synthetic BigTIFF check used a 6001×4001 target (**24,010,001 pixels**), disk-backed seed/QA, exact odd-target crop, ICC/DPI preservation and `accepted_v2_sha256_unchanged=true`. It explicitly reports `gpu_runtime_initialized=false`, `native_ai_engines_started=false`, `network_access=false` and `customer_files_accessed=false`. This is large-image packaging/component QA, **not** sustained native GPU inference or a 6 GB VRAM stress test.
+- Installer SHA256: `8b91529126a1195c004db1d232c54d37fa38baab2289630b389223bcafb00947`.
+- Artifact ID **15264383850**, size **2,585,955,396 bytes**, artifact ZIP SHA256 `ef199a10e94e632847cd1d80b7ec2b410a181c15bf793aa45b9caba29a42ac2f`; expires **5 Dec 2026 20:11 ICT**. [Download Candidate #1146](https://github.com/niyomse-collab/niyom/actions/runs/46146482350/artifacts/15264383850).
+- Non-fatal PyInstaller warnings remain for driver-provided `nvcuda.dll` and optional `tbb12.dll`; neither was guessed or bundled. Confirm runtime relevance only from a reproducible shop-PC diagnostic.
+
+### Independent Core #1951 — SUCCESS on exact PR HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46146482402.
+- Windows **1,180 passed / 1 skipped**; Ubuntu **1,178 passed / 3 skipped**; compileall passed on both.
+
+### Official Archive Audit #474 — SUCCESS, provenance/provisioning only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46146482356; audit artifact ID **15263568868**.
+- Archive audit **32 passed**, provisioning tests **11 passed**. The four official Windows archives were downloaded, hash/member/path audited and transactionally provisioned into ephemeral QA storage; the resulting manifest verified all four engine names.
+- Real-ESRGAN v0.2.5.0 archive SHA256 `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` and Real-CUGAN 20220728 `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` remain observed CI pins because no upstream archive digest is published. Waifu2x 20250915 and Anime4KCPP v3.2.0 have published digests.
+- Source-license documents were retrieved and hashed, including the separate Anime4KCPP GPLv3 CLI/video component and MIT core. The audit explicitly keeps `all_upstream_digests_pinned=false`, `model_weights_and_license_certified=false` and `license_redistribution_approved=false`. No native binary or model weight is committed or bundled.
+
+### Native CLI Smoke #627 — classified hosted-runner diagnostic only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46146482354; synthetic-only report artifact ID **15264335795**.
+- On both synthetic RGB and RGBA/ICC/300-DPI inputs, Real-CUGAN and Anime4KCPP launched native processes and produced validated 2x outputs. Their actual NVIDIA adapter use was not verified.
+- Real-ESRGAN failed at Vulkan initialization (`vkCreateInstance failed -9`). Waifu2x failed at the same Vulkan initialization boundary with Windows exit `0xC0000005`.
+- `completed_engine_count=2`; physical NVIDIA DXGI adapter verification **0/4**; per-engine runtime GPU use **false**; VRAM samples **0**; `real_inference_verified=false`; `quality_certified=false`. The workflow SUCCESS means expected hosted-runner limitations were classified, not that all four GPUs/engines passed.
+- This hosted-runner result does not contradict the owner's prior shop-PC report that the individual engines work on Windows 11 / GTX 1660 Ti. No shop runner was accessed in this run.
+
+### Remaining acceptance gates
+- Exact-Candidate #1146 installation, consent and uninstall on the shop PC; real per-process GTX 1660 Ti/Vulkan binding for all four engines; live 6 GB VRAM guard/peak telemetry.
+- Sustained native tiled inference above 18 MP, real 4x/multi-pass behavior (the current CLI evidence is 2x), cancellation under GPU load and peak RAM/VRAM measurement.
+- Private 12-category visual A/B against accepted V2, including people/faces, animals, objects/frames, Thai patterns, Thai/English/Chinese text, flat colours, gradients and transparent edges; then Photoshop, MainTop/RIP and physical print QA.
+- V2 remains the accepted master. No V1/V2 Stable change, merge/release, customer image, native binary/weight commit or quality-superiority claim.
