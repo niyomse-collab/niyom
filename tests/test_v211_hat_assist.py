@@ -105,19 +105,24 @@ def test_combined_engine_writes_image_and_preserves_call_order(tmp_path):
 def test_adapter_routes_v2_first_and_hat_after(monkeypatch):
     from signprint_ai import v211_hat_engine
     from signprint_ai.niyomsil_core_adapter import NiyomSilpCoreAdapter
+
     calls = []
     selected = SimpleNamespace(name="CPU", backend="CPU", device_id="cpu")
+
     class FakeV2(DummyEngine):
         def __init__(self):
             super().__init__("v2", [])
             self.selected = selected
+
     def new_v2(device):
         calls.append("v2")
         return FakeV2()
+
     class FakeHAT(DummyEngine):
         def __init__(self, selected):
             calls.append("hat")
             super().__init__("hat", [])
+
     monkeypatch.setattr(v211_hat_engine, "HATModelEngine", FakeHAT)
     adapter = NiyomSilpCoreAdapter.__new__(NiyomSilpCoreAdapter)
     adapter.engine_manager = SimpleNamespace(
@@ -125,11 +130,18 @@ def test_adapter_routes_v2_first_and_hat_after(monkeypatch):
         device_manager=SimpleNamespace(get_default_device=lambda: selected),
         engine=None,
     )
-    settings = SimpleNamespace(v211_photo_model="v2_hat_assist",
-                               v211_hat_assist_strength=.85,
-                               device="AUTO", graphic_ai=False,
-                               text_graphic_boost=0,
-                               face_protection=False, face_regions=None)
+    settings = SimpleNamespace(
+        v211_photo_model="v2_hat_assist",
+        v211_hat_assist_strength=0.85,
+        device="AUTO",
+        graphic_ai=False,
+        text_graphic_boost=0,
+        face_protection=False,
+        face_regions=None,
+    )
     engine = adapter.create_job_engine(settings)
     assert isinstance(engine, HATAssistEngine)
     assert calls == ["v2", "hat"]
+    assert engine.v2.name == "v2"
+    assert engine.hat.name == "hat"
+    assert engine.next_pass_engine() is engine.v2

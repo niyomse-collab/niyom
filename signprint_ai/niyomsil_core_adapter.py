@@ -19,6 +19,153 @@ ProgressFn = Optional[Callable[[int, str], None]]
 CancelFn = Optional[Callable[[], bool]]
 
 
+def _rgb_png_compatible_icc(profile: object, source_mode: str) -> bytes | None:
+    """Return a structurally valid RGB ICC only for an RGB/RGBA PNG raster.
+
+    A CMYK/Lab source profile cannot be attached to RGB sample values after
+    Pillow's mode conversion. Keep the source profile only when its ICC header
+    explicitly declares RGB; otherwise leave the RGB PNG untagged rather than
+    writing a misleading colour-space declaration.
+    """
+    if source_mode not in ("RGB", "RGBA", "P"):
+        return None
+    if not isinstance(profile, (bytes, bytearray, memoryview)):
+        return None
+    data = bytes(profile)
+    if len(data) < 128:
+        return None
+    declared_size = int.from_bytes(data[0:4], "big")
+    if (
+        declared_size != len(data)
+        or data[16:20] != b"RGB "
+        or data[36:40] != b"acsp"
+    ):
+        return None
+    return data
+
+
+
+def _validated_normalized_face_regions(regions) -> tuple[tuple[float, float, float, float], ...]:
+    """Validate face masks before passing them to auxiliary fusion.
+
+    Empty, malformed, non-finite, reversed or out-of-canvas regions are not
+    safe masks. Returning an empty tuple makes callers preserve the complete
+    accepted V2 raster instead of guessing.
+    """
+    try:
+        normalized = []
+        for region in regions:
+            if not isinstance(region, (tuple, list)) or len(region) != 4:
+                return ()
+            coordinates = []
+            for value in region:
+                if isinstance(value, bool):
+                    return ()
+                number = float(value)
+                if not math.isfinite(number):
+                    return ()
+                coordinates.append(number)
+            x1, y1, x2, y2 = coordinates
+            if not (0.0 <= x1 < x2 <= 1.0 and 0.0 <= y1 < y2 <= 1.0):
+                return ()
+            normalized.append((x1, y1, x2, y2))
+        return tuple(normalized)
+    except Exception:
+        return ()
+
+def _expand_normalized_face_regions(regions) -> tuple[tuple[float, float, float, float], ...]:
+    """Expand mapped face ROIs for GFPGAN paste-back and nearby identity cues.
+
+    Explicit user selections and automatic detections must receive the same
+    conservative margin before they are used to protect accepted V2 pixels.
+    Invalid geometry returns an empty result so the caller preserves all of V2.
+    """
+    validated = _validated_normalized_face_regions(regions)
+    if not validated:
+        return ()
+    expanded = []
+    for x1, y1, x2, y2 in validated:
+        margin_x = max((x2 - x1) * 0.35, 0.015)
+        margin_y = max((y2 - y1) * 0.35, 0.02)
+        expanded.append((
+            round(max(0.0, x1 - margin_x), 6),
+            round(max(0.0, y1 - margin_y), 6),
+            round(min(1.0, x2 + margin_x), 6),
+            round(min(1.0, y2 + margin_y), 6),
+        ))
+    return _validated_normalized_face_regions(expanded)
+
+
+def _four_engine_face_guard(
+    v2_output_path: str | Path,
+    face_info: dict,
+    selected_regions,
+    source_size: tuple[int, int],
+    target_size: tuple[int, int],
+    resize_mode: str,
+) -> tuple[tuple, bool]:
+    """Return conservative V2 face masks for auxiliary fusion.
+
+    Explicitly selected ROIs use the same transform as V2. When GFPGAN auto-
+    detects faces (selected_regions is None), repeat the bundled RetinaFace
+    detection on the exact saved V2 canvas and require an exact face-count match.
+    Expand each matched box there, so EXIF rotation and fit/stretch padding are
+    already reflected. If the detector, geometry, or count is uncertain,
+    preserve the entire V2 raster
+    instead of guessing where a restored face was pasted.
+    """
+    if not isinstance(face_info, dict) or not face_info.get("applied"):
+        return (), False
+
+    try:
+        from .face_module.detection import FaceDetector, map_regions
+    except Exception:
+        return (), True
+
+    if selected_regions is not None:
+        try:
+            requested = tuple(selected_regions)
+            if not requested:
+                return (), True
+            mapped = _validated_normalized_face_regions(
+                map_regions(requested, source_size, target_size, resize_mode)
+            )
+            if not mapped or len(mapped) != len(requested):
+                return (), True
+            expanded = _expand_normalized_face_regions(mapped)
+            if len(expanded) != len(mapped):
+                return (), True
+            return expanded, False
+        except Exception:
+            # Explicit UI/CLI geometry is untrusted at this optional boundary.
+            # A bad ROI must not turn a completed V2 export into a failed job.
+            return (), True
+
+    expected_count = face_info.get("face_count")
+    if (
+        isinstance(expected_count, bool)
+        or not isinstance(expected_count, int)
+        or expected_count < 1
+    ):
+        return (), True
+
+    try:
+        detected = tuple(FaceDetector().detect(v2_output_path))
+        if len(detected) != expected_count:
+            return (), True
+
+        # FaceDetector returns normalized coordinates on the exact saved V2
+        # canvas; no second source-to-print transform is needed here.
+        mapped = _expand_normalized_face_regions(detected)
+        if len(mapped) != expected_count:
+            return (), True
+        return mapped, False
+    except Exception:
+        # An uncertain secondary detection must never make the fusion mask
+        # smaller than the face region that GFPGAN may already have changed.
+        return (), True
+
+
 class NiyomSilpCoreAdapter:
     """Compatibility adapter for the NiyomSilp independently orchestrated PyTorch/CUDA core.
 
@@ -51,9 +198,8 @@ class NiyomSilpCoreAdapter:
     def selected_model_available(self, model_name: str = "real_esrgan") -> bool:
         """Check the chosen model, not an unrelated mandatory ESRGAN weight.
 
-        This is a lightweight presence preflight for the desktop UI. HAT still
-        verifies SHA-256, architecture and runtime dependencies when loaded;
-        a file on disk does not imply a working or licensed model.
+        This lightweight preflight checks availability for the selected V2 engine;
+        a checkpoint on disk does not by itself prove licensed inference.
         """
         if model_name == "real_esrgan":
             return self.available
@@ -64,17 +210,31 @@ class NiyomSilpCoreAdapter:
             except (OSError, RuntimeError):
                 return False
         if model_name in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
+            # An arbitrary file called NAFNet-GoPro-width64.pth is NOT a
+            # valid model. Verify the expected full SHA256 before enabling
+            # optional photo deblur in the UI; do not allow a late crash.
             try:
-                from .v211_nafnet_deblur import nafnet_checkpoint_path
-                return self.available and nafnet_checkpoint_path().is_file()
-            except (OSError, RuntimeError):
+                if not self.available:
+                    return False
+                from .v211_nafnet_deblur import (
+                    nafnet_checkpoint_path, verify_nafnet_checkpoint
+                )
+                verify_nafnet_checkpoint(nafnet_checkpoint_path())
+                return True
+            except (OSError, RuntimeError, ValueError):
                 return False
-        if model_name in ("hat", "v2_hat_assist"):
+        if model_name == "v2_hat_assist":
+            # HAT is an optional local-only assist. Require the accepted V2
+            # model, the exact pinned checkpoint hash, and the packaged loader.
+            # No HAT weights are downloaded or bundled by this preflight.
             try:
-                from .v211_hat_engine import checkpoint_path
-                hat_ready = checkpoint_path().is_file()
-                return hat_ready and (self.available if model_name == "v2_hat_assist" else True)
-            except (OSError, RuntimeError):
+                if not self.available:
+                    return False
+                from .v211_hat_engine import checkpoint_path, validate_checkpoint
+                validate_checkpoint(checkpoint_path())
+                from spandrel import ImageModelDescriptor, ModelLoader
+                return ImageModelDescriptor is not None and ModelLoader is not None
+            except (ImportError, OSError, RuntimeError, ValueError):
                 return False
         raise ValueError("V2.1.1: unknown photo model: " + str(model_name))
 
@@ -83,17 +243,10 @@ class NiyomSilpCoreAdapter:
 
     def create_job_engine(self, settings):
         selected_model = getattr(settings, "v211_photo_model", "real_esrgan")
-        if selected_model == "hat":
-            from .v211_hat_engine import HATModelEngine
-            device_manager = self.engine_manager.device_manager
-            selected = (device_manager.get_default_device() if settings.device == "AUTO"
-                        else device_manager.get_device(settings.device))
-            engine = HATModelEngine(selected)
-            self.engine_manager.engine = engine
-        elif selected_model == "v2_hat_assist":
-            # V2 remains the *primary* neural processor. HAT sees the same
-            # input, and its bounded detail augments the V2 output; it never
-            # replaces V2 image geometry, colour, or the GFPGAN face pass.
+        if selected_model == "v2_hat_assist":
+            # Keep V2 as the primary image model. HAT contributes only bounded
+            # high-frequency detail; GFPGAN and the automatic four-engine
+            # bridge still run later in the existing V2 pipeline.
             from .v211_hat_engine import HATModelEngine
             from .v211_hat_assist import HATAssistEngine
             v2_engine = self.engine_manager.create_engine(settings.device)
@@ -105,13 +258,12 @@ class NiyomSilpCoreAdapter:
                     settings.face_regions if settings.face_protection else ()
                 )
             assist = HATModelEngine(v2_engine.selected)
-            engine = HATAssistEngine(
+            return HATAssistEngine(
                 base, assist,
                 strength=float(getattr(settings, "v211_hat_assist_strength", 0.85)),
                 protected_regions=(settings.face_regions if settings.face_protection else ())
             )
-            return engine
-        elif selected_model in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
+        if selected_model in ("v2_nafnet_deblur", "v2_nafnet_photo_only"):
             # Motion deblurring occurs on the original source, BEFORE the
             # approved V2 Real-ESRGAN upscaler and untouched GFPGAN face pass.
             # This is opt-in and never runs a second time on an 8x intermediate.
@@ -276,10 +428,52 @@ class NiyomSilpCoreAdapter:
                 )
             large_result = process_large(
                 self, src, dst, settings, source_size, target_size,
-                model_scale, progress, cancel, use_ai
+                model_scale, progress, cancel, use_ai, complete_progress=False
             )
             if photo_preflight is not None:
                 large_result["photo_preflight"] = photo_preflight
+
+            # V2's disk-tile path completes and saves the accepted raster first.
+            # The optional four-engine bridge now prepares its own seed/reference
+            # and QA crop with libvips when either raster exceeds 18 MP; V2 remains
+            # the master and the bridge still fails closed on unsupported limits.
+            if use_ai and model_scale > 1:
+                from .v211_four_engine_bridge import (
+                    maybe_run_four_engine_assist, map_protected_effect_regions,
+                )
+                face_info = large_result.get("face_protection") or {}
+                mapped_faces, preserve_all_v2_faces = _four_engine_face_guard(
+                    dst, face_info, getattr(settings, "face_regions", None),
+                    source_size, target_size, settings.resize_mode,
+                )
+                try:
+                    mapped_effect_regions = map_protected_effect_regions(
+                        getattr(settings, "v211_protected_effect_regions", ()),
+                        source_size, target_size, settings.resize_mode,
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    # V2 is already durably saved. An invalid/unmappable effect
+                    # ROI must not let the large-image bridge alter styled text.
+                    large_result["four_engine_research"] = {
+                        "status": "styled_effect_protection_v2_only",
+                        "reason": "effect_region_mapping_failed",
+                        "v2_output_preserved": True,
+                        "quality_certified": False,
+                    }
+                else:
+                    large_result["four_engine_research"] = maybe_run_four_engine_assist(
+                        src, dst, use_ai=use_ai, cancel=cancel,
+                        protected_regions=mapped_faces,
+                        protected_effect_regions=mapped_effect_regions,
+                        preserve_all_v2_faces=preserve_all_v2_faces,
+                        progress=progress,
+                        resize_mode=settings.resize_mode,
+                    )
+            else:
+                large_result["four_engine_research"] = None
+
+            if progress:
+                progress(100, "เสร็จแล้ว")
             return large_result
 
         # Only small images reach Pillow. Large masters must use libvips for
@@ -287,6 +481,13 @@ class NiyomSilpCoreAdapter:
         # Pillow's decompression-bomb guard on legitimate print files.
         with Image.open(src) as source_image:
             oriented = ImageOps.exif_transpose(source_image)
+            # Pixel operations and native upscalers do not perform a colour
+            # space transform. Keep the source ICC bytes attached to the V2
+            # raster so the durable PNG and the later four-engine QA path do
+            # not silently become untagged RGB.
+            source_icc_profile = _rgb_png_compatible_icc(
+                oriented.info.get("icc_profile"), oriented.mode
+            )
             has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
             source_alpha = oriented.convert("RGBA").getchannel("A").copy() if has_alpha else None
 
@@ -466,6 +667,10 @@ class NiyomSilpCoreAdapter:
         if cancel and cancel():
             raise InterruptedError("Processing stopped by user")
 
+        # The accepted V2 raster is saved first. The optional four-engine
+        # bridge runs only against that durable PNG and can create a separate
+        # QA sidecar; it never changes the in-memory or on-disk V2 deliverable.
+        four_engine_evidence = None
         if progress:
             progress(96, "Save Output")
 
@@ -474,12 +679,17 @@ class NiyomSilpCoreAdapter:
         # RGB PNG stays pixel-identical to the final core result. CMYK/ICC and
         # alternate file formats are export-only operations after AI processing.
         if settings.color_mode.upper() == "RGB" and dst.suffix.lower() == ".png":
-            output.save(
-                dst,
-                format="PNG",
-                dpi=(settings.dpi, settings.dpi),
-                compress_level=3,
-            )
+            png_options = {
+                "dpi": (settings.dpi, settings.dpi),
+                "compress_level": 3,
+            }
+            if source_icc_profile:
+                png_options["icc_profile"] = source_icc_profile
+            else:
+                # Pillow Image.convert() copies the source info dictionary.
+                # Remove a stale CMYK/Lab ICC inherited by RGB pixel samples.
+                output.info.pop("icc_profile", None)
+            output.save(dst, format="PNG", **png_options)
         else:
             # Pass transparency as an explicit channel. Treating an RGBA
             # ndarray as RGB silently dropped or misread alpha in TIFF export.
@@ -499,6 +709,45 @@ class NiyomSilpCoreAdapter:
                 color_mode=settings.color_mode,
                 icc_profile_path=settings.icc_profile_path,
             )
+
+        # Four native engines are now launched only AFTER the accepted V2 file
+        # is safely written. Their result is a distinct local QA sidecar, never
+        # a replacement for V2. Unsupported scale/format and cancellation are
+        # reported without undoing the completed V2 export.
+        if use_ai and model_scale > 1:
+            from .v211_four_engine_bridge import (
+                maybe_run_four_engine_assist, map_protected_effect_regions,
+            )
+            # Map explicit or automatically detected GFPGAN faces to the
+            # exact final V2 canvas. If the automatic detector cannot reproduce
+            # the same face count, keep the entire V2 raster as the safe result.
+            mapped_faces, preserve_all_v2_faces = _four_engine_face_guard(
+                dst, face_info, getattr(settings, "face_regions", None),
+                source_size, target_size, settings.resize_mode,
+            )
+            try:
+                mapped_effect_regions = map_protected_effect_regions(
+                    getattr(settings, "v211_protected_effect_regions", ()),
+                    source_size, target_size, settings.resize_mode,
+                )
+            except (TypeError, ValueError, OverflowError):
+                # V2 is already safely saved. Unknown styled-effect geometry
+                # fails closed: do not launch native engines or publish a QA sidecar.
+                four_engine_evidence = {
+                    "status": "styled_effect_protection_v2_only",
+                    "reason": "effect_region_mapping_failed",
+                    "v2_output_preserved": True,
+                    "quality_certified": False,
+                }
+            else:
+                four_engine_evidence = maybe_run_four_engine_assist(
+                    src, dst, use_ai=use_ai, cancel=cancel,
+                    protected_regions=mapped_faces,
+                    protected_effect_regions=mapped_effect_regions,
+                    preserve_all_v2_faces=preserve_all_v2_faces,
+                    progress=progress,
+                    resize_mode=settings.resize_mode,
+                )
 
         if progress:
             progress(100, "เสร็จแล้ว")
@@ -524,10 +773,21 @@ class NiyomSilpCoreAdapter:
             "dpi": settings.dpi,
             "device": device_name,
             "engine": "NiyomSilp Design Engine",
-            "model": ("V2 RealESRGAN_x4plus + NAFNet photo-only deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_photo_only" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + NAFNet GoPro deblur" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + SwinIR pre-denoise" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1 else ("V2 RealESRGAN_x4plus + HAT Assist" if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1 else ("HAT_SRx4_ImageNet-pretrain" if getattr(settings, "v211_photo_model", "real_esrgan") == "hat" and use_ai and model_scale > 1 else "RealESRGAN_x4plus"))))),
+            "model": (
+                "V2 RealESRGAN_x4plus + NAFNet photo-only deblur"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_photo_only" and use_ai and model_scale > 1
+                else "V2 RealESRGAN_x4plus + NAFNet GoPro deblur"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_nafnet_deblur" and use_ai and model_scale > 1
+                else "V2 RealESRGAN_x4plus + SwinIR pre-denoise"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_swinir_pre" and use_ai and model_scale > 1
+                else "V2 RealESRGAN_x4plus + HAT Assist"
+                if getattr(settings, "v211_photo_model", "real_esrgan") == "v2_hat_assist" and use_ai and model_scale > 1
+                else "RealESRGAN_x4plus"
+            ),
             "graphic_ai_model": ("RealESRGAN_x4plus_anime_6B" if use_ai and model_scale > 1 and getattr(settings, "graphic_ai", False) and settings.text_graphic_boost > 0 else None),
             "runtime": "PyTorch",
             "face_protection": face_info,
             "photo_preflight": photo_preflight,
+            "four_engine_research": four_engine_evidence,
             "verified_exact_text": None,  # image-only: no raster text rewriting
         }

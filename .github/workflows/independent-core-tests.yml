@@ -2,7 +2,7 @@ name: Independent Core regression checks
 on:
   pull_request:
   push:
-    branches: [codex/niyomsil-independent-core, dev/niyomsil-design-v2]
+    branches: [codex/niyomsil-independent-core, dev/niyomsil-design-v2, work/v211-four-engine-v2-bridge-20261103]
 jobs:
   tests:
     strategy:
@@ -10,8 +10,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
       - run: python -m pip install pytest numpy Pillow opencv-python-headless pypdf uharfbuzz freetype-py -r requirements_v2_large_images.txt

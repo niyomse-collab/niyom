@@ -34,6 +34,10 @@ class V21Settings(EnhanceSettings):
     # Deprecated legacy configuration retained for deserialization only.
     # Any nonempty value is rejected before inference by the image-only adapter.
     v211_verified_text_regions: tuple = ()
+    # Explicit source-normalized raster ROIs whose styled fills/strokes/glow/
+    # shadow/bevel must remain pixel-identical to V2 during four-engine QA.
+    # This is a protection mask only: no OCR, retyping, or effect reconstruction.
+    v211_protected_effect_regions: tuple = ()
 
     # Experimental transfer is opt-in; preserve the established photo core by default.
     graphic_ai: bool = False
