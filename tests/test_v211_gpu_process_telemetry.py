@@ -1399,3 +1399,82 @@ def test_probe_constructor_closes_nvml_when_inventory_initialization_raises(monk
         telemetry.NvmlProcessProbe()
 
     assert shutdown_calls == ["shutdown"]
+
+
+def test_nvml_inventory_missing_target_uses_unique_dxgi_wddm_fallback(monkeypatch):
+    """A DXGI-visible target may be verified when NVML omits that adapter."""
+    from types import SimpleNamespace
+    from tools import v211_gpu_process_telemetry as telemetry
+
+    probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+    probe.target_name = "gtx 1660 ti"
+    probe.status = "ready"
+    other_handle = object()
+    probe._devices = [{
+        "index": 0,
+        "name": "NVIDIA RTX 4060",
+        "handle": other_handle,
+    }]
+    probe._process_functions = {
+        "graphics": [("graphics_v1", object(), object)],
+        "compute": [],
+    }
+    probe._memory_function = None
+    probe._dxgi_adapters = [{
+        "description": "NVIDIA GeForce GTX 1660 Ti",
+        "vendor_id": 0x10DE,
+        "luid": (0, 0xE7F7),
+    }]
+    probe._dxgi_status = "ready"
+    probe._pdh_sessions = {}
+    activity = {
+        "available": True,
+        "verified": True,
+        "status": "gpu_engine_activity_observed",
+        "source": "windows_gpu_engine_pdh",
+        "pid": 4321,
+        "sample_count": 3,
+        "counter_count": 2,
+        "active_sample_count": 2,
+        "max_utilization_percent": 8.5,
+        "adapter_luid": "0x00000000_0x0000e7f7",
+        "target_adapter_luid": "0x00000000_0x0000e7f7",
+    }
+    memory = {
+        "device_memory_available": True,
+        "device_memory_status": "ok",
+        "device_memory_total_bytes": 6 * 1024 * 1024 * 1024,
+        "device_memory_used_bytes": 1024 * 1024 * 1024,
+        "device_memory_free_bytes": 5 * 1024 * 1024 * 1024,
+        "device_memory_source": "windows_gpu_adapter_memory_pdh",
+        "device_memory_sample_count": 3,
+        "device_memory_luid": "0x00000000_0x0000e7f7",
+        "vram_verified": True,
+    }
+    monkeypatch.setattr(telemetry, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        probe, "_query_process_list",
+        lambda _function, _info_type, _handle: (True, []),
+    )
+    monkeypatch.setattr(
+        probe, "_sample_windows_gpu_engine_activity",
+        lambda pid: dict(activity, pid=pid),
+    )
+    monkeypatch.setattr(
+        probe, "_query_wddm_device_memory",
+        lambda _adapter: dict(memory),
+    )
+
+    result = probe(4321, "real_esrgan")
+
+    assert result["verified"] is True
+    assert result["status"] == "verified"
+    assert result["evidence_source"] == "windows_gpu_engine_pdh_dxgi_luid"
+    assert result["adapter_name"] == "NVIDIA GeForce GTX 1660 Ti"
+    assert result["gpu_engine_adapter_luid_match"] is True
+    assert result["gpu_engine_sample_count"] == 3
+    assert result["device_memory_available"] is True
+    assert result["device_memory_source"] == "windows_gpu_adapter_memory_pdh"
+    assert result["vram_verified"] is True
+    assert "adapter_index" not in result
+    assert result["engine"] == "real_esrgan"

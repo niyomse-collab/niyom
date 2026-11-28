@@ -1001,10 +1001,17 @@ class NvmlProcessProbe:
             }:
                 result["status"] = dxgi_status
                 result["device_memory_status"] = dxgi_status
+        # If NVML is initialized but does not enumerate the requested adapter,
+        # a unique DXGI target plus live PID/LUID-matched WDDM activity can still
+        # provide the same conservative WDDM-only evidence used when NVML is
+        # unavailable. _wddm_observation_from_activity rechecks the unique DXGI
+        # adapter and the whole-device memory source; missing/ambiguous DXGI or
+        # stale/incorrect PID evidence remains unverified.
         fallback_statuses = {
             "gpu_memory_not_confirmed",
             "pid_not_observed",
             "process_api_unavailable",
+            "target_adapter_missing",
         }
         if os.name == "nt" and result.get("status") in fallback_statuses:
             activity = self._sample_windows_gpu_engine_activity(pid)
