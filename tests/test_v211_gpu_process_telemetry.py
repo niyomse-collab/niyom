@@ -1538,3 +1538,84 @@ def test_nvml_missing_target_does_not_override_pid_on_other_adapter(monkeypatch)
     assert result["adapter_name"] == "NVIDIA RTX 4060"
     assert result["adapter_index"] == 1
     assert pdh_calls == []
+
+
+
+def test_nvml_missing_target_requires_unique_dxgi_before_wddm_fallback(monkeypatch):
+    """Missing or ambiguous DXGI inventory must never trigger WDDM fallback."""
+    from types import SimpleNamespace
+    from tools import v211_gpu_process_telemetry as telemetry
+
+    cases = [
+        (
+            [
+                {
+                    "description": "NVIDIA GeForce GTX 1660 Ti",
+                    "vendor_id": 0x10DE,
+                    "luid": (0, 0xE7F7),
+                },
+                {
+                    "description": "NVIDIA GeForce GTX 1660 Ti",
+                    "vendor_id": 0x10DE,
+                    "luid": (0, 0xE7F8),
+                },
+            ],
+            "target_dxgi_adapter_ambiguous",
+        ),
+        (
+            [
+                {
+                    "description": "Intel UHD Graphics",
+                    "vendor_id": 0x8086,
+                    "luid": (0, 0x1234),
+                },
+            ],
+            "nvidia_dxgi_adapter_not_present",
+        ),
+        ([], "target_adapter_missing"),
+    ]
+
+    for dxgi_adapters, expected_status in cases:
+        probe = telemetry.NvmlProcessProbe.__new__(telemetry.NvmlProcessProbe)
+        probe.target_name = "gtx 1660 ti"
+        probe.status = "ready"
+        probe._devices = [{
+            "index": 0,
+            "name": "NVIDIA RTX 4060",
+            "handle": object(),
+        }]
+        probe._process_functions = {
+            "graphics": [("graphics_v1", object(), object)],
+            "compute": [],
+        }
+        probe._memory_function = None
+        probe._dxgi_adapters = dxgi_adapters
+        probe._dxgi_status = "ready"
+        probe._pdh_sessions = {}
+        monkeypatch.setattr(telemetry, "os", SimpleNamespace(name="nt"))
+        monkeypatch.setattr(
+            probe, "_query_process_list",
+            lambda _function, _info_type, _handle: (True, []),
+        )
+        pdh_calls = []
+        monkeypatch.setattr(
+            probe, "_sample_windows_gpu_engine_activity",
+            lambda _pid: pdh_calls.append(True) or {
+                "available": True,
+                "verified": True,
+                "status": "gpu_engine_activity_observed",
+                "pid": 4321,
+                "sample_count": 2,
+                "counter_count": 1,
+                "active_sample_count": 1,
+                "max_utilization_percent": 5.0,
+                "adapter_luid": "0x00000000_0x0000e7f7",
+                "target_adapter_luid": "0x00000000_0x0000e7f7",
+            },
+        )
+
+        result = probe(4321, "real_esrgan")
+
+        assert result["verified"] is False
+        assert result["status"] == expected_status
+        assert pdh_calls == []
