@@ -2106,3 +2106,36 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - Tiled path ใช้ tile core 512 px + overlap 32 px และ native 2x pass จาก half-target seed. Canvas 4x เป็น output geometry ไม่ใช่ native 4x/multi-pass model inference; การทำ 4x native/multi-pass ยังไม่รับรอง.
 - ยังไม่มี private human A/B ครบ 12 หมวดเทียบ accepted V2, Photoshop/MainTop/RIP หรือ physical print QA. V2 ยังคงเป็น accepted master.
 - ไม่มี V1/V2 Stable modification, merge/release, customer image, native binary/weight commit หรือ quality-superiority claim.
+
+
+## 29 พฤศจิกายน 2569 01:22 ICT — native Vulkan/DXGI LUID binding และ CI ล่าสุด
+
+### แก้ความคลาดเคลื่อนจากรายงานก่อนหน้า
+ข้อความในหัวข้อ 28 พฤศจิกายนที่ระบุว่า diagnostic ยังไม่ได้อ่าน `VkPhysicalDeviceIDProperties.deviceLUID` ถูก supersede ด้วยโค้ดล่าสุดแล้ว การจับคู่ LUID ถูกเพิ่มใน source/test หลัง HEAD `a4b6b9aef2e41f117daa35bbefcb8e19b13ea497`; PR HEAD ปัจจุบันคือ `b8f227a0c89ad0f5044c8c58639064102eebd815`.
+
+### การทำงานที่มีอยู่ใน source ปัจจุบัน
+- `tools/v211_shop_gpu_diagnostic.py` เรียก native Vulkan loader เพื่ออ่าน physical-device index และ `VkPhysicalDeviceIDProperties.deviceLUID`; DXGI enumeration อ่าน `DXGI_ADAPTER_DESC1.AdapterLuid`, vendor/device ID และชื่อ adapter
+- `tools/v211_gpu_device_binding.py` จับคู่ LUID ก่อนสร้าง runtime manifest; ต้องมี native Vulkan inventory, GTX 1660 Ti ที่ไม่กำกวม, NVIDIA vendor ID, device ID ตรงกัน, valid LUID, single-bit deviceNodeMask และ DXGI LUID ที่ตรงกันทุกไบต์ หากขาด/ซ้ำ/ไม่ตรงจะ fail-closed
+- `signprint_ai/v211_four_engine_bridge.py` เรียก `write_bound_manifest()` ก่อนเปิด native engines; ได้ manifest ชั่วคราวใน work directory โดยไม่เขียนทับ installed manifest และส่ง NCNN `-g` ให้ Real-ESRGAN/Waifu2x/Real-CUGAN ส่วน Anime4KCPP ใช้ `-p/-d` ของตัวเอง
+- มี prelaunch free-VRAM check ก่อนแต่ละ engine และยังต้องตรวจ telemetry ของ PID ระหว่างทำงานเพื่อยืนยันว่า process ใช้ adapter LUID เป้าหมายจริง
+- `tests/test_v211_gpu_device_binding.py` ครอบคลุม missing/invalid LUID, LUID mismatch, duplicate DXGI adapter, node mask, vendor/index ambiguity และ manifest fail-closed; `tests/test_v211_shop_gpu_diagnostic.py` ทดสอบ probe ที่ inject DXGI inventory บน Linux
+- Commit ล่าสุด `b8f227a` เรียก helper DXGI ที่มี Windows guard โดยไม่ครอบด้วย `os.name == "nt"` ใน caller เพื่อให้ regression test inject inventory บน Linux ได้; บน non-Windows helper คืน inventory ว่างตามเดิม จึงไม่ทำให้ Linux ถูกอ้างว่ามี DXGI adapter
+
+### CI ล่าสุดของ PR #20
+- Exact PR HEAD: `b8f227a0c89ad0f5044c8c58639064102eebd815`; PR #20 ยังคง OPEN / DRAFT / UNMERGED บน `work/v211-four-engine-v2-bridge-20261103`. Workflow PR ใช้ merge commit `5ac04bef4adb9d92fd829545d07f665f99ba6f01` สำหรับชุด Actions ด้านล่าง
+- Independent Core #1961: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/46174804627) — Windows **1,191 passed / 1 skipped**, Ubuntu **1,189 passed / 3 skipped**; compileall ผ่านทั้งสองระบบ
+- Windows Candidate #1151: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/46174804534) — `bridge-tests` ผ่าน **521 tests** และ privacy/provisioning/hash ผ่าน **70 tests**; ณ เวลาบันทึกนี้ `windows-v2-candidate` ยังอยู่ระหว่าง Build frozen EXE จึงยังไม่มี artifact ที่รับรองได้
+- Official Archive Audit #479: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/46174804666) — archive audit **32 passed**, provisioning tests **11 passed**; archive ทางการทั้งสี่ถูก hash/member/path ตรวจและ provision เข้า ephemeral QA directory
+- Native CLI Smoke #634: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/46174804594) — เป็น classified hosted-runner diagnostic เท่านั้น: Real-CUGAN และ Anime4KCPP สร้าง synthetic 2x output ที่ผ่าน invariant checks; Real-ESRGAN ล้มที่ `vkCreateInstance failed -9`; Waifu2x ล้มที่ Vulkan initialization พร้อม exit `0xC0000005`. DXGI adapter verification **0/4**, VRAM samples **0**, `real_inference_verified=false`, `quality_improvement_verified=false`. ผลนี้ไม่ใช่ shop-GPU acceptance และไม่หักล้างผลที่เจ้าของเคยทดสอบบน Windows 11 GTX 1660 Ti
+
+### ตรวจรักษา V2/GFPGAN และไฟล์ใน PR
+- เปรียบเทียบ Git Blob SHA ของ 9 protected paths ระหว่าง PR #20 base / PR #18 HEAD `288dd8501c230a118d9a7e60d2522a2cc7411bcc` กับ PR #20 HEAD `b8f227a`: **9/9 byte-identical**
+- ตรวจ changed-file list ของ PR #20 ทั้ง 90 paths: ไม่มี V1 path, native executable/DLL/archive/model-weight/checkpoint หรือ customer image; ไม่มี protected face/GFPGAN implementation path เปลี่ยน
+- PR #18 และ #20 ยังคง Draft; ไม่มี merge/release และ V2 ยังคงเป็น accepted master
+
+### Acceptance gates ที่ยังเปิดอยู่
+- Candidate #1151 ต้องจบ frozen Windows build และ provenance checks ก่อนจึงจะมี artifact ให้ทดสอบ
+- LUID binding เป็น prelaunch identity mapping ไม่ใช่หลักฐานว่า process ใช้ GPU จริง; ต้องได้ per-process PID/adapter-LUID/active-engine telemetry ครบ 4/4 บนเครื่องร้าน
+- ยังไม่รับรอง 6 GB VRAM peak, sustained tiled inference >18 MP, cancellation ขณะ GPU load, native 4x/multi-pass, private 12-category A/B, Photoshop/MainTop/RIP หรือ physical print QA
+- `model_weights_and_license_certified=false` และ `license_redistribution_approved=false` ยังคงเดิม; การ audit archive/source license ไม่ใช่การรับรองสิทธิ model weights
+- V2 remains accepted master. ไม่มี V1/V2 Stable change, merge/release, customer-image commit หรือ quality-superiority claim.
