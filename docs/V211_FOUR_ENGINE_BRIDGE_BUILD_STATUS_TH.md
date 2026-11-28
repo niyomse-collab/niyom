@@ -2065,3 +2065,44 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - Sustained native tiled inference above 18 MP, real 4x/multi-pass behavior (the current CLI evidence is 2x), cancellation under GPU load and peak RAM/VRAM measurement.
 - Private 12-category visual A/B against accepted V2, including people/faces, animals, objects/frames, Thai patterns, Thai/English/Chinese text, flat colours, gradients and transparent edges; then Photoshop, MainTop/RIP and physical print QA.
 - V2 remains the accepted master. No V1/V2 Stable change, merge/release, customer image, native binary/weight commit or quality-superiority claim.
+
+
+## 28 พฤศจิกายน 2569 23:54 ICT — exact PR HEAD a4b6b9a / Candidate #1147 / Core #1953
+
+### ขอบเขตและการคุ้มครอง V2/GFPGAN
+- PR #20 HEAD: `a4b6b9aef2e41f117daa35bbefcb8e19b13ea497`, branch `work/v211-four-engine-v2-bridge-20261103`; base ยังคง PR #18 HEAD `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- PR #20 และ PR #18 ยังคง OPEN / DRAFT / UNMERGED. ไม่มีการ merge หรือ release.
+- ตรวจ Git Blob SHA โดยตรงครบ **9/9 protected face/GFPGAN paths** ระหว่าง PR #18 base กับ PR #20 HEAD: `.github/workflows/verify-v211-face.yml`, `face_module/face_protection.py`, `detection.py`, `selection.py`, `face_module/__init__.py`, `large_faces.py`, `v211_face_contract.py`, `test_v211_face_contract.py`, `test_v211_large_face_audit.py`. ทั้ง 9 รายการ byte-identical.
+- ตรวจ changed-file list ทั้ง 90 paths: ไม่มี V1-named path, ไม่มี protected `face_module`/GFPGAN implementation path, ไม่มี native executable/DLL/archive/model-weight/checkpoint หรือ customer image. งานยังอยู่บน research PR #20 เท่านั้น.
+
+### Independent Core #1953 — SUCCESS บน exact PR HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46150577743
+- Windows **1,180 passed / 1 skipped**; Ubuntu **1,178 passed / 3 skipped**; `compileall` ผ่านทั้งสองระบบ.
+
+### Windows Candidate #1147 — SUCCESS บน exact PR HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46150577697
+- `bridge-tests` ผ่าน **510 tests**; privacy/provisioning/hash ผ่าน **70 tests**; รวม **580 passed**.
+- Frozen Windows candidate ผ่าน: Inno Setup consent/uninstall lifecycle fixture, V2 import smoke, streamed single-page BigTIFF/libvips path, packaged provisioning dispatch, การดาวน์โหลดและติดตั้ง official archives ทั้งสี่ผ่าน frozen EXE ใน isolated CI profile, independent four-engine manifest verification, consented cache cleanup, diagnostic dispatch, PowerShell preflight parsing, BUILD_PROOF source SHA และ installer-slice SHA256.
+- Installer SHA256: `f120bba228bdd6dbfc13813d49de12e223aae63d0e698359b1b32e70510551ff`.
+- Artifact ID **15266675882**, ขนาด **2,586,011,554 bytes**, ZIP SHA256 `7d37bb3549e3f5242ebc36e69b8b281d2c0f82c430c3412a1ccf51beb478709c`; หมดอายุ **5 ธ.ค. 2569 21:11 ICT**. [Download Candidate #1147](https://github.com/niyomse-collab/niyom/actions/runs/46150577697/artifacts/15266675882).
+- PyInstaller มี warning ที่ไม่ทำให้ build ล้ม: ไม่พบ driver-provided `nvcuda.dll` บน hosted runner และ optional `tbb12.dll`. ไม่ได้เดาหรือยัด DLL เหล่านี้เข้าแพ็กเกจ; ต้องตรวจ runtime บนเครื่องร้านก่อนสรุปว่าเกี่ยวข้อง.
+
+### Official Archive Audit #475 — SUCCESS เฉพาะ provenance/provisioning
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46150577691; report artifact ID **15265791741**.
+- ตรวจและ provision archive ทางการทั้งสี่เข้า ephemeral QA directory; manifest มีครบ `real_esrgan, waifu2x, real_cugan, anime4k`. เอกสาร source license ที่ระบุถูกดึงและ SHA256 แล้ว.
+- SHA256: Real-ESRGAN v0.2.5.0 `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d`; Waifu2x 20250915 `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87`; Real-CUGAN 20220728 `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01`; Anime4KCPP v3.2.0 `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19`.
+- Waifu2x และ Anime4KCPP มี publisher digest ที่ตรวจได้; Real-ESRGAN และ Real-CUGAN ยังใช้ observed CI SHA256 pin เพราะ upstream ไม่เผยแพร่ archive digest. ดังนั้น `all_upstream_digests_pinned=false`. `model_weights_and_license_certified=false` และ `license_redistribution_approved=false` ยังคงเป็น false; การดึง source license สำเร็จไม่ใช่การรับรองสิทธิของ model weights หรือคำวินิจฉัยทางกฎหมาย. ไม่มี binary/weights ถูก commit หรือ bundle ใน installer.
+
+### Native CLI Smoke #628 — classified Hosted Runner diagnostic only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46150577804; synthetic-only report artifact ID **15266001216**.
+- Real-CUGAN และ Anime4KCPP เปิด native process และสร้าง synthetic 2x RGB กับ RGBA/ICC/300-DPI outputs ที่ผ่าน invariant checks; ไม่ได้ยืนยันว่าใช้ NVIDIA GPU จริง.
+- Real-ESRGAN ถูก block ที่ Vulkan initialization: `vkCreateInstance failed -9`. Waifu2x พบ Vulkan initialization error เดียวกันร่วมกับ exit `0xC0000005`.
+- `completed_engine_count=2`; NVIDIA DXGI adapter verification **0/4**; runtime GPU use **false**; VRAM samples **0**; `real_inference_verified=false`; `quality_improvement_verified=false`. Workflow SUCCESS หมายถึงจัดประเภทข้อจำกัดของ Hosted Runner ได้ ไม่ใช่ all-four GPU inference pass และไม่หักล้างผลทดสอบบนเครื่องร้านที่เจ้าของเคยรายงาน.
+- การเลือกอุปกรณ์ปัจจุบัน: Vulkan loader enumeration ให้ physical-device index ที่ส่งเป็น NCNN `-g` หลังตรวจชื่อ GTX 1660 Ti ให้เหลือหนึ่งรายการ; Anime4KCPP รับ `-p/-d` แยกต่างหาก. หลังเริ่ม process ใช้ PID telemetry และ DXGI LUID ของ Windows เพื่อตรวจ activity บน adapter เป้าหมาย. Diagnostic ยังไม่ได้อ่าน `VkPhysicalDeviceIDProperties.deviceLUID` เพื่อจับคู่ Vulkan index กับ DXGI LUID โดยตรงก่อน launch; จึงต้องคง runtime PID/LUID verification เป็น hard gate และตรวจบนเครื่องร้านก่อนรับรอง.
+
+### สิ่งที่ยังไม่ผ่าน / ห้ามอ้างว่าสำเร็จ
+- ไม่มีการเข้าถึงหรือรัน self-hosted shop GPU ในรอบนี้. Candidate #1147 พิสูจน์ frozen packaging/provisioning บน isolated CI profile เท่านั้น ไม่ใช่การติดตั้งจริงบน Windows 11 GTX 1660 Ti.
+- ยังไม่พิสูจน์ real four-engine inference, Vulkan adapter binding 4/4, live 6 GB VRAM guard/peak telemetry, cancellation ระหว่าง GPU load หรือ sustained tiled inference >18 MP บนเครื่องร้าน.
+- Tiled path ใช้ tile core 512 px + overlap 32 px และ native 2x pass จาก half-target seed. Canvas 4x เป็น output geometry ไม่ใช่ native 4x/multi-pass model inference; การทำ 4x native/multi-pass ยังไม่รับรอง.
+- ยังไม่มี private human A/B ครบ 12 หมวดเทียบ accepted V2, Photoshop/MainTop/RIP หรือ physical print QA. V2 ยังคงเป็น accepted master.
+- ไม่มี V1/V2 Stable modification, merge/release, customer image, native binary/weight commit หรือ quality-superiority claim.
