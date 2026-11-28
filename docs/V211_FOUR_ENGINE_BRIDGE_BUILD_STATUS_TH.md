@@ -2139,3 +2139,40 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - ยังไม่รับรอง 6 GB VRAM peak, sustained tiled inference >18 MP, cancellation ขณะ GPU load, native 4x/multi-pass, private 12-category A/B, Photoshop/MainTop/RIP หรือ physical print QA
 - `model_weights_and_license_certified=false` และ `license_redistribution_approved=false` ยังคงเดิม; การ audit archive/source license ไม่ใช่การรับรองสิทธิ model weights
 - V2 remains accepted master. ไม่มี V1/V2 Stable change, merge/release, customer-image commit หรือ quality-superiority claim.
+
+## 29 พฤศจิกายน 2569 02:24 ICT — Windows Candidate #1152 เสร็จแล้ว
+
+### สถานะ HEAD และขอบเขตการเปลี่ยนแปลง
+- PR #20 HEAD ณ รอบตรวจนี้: `360d798490063606f78c01318121a2706a9a9b6a`; branch `work/v211-four-engine-v2-bridge-20261103`; OPEN / DRAFT / UNMERGED.
+- Code/Test HEAD: `b8f227a0c89ad0f5044c8c58639064102eebd815`. Commit `360d798` ที่ใช้สร้าง Candidate เปลี่ยนเฉพาะเอกสารสถานะนี้; production code และ tests ตรงกับ Code/Test HEAD ดังกล่าว.
+- PR #20 มี 90 changed paths; changed-file list ไม่มี path ที่มีชื่อ face/GFPGAN/large_faces และไม่มี executable, DLL, archive, model weights หรือ customer image.
+- PR #18 ยังคงเป็น base ของ PR #20 ที่ SHA `288dd8501c230a118d9a7e60d2522a2cc7411bcc`; ไม่ได้แก้ PR #18, V1 หรือ V2 Stable.
+
+### GitHub Actions ล่าสุด — PR #20
+- Independent Core #1963: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/46176449360) — Windows **1,191 passed / 1 skipped**; Ubuntu **1,189 passed / 3 skipped**; compileall ผ่านทั้งสองระบบ.
+- Windows Candidate #1152: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/46176449336) — ทั้ง `bridge-tests` และ `windows-v2-candidate` SUCCESS; Bridge/Fusion/coordination **521 passed** และ privacy/provisioning/hash **70 passed**.
+- Frozen Candidate checks ที่ผ่าน: V2 packaged import smoke, TIFF/BigTIFF path smoke, Inno Setup synthetic no-consent/consent/setup-failure/uninstall lifecycle, packaged provisioning `--check-only`, provisioner dispatch ของ Frozen EXE, ดาวน์โหลด/ตรวจ archive ทางการและ provision ทั้ง 4 ลง isolated LOCALAPPDATA profile, ตรวจ manifest อีกครั้ง, isolated cache cleanup, diagnostic dispatch, BUILD_PROOF exact source SHA, PowerShell provenance และ installer-slice SHA256.
+- Candidate #1152 **ผ่าน packaging/provenance** เท่านั้น. Frozen archive provisioning ผ่าน แต่ native GPU inference และ visual A/B ยังเป็นคนละ acceptance gate.
+- Installer SHA256: `205212234be2c57bc5ccbc861d453756b8ce47773882ccbef2cb88bf77a7b331`.
+- Artifact ID **15276684298**, ขนาด **2,585,985,183 bytes**, artifact ZIP SHA256 `9ba0d209877efc2f67c0519424181deb7dfae77329a307036d9c11a2a96170a7`; หมดอายุ **6 ธันวาคม 2569 02:06 ICT**. [ดาวน์โหลด Candidate #1152](https://github.com/niyomse-collab/niyom/actions/runs/46176449336/artifacts/15276684298).
+
+### Official archive audit และ native CLI diagnostic
+- Official Archive Audit #480: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/46176449362) — archive audit **32 passed**, provisioning tests **11 passed**; ทั้งสี่ archive ดาวน์โหลดจากต้นทาง ตรวจ SHA256/โครงสร้าง แล้ว provision เข้า ephemeral QA directory แบบ transactional. รายงานระบุ `real_inference_verified=false`.
+- Native CLI Smoke #635: [Actions](https://github.com/niyomse-collab/niyom/actions/runs/46176449285) — เป็น hosted-runner diagnostic เท่านั้น; Real-CUGAN และ Anime4KCPP สร้าง synthetic 2x output ได้, Real-ESRGAN ถูก block ที่ `vkCreateInstance failed -9`, Waifu2x ถูก block ที่ Vulkan initialization พร้อม exit `0xC0000005`. DXGI adapter verification **0/4**, VRAM samples **0**, completed synthetic engines **2/4**, `real_inference_verified=false`, `quality_improvement_verified=false`. ไม่ใช่ผลทดสอบเครื่องร้านและไม่หักล้างผลที่เจ้าของเคยทดสอบบน GTX 1660 Ti.
+- Archive SHA256 pins ยังเป็นชุดเดิม: Real-ESRGAN `abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d` และ Real-CUGAN `c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01` เป็น observed CI pins; Waifu2x `7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87` และ Anime4KCPP `82897b0f03ddb88ab3d1affb745baf99506cfe3ceffaeaf73796c6dea4077f19` เป็น publisher digests.
+- Source-license documents ถูกดึงและ hash แล้ว แต่ `model_weights_and_license_certified=false`, `license_redistribution_approved=false`; ยังไม่อ้างว่ารับรองสิทธิ model weights หรือสิทธิแจกจ่ายครบ.
+
+### Build warnings ที่ต้องแยกจาก failure
+- PyInstaller รายงาน optional/missing imports `expecttest`, `pycparser.lextab`, `pycparser.yacctab`, `scipy.special._cdflib`, รวมถึง driver-provided `nvcuda.dll` และ optional Numba `tbb12.dll`. Candidate build, packaged import smoke และ dispatch tests ผ่าน.
+- ไม่ยัด `nvcuda.dll` หรือ `tbb12.dll` ที่ไม่ได้ตรวจ provenance เข้าแพ็กเกจ: `nvcuda.dll` เป็นส่วนของ NVIDIA driver; ยังไม่มีหลักฐานว่าโปรแกรมต้องใช้ Numba TBB threading layer. ตรวจเฉพาะเมื่อ shop runtime แสดง missing-library error ที่ทำซ้ำได้.
+
+### ตรวจรักษา PR #18 / V2/GFPGAN
+- PR #18 HEAD ยังตรงกับ PR #20 base SHA ข้างต้น; Independent Core run [#41643591311](https://github.com/niyomse-collab/niyom/actions/runs/41643591311) ผ่าน: Windows **556 passed / 1 skipped**, Ubuntu **554 passed / 3 skipped**, compileall ผ่านทั้งสองระบบ.
+- เปรียบเทียบ Git Blob SHA ของ face/GFPGAN paths ที่ PR #18 เปลี่ยนทั้ง 6 ไฟล์ระหว่าง PR #18 HEAD กับ PR #20 HEAD: **6/6 identical** — `.github/workflows/verify-v211-face.yml`, `signprint_ai/face_module/face_protection.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`, `tests/test_v211_large_face_audit.py`.
+- ไม่มีการแก้ protected face/GFPGAN path ใน PR #20; PR #18/#20 ยังคง Draft และไม่มี Merge/Release.
+
+### Acceptance gates ที่ยังเปิดอยู่
+- ต้องติดตั้ง Candidate #1152 และรัน `tools/Run-V211-ShopGPU-Diagnostic.ps1` บน Windows 11 GTX 1660 Ti เพื่อเก็บ Vulkan inventory, deviceLUID/DXGI LUID, NVIDIA-SMI และ adapter telemetry จากเครื่องจริง.
+- ต้องพิสูจน์ native PID/adapter LUID/GPU activity และ VRAM telemetry ครบ **4/4** ระหว่างงานจริง; prelaunch LUID binding หรือ Synthetic CLI output ไม่ทดแทนหลักฐานนี้.
+- ยังไม่รับรอง peak VRAM ภายใต้ 6 GB, sustained tiled inference เกิน 18 MP, cancel ขณะ native process ใช้ GPU, custom/4x/8x geometry, private A/B ครบ 12 หมวด, Photoshop/MainTop/RIP หรือ physical print QA.
+- V2 remains accepted master. ไม่มี V1/V2 Stable modification, merge/release, customer-image commit หรือ quality-superiority claim.
