@@ -987,6 +987,7 @@ class NvmlProcessProbe:
         # on another NVML adapter. If NVML sees no adapter for this PID, a
         # unique DXGI target plus live PID/LUID-matched WDDM activity may use
         # the conservative WDDM-only path below.
+        dxgi_target_available = False
         if (
             os.name == "nt"
             and not target_devices
@@ -1026,7 +1027,7 @@ class NvmlProcessProbe:
                     ):
                         result["adapter_index"] = adapter_index
             else:
-                self._target_dxgi_luid()
+                dxgi_target_available = self._target_dxgi_luid() is not None
                 dxgi_status = str(getattr(self, "_dxgi_status", ""))
                 if dxgi_status in {
                     "nvidia_dxgi_adapter_not_present",
@@ -1045,9 +1046,13 @@ class NvmlProcessProbe:
             "gpu_memory_not_confirmed",
             "pid_not_observed",
             "process_api_unavailable",
-            "target_adapter_missing",
         }
-        if os.name == "nt" and result.get("status") in fallback_statuses:
+        fallback_status = result.get("status")
+        wddm_fallback_allowed = (
+            fallback_status in fallback_statuses
+            or (fallback_status == "target_adapter_missing" and dxgi_target_available)
+        )
+        if os.name == "nt" and wddm_fallback_allowed:
             activity = self._sample_windows_gpu_engine_activity(pid)
             wddm = self._wddm_observation_from_activity(pid, activity, engine)
             if wddm.get("verified") is True:
