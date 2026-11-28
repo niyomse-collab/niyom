@@ -1943,3 +1943,49 @@ PR #20 ยังคงปิด optional HAT Assist route ที่มีใน 
 - Synthetic/component tests do not certify native GPU processing above 18 MP, 4x throughput, 6 GB peak VRAM, per-process GTX 1660 Ti binding or cancellation under GPU load.
 - The private 12-category A/B harness is implemented, but no accepted real-image A/B review exists for people, animals, objects, frames, Thai patterns, Thai/English/Chinese text, flat colours, gradients, transparent edges and faces. Photoshop, MainTop/RIP and physical print quality remain NOT CERTIFIED.
 - No exact-Candidate #1139 affirmative shop-GPU authorization was present; no self-hosted shop runner was dispatched or accessed. V2 remains the accepted master. PR #20 and PR #18 remain Draft; no merge/release, no V1/V2 Stable changes, and no claim that V2.1.1 quality exceeds V2.
+
+## 28 พฤศจิกายน 2569 14:49 ICT — exact runtime/test HEAD 58b2c530 / Windows Candidate #1140
+
+### Scope, PR state and protected V2/GFPGAN
+- PR #20 ณ เวลาสร้าง Candidate: OPEN / DRAFT / UNMERGED; branch `work/v211-four-engine-v2-bridge-20261103`; exact runtime/test HEAD `58b2c530f19e23494775abd6e4a6333e2e2be09e`; base remains PR #18 head `288dd8501c230a118d9a7e60d2522a2cc7411bcc`.
+- PR #18 remains OPEN / DRAFT / UNMERGED. No merge, release, V1 change or V2 Stable change was made.
+- Direct Git Blob SHA comparison in this review confirms **9/9 protected face/GFPGAN paths byte-identical** between PR #18 base and PR #20 HEAD: `.github/workflows/verify-v211-face.yml`, `signprint_ai/face_module/face_protection.py`, `detection.py`, `selection.py`, `face_module/__init__.py`, `signprint_ai/large_faces.py`, `signprint_ai/v211_face_contract.py`, `tests/test_v211_face_contract.py`, and `tests/test_v211_large_face_audit.py`.
+- PR #20 still has 90 changed paths. The changed-path list contains no V1-named path, executable, DLL, native archive, model-weight/checkpoint or customer-image file.
+- HAT Assist remains an optional V2-first/local-checkpoint-only assist; it is not one of the four automatic native engines and no HAT checkpoint is bundled or auto-downloaded.
+
+### Windows Candidate #1140 — SUCCESS on exact runtime/test HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46101555102.
+- Run metadata confirms event `pull_request`, branch `work/v211-four-engine-v2-bridge-20261103`, head SHA `58b2c530f19e23494775abd6e4a6333e2e2be09e`, conclusion SUCCESS.
+- Both jobs passed: `bridge-tests` and `windows-v2-candidate`.
+- Bridge/fusion/coordination **507 passed**; privacy/provisioning/hash **70 passed**; **577 total passed**.
+- Frozen checks passed: packaged V2 imports, single-page BigTIFF/streamed libvips QA dispatch, no-download provisioning preflight, synthetic installer consent/uninstall lifecycle, real frozen-EXE provisioning of all four official archives in an isolated CI profile, independent four-engine manifest verification, consented cache cleanup/cross-profile rejection, diagnostic help dispatch, BUILD_PROOF source binding and every installer-slice SHA256.
+- The isolated frozen install verified exactly `anime4k,real_cugan,real_esrgan,waifu2x`. This certifies the packaged archive-provisioning path in CI, **not** native GPU inference on the shop PC.
+- Installer SHA256: `37a2dac2388f6e1facbf583fd5a63d3c6d63b2b3dff07adecf3cd8c8e439dc4e`.
+- Artifact ID **15245619326**, size **2,585,852,372 bytes**, ZIP SHA256 `a69deae00257e4b8ac0b2beb58b832c0c69fdd6115f59f4cd21de07a75a01acc`; expires **5 Dec 2569 10:36 ICT**. [Download Candidate #1140](https://github.com/niyomse-collab/niyom/actions/runs/46101555102/artifacts/15245619326).
+
+### Independent Core #1939 — SUCCESS on exact HEAD
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46101555117.
+- Run metadata confirms the same PR branch and exact head SHA `58b2c530f19e23494775abd6e4a6333e2e2be09e`.
+- Windows **1,177 passed / 1 skipped**; Ubuntu **1,175 passed / 3 skipped**; `compileall` passed on both.
+
+### Official Archive Audit #468 — SUCCESS, provenance/provisioning only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46101555205.
+- Run metadata confirms the same PR branch and exact head SHA. The workflow downloaded, hash-checked, archive-member/path-audited and transactionally provisioned the four official Windows archives into ephemeral QA storage.
+- Real-ESRGAN v0.2.5.0 and Real-CUGAN 20220728 remain recorded with observed CI SHA256 pins because upstream does not publish archive digests; Waifu2x 20250915 and Anime4KCPP v3.2.0 have published digests.
+- Upstream source/license documents were audited, but `all_upstream_digests_pinned=false`, `model_weights_and_license_certified=false`, and `license_redistribution_approved=false` remain explicit. No native binary or model weight is committed or bundled.
+
+### Native CLI Smoke #617 — classified hosted-runner diagnostic only
+- Actions: https://github.com/niyomse-collab/niyom/actions/runs/46101555121.
+- Run metadata confirms the same PR branch and exact head SHA. The job ran the official binaries against synthetic RGB and RGBA/ICC/300-DPI images.
+- Real-CUGAN and Anime4KCPP produced validated synthetic 2x outputs; their physical NVIDIA adapter use was not verified.
+- Real-ESRGAN was blocked by hosted-runner Vulkan initialization `vkCreateInstance failed -9`; Waifu2x had the same Vulkan failure plus Windows `0xC0000005`.
+- `completed_engine_count=2`; physical adapter verification **0/4**; runtime GPU use **false**; VRAM samples **0**; quality improvement **false**. Workflow SUCCESS means expected hosted-runner limitations were classified, not that four-engine GPU inference passed.
+
+### Remaining acceptance gates
+- Native inference of all four engines on the shop Windows 11 / GTX 1660 Ti, per-process adapter binding and live 6 GB VRAM telemetry.
+- Native tiled GPU stress above 18 MP and final 2x/4x/other target geometries, cancellation under load, and real peak-memory measurements.
+- Private human A/B across all 12 required image categories, then Photoshop, MainTop/RIP and physical print checks.
+- V2 remains the accepted master. No self-hosted shop run was started because no affirmative authorization for this exact candidate was present. No merge/release or quality-superiority claim.
+
+### Documentation follow-up
+- This status entry is documentation-only. It does not change runtime code, engine selection, V2/GFPGAN, V1, installer payload or model assets. Candidate #1140 remains the accepted frozen package for runtime/test HEAD `58b2c530`; any later source-code change requires a new exact-head candidate.
